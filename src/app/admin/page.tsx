@@ -57,7 +57,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">{APP_NAME} — Admin</h1>
+      <h1 className="mb-2 text-xl font-bold sm:text-2xl">{APP_NAME} — Admin</h1>
       {newOrderCount > 0 && (
         <Link
           href="/admin/orders"

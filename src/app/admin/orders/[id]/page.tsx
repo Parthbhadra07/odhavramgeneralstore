@@ -76,59 +76,67 @@ export default function AdminOrderDetailPage() {
   const subtotal = orderItemsSubtotal(items);
   const grandTotal = subtotal + deliveryCharge;
 
-  const persistOrderTotals = async () => {
-    if (!id) return;
-    await orderService.updateOrder({
-      orderId: id,
-      totalAmount: grandTotal,
-      deliveryCharge,
-      items: items.map((i) => ({
-        id: i.id,
-        productId: i.productId,
-        quantity: i.quantity,
-        price: i.price,
-      })),
-    });
-  };
+  const mapItems = () =>
+    items.map((i) => ({
+      id: i.id,
+      productId: i.productId,
+      quantity: i.quantity,
+      price: i.price,
+    }));
+
+  const orderErrorMessage = (err: unknown) =>
+    err instanceof Error ? err.message : "Failed to update order";
 
   const updateStatus = async () => {
     if (!id) return;
+    setSaving(true);
     try {
-      await persistOrderTotals();
+      await orderService.updateOrderTotals({
+        orderId: id,
+        totalAmount: grandTotal,
+        deliveryCharge,
+      });
       await orderService.updateStatus(id, status, note);
-      toast.success("Status updated");
+      toast.success("Order updated");
       load();
-    } catch {
-      toast.error("Failed to update order");
+    } catch (err: unknown) {
+      toast.error(orderErrorMessage(err), { duration: 6000 });
+      console.error("Update order status:", err);
+    } finally {
+      setSaving(false);
     }
   };
 
   const cancelOrder = async () => {
     if (!id || !confirm("Cancel this order?")) return;
-    await orderService.updateStatus(id, "cancelled", "Cancelled by admin");
-    toast.success("Order cancelled");
-    load();
+    try {
+      await orderService.updateStatus(id, "cancelled", "Cancelled by admin");
+      toast.success("Order cancelled");
+      load();
+    } catch (err: unknown) {
+      toast.error(orderErrorMessage(err), { duration: 6000 });
+    }
   };
 
   const saveItems = async () => {
     if (!id) return;
+    if (items.length === 0) {
+      toast.error("Order must have at least one item");
+      return;
+    }
     setSaving(true);
     try {
       await orderService.updateOrder({
         orderId: id,
         totalAmount: grandTotal,
         deliveryCharge,
-        items: items.map((i) => ({
-          id: i.id,
-          productId: i.productId,
-          quantity: i.quantity,
-          price: i.price,
-        })),
+        items: mapItems(),
       });
-      toast.success("Order updated");
+      toast.success("Order items saved");
       load();
-    } catch {
-      toast.error("Failed to save");
+    } catch (err: unknown) {
+      toast.error(orderErrorMessage(err), { duration: 6000 });
+      console.error("Save order items:", err);
     } finally {
       setSaving(false);
     }
@@ -154,8 +162,10 @@ export default function AdminOrderDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold font-mono">{order.order_number}</h1>
+        <div className="min-w-0">
+          <h1 className="break-all text-xl font-bold font-mono sm:text-2xl">
+            {order.order_number}
+          </h1>
           <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
         </div>
         <OrderStatusBadge status={order.order_status} />
@@ -249,9 +259,11 @@ export default function AdminOrderDetailPage() {
             className="mb-3 w-full rounded-lg border px-3 py-2 text-sm"
             rows={2}
           />
-          <div className="flex gap-2">
-            <Button onClick={updateStatus}>Update Status</Button>
-            <Button variant="danger" onClick={cancelOrder}>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button onClick={updateStatus} loading={saving} className="w-full sm:w-auto">
+              Update Status
+            </Button>
+            <Button variant="danger" onClick={cancelOrder} className="w-full sm:w-auto">
               Cancel Order
             </Button>
           </div>
@@ -267,13 +279,14 @@ export default function AdminOrderDetailPage() {
       </div>
 
       <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">Order Items</h2>
-          <Button size="sm" loading={saving} onClick={saveItems}>
+          <Button size="sm" loading={saving} onClick={saveItems} className="w-full sm:w-auto">
             <Save className="h-4 w-4" /> Save Changes
           </Button>
         </div>
-        <table className="mb-4 w-full text-sm">
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <table className="mb-4 w-full min-w-[32rem] text-sm">
           <thead>
             <tr className="border-b text-left">
               <th className="py-2">Item</th>
@@ -331,6 +344,7 @@ export default function AdminOrderDetailPage() {
             ))}
           </tbody>
         </table>
+        </div>
         <div className="flex flex-wrap items-end gap-2">
           <select
             value={addProductId}

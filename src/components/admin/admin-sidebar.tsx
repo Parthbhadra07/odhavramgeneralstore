@@ -27,29 +27,41 @@ const links = [
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
 ];
 
-export function AdminSidebar() {
+interface AdminSidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+}
+
+export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
   const handleLogout = async () => {
+    onNavigate?.();
     await authService.signOut();
     toast.success("Logged out");
     router.push("/auth/login");
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-gray-200 bg-white">
+    <aside
+      className={cn(
+        "flex flex-col border-r border-gray-200 bg-white shadow-lg lg:shadow-none",
+        className
+      )}
+    >
       <div className="flex items-center gap-2 border-b px-4 py-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-600 text-white">
           <Store className="h-4 w-4" />
         </div>
         <span className="text-sm font-bold leading-tight text-green-800">{APP_NAME}</span>
       </div>
-      <nav className="flex-1 space-y-1 p-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {links.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
+            onClick={onNavigate}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               pathname === href
@@ -65,6 +77,7 @@ export function AdminSidebar() {
       <div className="border-t p-3">
         <Link
           href="/"
+          onClick={onNavigate}
           className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
         >
           ← Back to Store

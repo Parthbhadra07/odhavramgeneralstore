@@ -266,53 +266,12 @@ export const orderService = {
     } as Order;
   },
 
-  async updateStatus(orderId: string, orderStatus: OrderStatus, note?: string) {
-    const supabase = createClient();
-    const updates: Record<string, unknown> = {
-      order_status: orderStatus,
-      tracking_notes: note ?? null,
-      is_new: false,
-    };
-    if (orderStatus === "delivered") {
-      updates.delivered_at = new Date().toISOString();
-      updates.payment_status = "paid";
-    }
-
-    const { data, error } = await supabase
-      .from("orders")
-      .update(updates)
-      .eq("id", orderId)
-      .select()
-      .single();
-    if (error) throw new Error(parseDbError(error));
-    return data as Order;
-  },
-
-  async markOrdersSeen() {
-    const supabase = createClient();
-    await supabase.from("orders").update({ is_new: false }).eq("is_new", true);
-  },
-
-  async updateOrder(params: {
+  async updateOrderTotals(params: {
     orderId: string;
     totalAmount: number;
     deliveryCharge?: number;
-    items: { id?: string; productId: string; quantity: number; price: number }[];
   }) {
     const supabase = createClient();
-
-    await supabase.from("order_items").delete().eq("order_id", params.orderId);
-
-    const orderItems = params.items.map((item) => ({
-      order_id: params.orderId,
-      product_id: item.productId,
-      quantity: item.quantity,
-      price: item.price,
-    }));
-
-    const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
-    if (itemsError) throw itemsError;
-
     const orderUpdate: Record<string, unknown> = {
       total_amount: params.totalAmount,
     };
@@ -336,8 +295,92 @@ export const orderService = {
         .single());
     }
 
-    if (error) throw error;
+    if (error) throw new Error(parseDbError(error));
     return data as Order;
+  },
+
+  async updateStatus(orderId: string, orderStatus: OrderStatus, note?: string) {
+    const supabase = createClient();
+
+    const base: Record<string, unknown> = {
+      order_status: orderStatus,
+      tracking_notes: note ?? null,
+    };
+    if (orderStatus === "delivered") {
+      base.delivered_at = new Date().toISOString();
+      base.payment_status = "paid";
+    }
+
+    const attempts: Record<string, unknown>[] = [
+      { ...base, is_new: false },
+      base,
+    ];
+
+    let lastError: { message?: string; code?: string } | null = null;
+
+    for (const updates of attempts) {
+      const { data, error } = await supabase
+        .from("orders")
+        .update(updates)
+        .eq("id", orderId)
+        .select()
+        .single();
+      if (!error && data) return data as Order;
+      lastError = error;
+      if (error?.code === "42501") break;
+    }
+
+    throw new Error(parseDbError(lastError ?? { message: "Could not update order status" }));
+  },
+
+  async markOrdersSeen() {
+    const supabase = createClient();
+    await supabase.from("orders").update({ is_new: false }).eq("is_new", true);
+  },
+
+  async updateOrder(params: {
+    orderId: string;
+    totalAmount: number;
+    deliveryCharge?: number;
+    items: { id?: string; productId: string; quantity: number; price: number }[];
+  }) {
+    if (params.items.length === 0) {
+      throw new Error("Order must have at least one item.");
+    }
+
+    const supabase = createClient();
+
+    const { error: deleteError } = await supabase
+      .from("order_items")
+      .delete()
+      .eq("order_id", params.orderId);
+    if (deleteError) {
+      throw new Error(
+        parseDbError(deleteError) +
+          " Run supabase/migrations/006_admin_order_items.sql in Supabase."
+      );
+    }
+
+    const orderItems = params.items.map((item) => ({
+      order_id: params.orderId,
+      product_id: item.productId,
+      quantity: item.quantity,
+      price: item.price,
+    }));
+
+    const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
+    if (itemsError) {
+      throw new Error(
+        parseDbError(itemsError) +
+          " Run supabase/migrations/006_admin_order_items.sql in Supabase."
+      );
+    }
+
+    return this.updateOrderTotals({
+      orderId: params.orderId,
+      totalAmount: params.totalAmount,
+      deliveryCharge: params.deliveryCharge,
+    });
   },
 
   async getDashboardStats() {

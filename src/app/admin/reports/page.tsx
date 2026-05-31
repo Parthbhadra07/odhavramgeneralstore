@@ -38,7 +38,7 @@ export default function AdminReportsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Sales Reports</h1>
+      <h1 className="mb-6 text-xl font-bold sm:text-2xl">Sales Reports</h1>
       <div className="mb-8 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border bg-white p-6 shadow-sm">
           <p className="text-sm text-gray-600">Total Revenue</p>

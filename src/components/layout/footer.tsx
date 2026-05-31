@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Leaf, Mail, Phone, MapPin } from "lucide-react";
 import {
   APP_NAME,
@@ -10,6 +13,11 @@ import {
 import { CallStoreButton } from "@/components/call-store-button";
 
 export function Footer() {
+  const pathname = usePathname();
+  if (pathname?.startsWith("/admin")) {
+    return null;
+  }
+
   return (
     <footer className="mt-auto border-t border-green-100 bg-green-900 text-green-50">
       <div className="container mx-auto px-4 py-12">

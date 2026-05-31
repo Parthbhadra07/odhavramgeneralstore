@@ -23,9 +23,9 @@ export default function AdminUsersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Users</h1>
-      <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <h1 className="mb-6 text-xl font-bold sm:text-2xl">Users</h1>
+      <div className="-mx-4 overflow-x-auto rounded-xl border bg-white shadow-sm sm:mx-0">
+        <table className="w-full min-w-[36rem] text-sm">
           <thead className="border-b bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left">Name</th>

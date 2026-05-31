@@ -42,8 +42,8 @@ export default function AdminCategoriesPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Categories</h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold sm:text-2xl">Categories</h1>
         <Button onClick={() => { setEditing(null); reset({ name: "", slug: "" }); setShowForm(true); }}>
           <Plus className="h-4 w-4" /> Add Category
         </Button>
@@ -65,7 +65,7 @@ export default function AdminCategoriesPage() {
 
       <div className="space-y-2">
         {categories.map((cat) => (
-          <div key={cat.id} className="flex items-center justify-between rounded-lg border bg-white p-4">
+          <div key={cat.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-4">
             <span className="font-medium">{cat.name}</span>
             <div className="flex gap-2">
               <button type="button" onClick={() => {

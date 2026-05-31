@@ -35,7 +35,7 @@ export default function AdminOrdersPage() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Order Management</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Order Management</h1>
           {newOrderCount > 0 && (
             <p className="text-sm font-medium text-amber-600">
               🔔 {newOrderCount} new order(s) received
@@ -83,8 +83,8 @@ export default function AdminOrdersPage() {
         />
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="-mx-4 overflow-x-auto rounded-xl border bg-white shadow-sm sm:mx-0">
+        <table className="w-full min-w-[40rem] text-sm">
           <thead className="border-b bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left">Order ID</th>

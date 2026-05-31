@@ -1,4 +1,4 @@
-import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { AdminShell } from "@/components/admin/admin-shell";
 
 export const metadata = { title: "Admin Panel" };
 
@@ -8,9 +8,8 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] bg-gray-50">
-      <AdminSidebar />
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+    <div className="min-h-[calc(100vh-4rem)] w-full max-w-[100vw] overflow-x-hidden">
+      <AdminShell>{children}</AdminShell>
     </div>
   );
 }
