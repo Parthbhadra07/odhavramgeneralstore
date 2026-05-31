@@ -38,48 +38,53 @@ export const profileSchema = z.object({
     .refine((v) => !v || /^[0-9]{10}$/.test(v), "Enter 10-digit mobile number"),
 });
 
-const emptyToNull = (val: unknown) =>
-  val === "" || val === undefined || val === null ? null : val;
+/** Product admin form — explicit type for react-hook-form + zodResolver */
+export type ProductInput = {
+  name: string;
+  slug: string;
+  description?: string;
+  price: number;
+  stock: number;
+  image_url: string;
+  /** Empty string = no category (converted to null on save) */
+  category_id?: string;
+  featured: boolean;
+};
 
 export const productSchema = z.object({
   name: z.string().min(2, "Name is required"),
   slug: z
     .string()
     .min(2, "Slug is required")
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and hyphens only"),
+    .regex(
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+      "Use lowercase letters, numbers, and hyphens only"
+    ),
   description: z.string().optional(),
-  price: z.preprocess(
-    (val) => {
-      const n = Number(val);
-      return Number.isFinite(n) ? n : 0;
-    },
-    z.number().min(0, "Price must be 0 or more")
-  ),
-  stock: z.preprocess(
-    (val) => {
-      const n = Number(val);
-      return Number.isFinite(n) ? Math.floor(n) : 0;
-    },
-    z.number().int().min(0, "Stock must be 0 or more")
-  ),
-  image_url: z.preprocess(
-    (val) => (typeof val === "string" ? val.trim() : ""),
-    z
-      .string()
-      .refine(
-        (val) =>
-          val === "" ||
-          val.startsWith("/") ||
-          val.startsWith("http://") ||
-          val.startsWith("https://"),
-        { message: "Enter a valid URL or upload an image" }
-      )
-  ),
-  category_id: z.preprocess(
-    emptyToNull,
-    z.union([z.string().uuid("Select a valid category"), z.null()]).optional()
-  ),
-  featured: z.boolean().optional().default(false),
+  price: z.coerce.number().min(0, "Price must be 0 or more"),
+  stock: z.coerce.number().int().min(0, "Stock must be 0 or more"),
+  image_url: z
+    .string()
+    .refine(
+      (val) => {
+        const s = val.trim();
+        return (
+          s === "" ||
+          s.startsWith("/") ||
+          s.startsWith("http://") ||
+          s.startsWith("https://")
+        );
+      },
+      { message: "Enter a valid URL or upload an image" }
+    ),
+  category_id: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || val === "" || z.string().uuid().safeParse(val).success,
+      { message: "Select a valid category" }
+    ),
+  featured: z.boolean().default(false),
 });
 
 export const categorySchema = z.object({
@@ -91,5 +96,4 @@ export const categorySchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 export type SignupInput = z.infer<typeof signupSchema>;
 export type AddressInput = z.infer<typeof addressSchema>;
-export type ProductInput = z.infer<typeof productSchema>;
 export type CategoryInput = z.infer<typeof categorySchema>;

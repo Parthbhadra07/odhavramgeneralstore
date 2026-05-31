@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Pencil, Trash2, Plus, Upload } from "lucide-react";
@@ -25,7 +25,7 @@ export default function AdminProductsPage() {
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } =
     useForm<ProductInput>({
-      resolver: zodResolver(productSchema),
+      resolver: zodResolver(productSchema) as Resolver<ProductInput>,
       defaultValues: {
         name: "",
         slug: "",
@@ -33,7 +33,7 @@ export default function AdminProductsPage() {
         stock: 0,
         image_url: "",
         description: "",
-        category_id: null,
+        category_id: "",
         featured: false,
       },
     });
@@ -49,7 +49,16 @@ export default function AdminProductsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    reset({ name: "", slug: "", price: 0, stock: 0, featured: false, image_url: "" });
+    reset({
+      name: "",
+      slug: "",
+      price: 0,
+      stock: 0,
+      featured: false,
+      image_url: "",
+      category_id: "",
+      description: "",
+    });
     setShowForm(true);
   };
 
@@ -62,7 +71,7 @@ export default function AdminProductsPage() {
       price: product.price,
       stock: product.stock,
       image_url: product.image_url ?? "",
-      category_id: product.category_id,
+      category_id: product.category_id ?? "",
       featured: product.featured,
     });
     setShowForm(true);
@@ -96,7 +105,7 @@ export default function AdminProductsPage() {
         price: data.price,
         stock: data.stock,
         image_url: data.image_url?.trim() || null,
-        category_id: data.category_id ?? null,
+        category_id: data.category_id?.trim() ? data.category_id : null,
         featured: Boolean(data.featured),
       };
 
@@ -141,8 +150,8 @@ export default function AdminProductsPage() {
             onChange: (e) => !editing && setValue("slug", slugify(e.target.value)),
           })} />
           <Input label="Slug" error={errors.slug?.message} {...register("slug")} />
-          <Input label="Price" type="number" error={errors.price?.message} {...register("price", { valueAsNumber: true })} />
-          <Input label="Stock" type="number" error={errors.stock?.message} {...register("stock", { valueAsNumber: true })} />
+          <Input label="Price" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
+          <Input label="Stock" type="number" step="1" error={errors.stock?.message} {...register("stock")} />
 
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium">Product Image</label>
@@ -185,7 +194,6 @@ export default function AdminProductsPage() {
             <select
               {...register("category_id")}
               className="w-full rounded-lg border px-3 py-2 text-sm"
-              defaultValue=""
             >
               <option value="">None</option>
               {categories.map((c) => (
