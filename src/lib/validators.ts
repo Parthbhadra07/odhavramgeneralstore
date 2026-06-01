@@ -46,9 +46,17 @@ export type ProductInput = {
   price: number;
   stock: number;
   image_url: string;
-  /** Empty string = no category (converted to null on save) */
   category_id?: string;
   featured: boolean;
+  sku?: string;
+  barcode?: string;
+  brand?: string;
+  unit?: string;
+  purchase_price?: number;
+  mrp?: number;
+  gst_percentage?: number;
+  reorder_level?: number;
+  min_stock_level?: number;
 };
 
 export const productSchema = z.object({
@@ -85,6 +93,15 @@ export const productSchema = z.object({
       { message: "Select a valid category" }
     ),
   featured: z.boolean().default(false),
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
+  brand: z.string().optional(),
+  unit: z.string().optional(),
+  purchase_price: z.coerce.number().min(0).optional(),
+  mrp: z.coerce.number().min(0).optional(),
+  gst_percentage: z.coerce.number().min(0).max(100).optional(),
+  reorder_level: z.coerce.number().int().min(0).optional(),
+  min_stock_level: z.coerce.number().int().min(0).optional(),
 });
 
 export const categorySchema = z.object({

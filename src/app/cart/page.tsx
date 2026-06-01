@@ -45,7 +45,7 @@ export default function CartPage() {
               <div className="flex flex-1 flex-col justify-between">
                 <div>
                   <Link
-                    href={`/products/${item.product?.slug}`}
+                    href={`/products/view?slug=${encodeURIComponent(item.product?.slug ?? "")}`}
                     className="font-medium hover:text-green-700"
                   >
                     {item.product?.name}

@@ -2,6 +2,7 @@
 
 import { Toaster } from "sonner";
 import { useCartSync } from "@/hooks/use-cart-sync";
+import { CapacitorMobileProvider } from "@/components/mobile/capacitor-mobile-provider";
 
 function CartSyncProvider({ children }: { children: React.ReactNode }) {
   useCartSync();
@@ -11,8 +12,10 @@ function CartSyncProvider({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <CartSyncProvider>
-      {children}
-      <Toaster position="top-center" richColors closeButton />
+      <CapacitorMobileProvider>
+        {children}
+        <Toaster position="top-center" richColors closeButton />
+      </CapacitorMobileProvider>
     </CartSyncProvider>
   );
 }

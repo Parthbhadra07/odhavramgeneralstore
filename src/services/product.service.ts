@@ -1,5 +1,15 @@
 import { createClient } from "@/lib/supabase/client";
+import {
+  loadProductCatalog,
+  saveProductCatalog,
+} from "@/lib/offline/product-cache";
 import type { Product, ProductFilters } from "@/types/database";
+
+function isOfflineError(err: unknown): boolean {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /fetch|network|failed/i.test(msg);
+}
 
 function toProductRow(
   product: Partial<Product> & {
@@ -9,15 +19,29 @@ function toProductRow(
     stock: number;
   }
 ) {
+  const selling = product.selling_price ?? product.price;
   return {
     name: product.name,
     slug: product.slug,
     description: product.description?.trim() || null,
-    price: product.price,
+    price: selling,
+    selling_price: selling,
     stock: product.stock,
     image_url: product.image_url?.trim() || null,
     category_id: product.category_id || null,
     featured: product.featured ?? false,
+    sku: product.sku?.trim() || null,
+    barcode: product.barcode?.trim() || null,
+    brand: product.brand?.trim() || null,
+    unit: product.unit?.trim() || "pcs",
+    purchase_price: product.purchase_price ?? null,
+    mrp: product.mrp ?? null,
+    gst_percentage: product.gst_percentage ?? 0,
+    reorder_level: product.reorder_level ?? 10,
+    min_stock_level: product.min_stock_level ?? 5,
+    max_stock_level: product.max_stock_level ?? null,
+    expiry_date: product.expiry_date || null,
+    batch_number: product.batch_number?.trim() || null,
   };
 }
 
@@ -58,20 +82,37 @@ export const productService = {
         query = query.order("created_at", { ascending: false });
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data ?? []) as Product[];
+    try {
+      const { data, error } = await query;
+      if (error) throw error;
+      const products = (data ?? []) as Product[];
+      saveProductCatalog(products);
+      return products;
+    } catch (err) {
+      if (isOfflineError(err)) {
+        const cached = loadProductCatalog();
+        if (cached?.length) {
+          return applyProductFilters(cached, filters);
+        }
+      }
+      throw err;
+    }
   },
 
   async getBySlug(slug: string): Promise<Product | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("products")
-      .select("*, categories(id, name, slug, image)")
-      .eq("slug", slug)
-      .single();
-    if (error) return null;
-    return data as Product;
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("products")
+        .select("*, categories(id, name, slug, image)")
+        .eq("slug", slug)
+        .single();
+      if (error) return null;
+      return data as Product;
+    } catch {
+      const cached = loadProductCatalog();
+      return cached?.find((p) => p.slug === slug) ?? null;
+    }
   },
 
   async getById(id: string): Promise<Product | null> {
@@ -146,3 +187,40 @@ export const productService = {
     if (error) throw error;
   },
 };
+
+function applyProductFilters(
+  products: Product[],
+  filters: ProductFilters
+): Product[] {
+  let list = [...products];
+  if (filters.category) {
+    list = list.filter((p) => p.category_id === filters.category);
+  }
+  if (filters.featured) {
+    list = list.filter((p) => p.featured);
+  }
+  if (filters.search) {
+    const q = filters.search.toLowerCase();
+    list = list.filter((p) => p.name.toLowerCase().includes(q));
+  }
+  if (filters.minPrice !== undefined) {
+    list = list.filter((p) => p.price >= filters.minPrice!);
+  }
+  if (filters.maxPrice !== undefined) {
+    list = list.filter((p) => p.price <= filters.maxPrice!);
+  }
+  switch (filters.sort) {
+    case "price-asc":
+      list.sort((a, b) => a.price - b.price);
+      break;
+    case "price-desc":
+      list.sort((a, b) => b.price - a.price);
+      break;
+    case "name-asc":
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    default:
+      break;
+  }
+  return list;
+}

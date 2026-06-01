@@ -80,7 +80,7 @@ export default function OrderSuccessPage() {
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Button href={`/track-order?id=${order.order_number}`}>Track Order</Button>
-          <Button variant="outline" href={`/orders/${order.id}/invoice`}>
+          <Button variant="outline" href={`/orders/invoice?id=${order.id}`}>
             Download Invoice
           </Button>
         </div>

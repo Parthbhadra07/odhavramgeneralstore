@@ -1,13 +1,14 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface PageProps {
-  searchParams: Promise<{ order?: string }>;
-}
-
-export default async function ConfirmationPage({ searchParams }: PageProps) {
-  const { order } = await searchParams;
+function ConfirmationContent() {
+  const searchParams = useSearchParams();
+  const order = searchParams.get("order");
 
   return (
     <div className="container mx-auto flex flex-col items-center px-4 py-16 text-center">
@@ -21,8 +22,8 @@ export default async function ConfirmationPage({ searchParams }: PageProps) {
           Order ID: {order}
         </p>
       )}
-      <div className="mt-8 flex gap-4">
-        <Button href={order ? `/dashboard/orders/${order}` : "/dashboard/orders"}>
+      <div className="mt-8 flex flex-wrap justify-center gap-4">
+        <Button href={order ? `/dashboard/orders/view?id=${order}` : "/dashboard/orders"}>
           Track Order
         </Button>
         <Button variant="outline" href="/products">
@@ -30,5 +31,13 @@ export default async function ConfirmationPage({ searchParams }: PageProps) {
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function ConfirmationPage() {
+  return (
+    <Suspense fallback={<p className="p-8 text-center">Loading...</p>}>
+      <ConfirmationContent />
+    </Suspense>
   );
 }

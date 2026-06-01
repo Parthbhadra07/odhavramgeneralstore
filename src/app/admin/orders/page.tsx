@@ -123,13 +123,13 @@ export default function AdminOrdersPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link
-                    href={`/admin/orders/${order.id}`}
+                    href={`/admin/orders/view?id=${order.id}`}
                     className="mr-2 inline-flex text-green-700 hover:text-green-900"
                   >
                     <Eye className="h-4 w-4" />
                   </Link>
                   <Link
-                    href={`/orders/${order.id}/invoice`}
+                    href={`/orders/invoice?id=${order.id}`}
                     className="inline-flex text-gray-600 hover:text-gray-900"
                   >
                     <Printer className="h-4 w-4" />

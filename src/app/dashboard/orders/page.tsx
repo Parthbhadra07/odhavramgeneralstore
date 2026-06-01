@@ -54,7 +54,7 @@ export default function OrdersPage() {
               </div>
               <div className="mt-3 flex gap-3 text-sm">
                 <Link
-                  href={`/dashboard/orders/${order.id}`}
+                  href={`/dashboard/orders/view?id=${order.id}`}
                   className="font-medium text-green-700 hover:underline"
                 >
                   View Details
@@ -66,7 +66,7 @@ export default function OrdersPage() {
                   Track
                 </Link>
                 <Link
-                  href={`/orders/${order.id}/invoice`}
+                  href={`/orders/invoice?id=${order.id}`}
                   className="inline-flex items-center gap-1 text-gray-600 hover:underline"
                 >
                   <FileText className="h-3 w-3" /> Invoice

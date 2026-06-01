@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/types/database";
 import type { User as AuthUser } from "@supabase/supabase-js";
+import { isErpAdmin, isErpStaff } from "@/utils/roles";
 
 export function useAuth() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -40,5 +41,11 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  return { user: authUser, profile, loading, isAdmin: profile?.role === "admin" };
+  return {
+    user: authUser,
+    profile,
+    loading,
+    isAdmin: isErpAdmin(profile?.role),
+    isStaff: isErpStaff(profile?.role),
+  };
 }

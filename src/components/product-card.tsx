@@ -52,7 +52,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         className
       )}
     >
-      <Link href={`/products/${product.slug}`} className="block">
+      <Link href={`/products/view?slug=${encodeURIComponent(product.slug)}`} className="block">
         <div className="relative aspect-square overflow-hidden bg-gray-50">
           <ProductImage
             src={product.image_url}

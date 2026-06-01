@@ -53,7 +53,8 @@ export async function updateSession(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "admin") {
+    const staffRoles = ["super_admin", "admin", "staff", "cashier"];
+    if (!profile?.role || !staffRoles.includes(profile.role)) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
       return NextResponse.redirect(url);

@@ -1,6 +1,11 @@
 import type { StoreOrderStatus } from "@/lib/constants";
 
-export type UserRole = "customer" | "admin";
+export type UserRole =
+  | "customer"
+  | "admin"
+  | "super_admin"
+  | "staff"
+  | "cashier";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 export type OrderStatus = StoreOrderStatus;
 export type PaymentMethod = "cod" | "qr";
@@ -29,6 +34,21 @@ export interface Product {
   description: string | null;
   price: number;
   stock: number;
+  sku?: string | null;
+  barcode?: string | null;
+  brand?: string | null;
+  unit?: string | null;
+  purchase_price?: number | null;
+  selling_price?: number | null;
+  mrp?: number | null;
+  gst_percentage?: number | null;
+  reorder_level?: number | null;
+  min_stock_level?: number | null;
+  max_stock_level?: number | null;
+  expiry_date?: string | null;
+  batch_number?: string | null;
+  opening_stock?: number | null;
+  is_active?: boolean | null;
   image_url: string | null;
   category_id: string | null;
   featured: boolean;

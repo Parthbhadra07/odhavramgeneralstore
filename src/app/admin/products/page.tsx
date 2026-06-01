@@ -68,11 +68,20 @@ export default function AdminProductsPage() {
       name: product.name,
       slug: product.slug,
       description: product.description ?? "",
-      price: product.price,
+      price: product.selling_price ?? product.price,
       stock: product.stock,
       image_url: product.image_url ?? "",
       category_id: product.category_id ?? "",
       featured: product.featured,
+      sku: product.sku ?? "",
+      barcode: product.barcode ?? "",
+      brand: product.brand ?? "",
+      unit: product.unit ?? "pcs",
+      purchase_price: product.purchase_price ?? undefined,
+      mrp: product.mrp ?? undefined,
+      gst_percentage: product.gst_percentage ?? 0,
+      reorder_level: product.reorder_level ?? 10,
+      min_stock_level: product.min_stock_level ?? 5,
     });
     setShowForm(true);
   };
@@ -107,6 +116,16 @@ export default function AdminProductsPage() {
         image_url: data.image_url?.trim() || null,
         category_id: data.category_id?.trim() ? data.category_id : null,
         featured: Boolean(data.featured),
+        sku: data.sku?.trim() || null,
+        barcode: data.barcode?.trim() || null,
+        brand: data.brand?.trim() || null,
+        unit: data.unit?.trim() || "pcs",
+        purchase_price: data.purchase_price,
+        mrp: data.mrp,
+        gst_percentage: data.gst_percentage ?? 0,
+        reorder_level: data.reorder_level ?? 10,
+        min_stock_level: data.min_stock_level ?? 5,
+        selling_price: data.price,
       };
 
       if (editing) {
@@ -150,8 +169,17 @@ export default function AdminProductsPage() {
             onChange: (e) => !editing && setValue("slug", slugify(e.target.value)),
           })} />
           <Input label="Slug" error={errors.slug?.message} {...register("slug")} />
-          <Input label="Price" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
+          <Input label="Selling Price" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
           <Input label="Stock" type="number" step="1" error={errors.stock?.message} {...register("stock")} />
+          <Input label="SKU" {...register("sku")} />
+          <Input label="Barcode" {...register("barcode")} />
+          <Input label="Brand" {...register("brand")} />
+          <Input label="Unit" placeholder="pcs, kg, L" {...register("unit")} />
+          <Input label="Purchase Price" type="number" step="0.01" {...register("purchase_price")} />
+          <Input label="MRP" type="number" step="0.01" {...register("mrp")} />
+          <Input label="GST %" type="number" step="0.01" {...register("gst_percentage")} />
+          <Input label="Reorder Level" type="number" {...register("reorder_level")} />
+          <Input label="Min Stock" type="number" {...register("min_stock_level")} />
 
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium">Product Image</label>
@@ -227,6 +255,7 @@ export default function AdminProductsPage() {
           <thead className="border-b bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left">Name</th>
+              <th className="px-4 py-3 text-left">SKU</th>
               <th className="px-4 py-3 text-left">Price</th>
               <th className="px-4 py-3 text-left">Stock</th>
               <th className="px-4 py-3 text-left">Featured</th>
@@ -237,6 +266,7 @@ export default function AdminProductsPage() {
             {products.map((p) => (
               <tr key={p.id} className="border-b">
                 <td className="px-4 py-3">{p.name}</td>
+                <td className="px-4 py-3 font-mono text-xs">{p.sku ?? "—"}</td>
                 <td className="px-4 py-3">{formatPrice(p.price)}</td>
                 <td className="px-4 py-3">{p.stock}</td>
                 <td className="px-4 py-3">{p.featured ? "Yes" : "No"}</td>
