@@ -1,8 +1,4 @@
-import {
-  forwardRef,
-  type ButtonHTMLAttributes,
-  type ComponentProps,
-} from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 import Link from "next/link";
 import { cn } from "@/utils/cn";
 
@@ -52,14 +48,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     );
 
     if (href) {
-      const { onClick, type: _type, ...linkRest } = props;
       return (
-        <Link
-          href={href}
-          className={classes}
-          onClick={onClick}
-          {...(linkRest as ComponentProps<typeof Link>)}
-        >
+        <Link href={href} className={classes}>
           {children}
         </Link>
       );
