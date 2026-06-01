@@ -4,6 +4,7 @@ import type { PosCartLine, PosSale, PosSaleStatus } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { lineItemGst } from "@/utils/gst";
 import { loyaltyService } from "./loyalty.service";
+import { customerService } from "./customer.service";
 
 function clientBillNumber(): string {
   const year = new Date().getFullYear();
@@ -56,6 +57,23 @@ export const posService = {
   }): Promise<PosSale> {
     const supabase = createClient();
     const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
+
+    const customer = await customerService.resolveForPos({
+      customerId: params.customerId,
+      mobile: params.customerMobile,
+      name: params.customerName,
+    });
+    const customerId = customer?.id ?? params.customerId;
+
+    if (customer && loyaltyDiscount > 0) {
+      const available = customer.loyalty_points ?? 0;
+      if (loyaltyDiscount > available) {
+        throw new Error(
+          `Only ${available} loyalty points available (₹${available} discount)`
+        );
+      }
+    }
+
     const { subtotal, cgst, sgst, igst, total, items } = computeCartTotals(
       params.lines,
       params.discount ?? 0,
@@ -71,9 +89,9 @@ export const posService = {
       .from("pos_sales")
       .insert({
         bill_number: billNumber,
-        customer_id: params.customerId ?? null,
-        customer_name: params.customerName ?? null,
-        customer_mobile: params.customerMobile ?? null,
+        customer_id: customerId ?? null,
+        customer_name: customer?.name ?? params.customerName ?? null,
+        customer_mobile: customer?.mobile ?? params.customerMobile ?? null,
         subtotal,
         cgst,
         sgst,
@@ -98,14 +116,14 @@ export const posService = {
     );
     if (itemsErr) throw itemsErr;
 
-    if (params.customerId && params.saleStatus !== "held") {
+    if (customerId && params.saleStatus !== "held") {
       const points = Math.floor(total / 100) * LOYALTY_POINTS_PER_100;
       if (points > 0) {
-        await loyaltyService.earnPoints(params.customerId, points, "pos_sale", saleId);
+        await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
       }
       if (params.loyaltyPointsRedeemed) {
         await loyaltyService.redeemPoints(
-          params.customerId,
+          customerId,
           params.loyaltyPointsRedeemed,
           "pos_sale",
           saleId
@@ -118,7 +136,9 @@ export const posService = {
 
   async holdBill(params: {
     lines: PosCartLine[];
+    customerId?: string;
     customerName?: string;
+    customerMobile?: string;
     notes?: string;
   }): Promise<PosSale> {
     return this.createSale({

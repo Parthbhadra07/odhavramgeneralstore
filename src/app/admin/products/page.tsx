@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useForm, type Resolver } from "react-hook-form";
+import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Pencil, Trash2, Plus, Upload } from "lucide-react";
@@ -13,6 +13,7 @@ import { formatPrice } from "@/utils/format";
 import { slugify } from "@/utils/format";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ProductBarcodeField } from "@/components/admin/product-barcode-field";
 import type { Product, Category } from "@/types/database";
 
 export default function AdminProductsPage() {
@@ -23,7 +24,7 @@ export default function AdminProductsPage() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } =
+  const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } =
     useForm<ProductInput>({
       resolver: zodResolver(productSchema) as Resolver<ProductInput>,
       defaultValues: {
@@ -58,6 +59,8 @@ export default function AdminProductsPage() {
       image_url: "",
       category_id: "",
       description: "",
+      barcode: "",
+      sku: "",
     });
     setShowForm(true);
   };
@@ -172,7 +175,19 @@ export default function AdminProductsPage() {
           <Input label="Selling Price" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
           <Input label="Stock" type="number" step="1" error={errors.stock?.message} {...register("stock")} />
           <Input label="SKU" {...register("sku")} />
-          <Input label="Barcode" {...register("barcode")} />
+          <div className="sm:col-span-2">
+            <Controller
+              name="barcode"
+              control={control}
+              render={({ field }) => (
+                <ProductBarcodeField
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  error={errors.barcode?.message}
+                />
+              )}
+            />
+          </div>
           <Input label="Brand" {...register("brand")} />
           <Input label="Unit" placeholder="pcs, kg, L" {...register("unit")} />
           <Input label="Purchase Price" type="number" step="0.01" {...register("purchase_price")} />

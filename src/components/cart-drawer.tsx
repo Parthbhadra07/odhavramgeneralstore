@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { X, Minus, Plus, ShoppingBag } from "lucide-react";
 import { ProductImage } from "@/components/product-image";
 import { useCartStore } from "@/store/cart-store";
@@ -8,12 +9,23 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 
 export function CartDrawer() {
+  const router = useRouter();
   const { items, isOpen, setOpen, updateQuantity, removeItem, getTotal } =
     useCartStore();
 
   if (!isOpen) return null;
 
   const total = getTotal();
+
+  const goToCheckout = () => {
+    setOpen(false);
+    router.push("/checkout");
+  };
+
+  const goToCart = () => {
+    setOpen(false);
+    router.push("/cart");
+  };
 
   return (
     <>
@@ -116,14 +128,14 @@ export function CartDrawer() {
               <span>Total</span>
               <span className="text-green-700">{formatPrice(total)}</span>
             </div>
-            <Button className="w-full" href="/checkout" onClick={() => setOpen(false)}>
+            <Button type="button" className="w-full" onClick={goToCheckout}>
               Proceed to Checkout
             </Button>
             <Button
+              type="button"
               variant="ghost"
               className="mt-2 w-full"
-              href="/cart"
-              onClick={() => setOpen(false)}
+              onClick={goToCart}
             >
               View Full Cart
             </Button>

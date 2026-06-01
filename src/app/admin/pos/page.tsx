@@ -16,10 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { PosThermalReceipt, printPosThermalReceipt } from "@/components/erp/pos-thermal-receipt";
-import { inventoryService, posService } from "@/services/erp";
-import type { PosCartLine, PosSale } from "@/types/erp";
+import { customerService, inventoryService, posService } from "@/services/erp";
+import type { Customer, PosCartLine, PosSale } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
-import { POS_PAYMENT_LABELS } from "@/lib/erp/constants";
+import { LOYALTY_POINTS_PER_100, POS_PAYMENT_LABELS } from "@/lib/erp/constants";
+import { isValidMobile } from "@/utils/phone";
 import { formatPrice } from "@/utils/format";
 import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
 
@@ -30,6 +31,8 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("cash");
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
   const [processing, setProcessing] = useState(false);
@@ -85,6 +88,57 @@ export default function PosPage() {
 
   const subtotal = cart.reduce((s, l) => s + l.rate * l.quantity, 0);
   const total = Math.max(0, subtotal - discount - loyaltyRedeem);
+  const pointsToEarn =
+    selectedCustomer && total > 0
+      ? Math.floor(total / 100) * LOYALTY_POINTS_PER_100
+      : 0;
+
+  const clearCustomer = () => {
+    setSelectedCustomer(null);
+    setCustomerMobile("");
+    setCustomerName("");
+    setLoyaltyRedeem(0);
+  };
+
+  const lookupCustomer = useCallback(async () => {
+    const mobile = customerMobile.trim();
+    const name = customerName.trim();
+    if (!mobile && !name) {
+      setSelectedCustomer(null);
+      return;
+    }
+    if (mobile && !isValidMobile(mobile)) {
+      toast.error("Enter a valid 10-digit mobile number");
+      setSelectedCustomer(null);
+      return;
+    }
+    setCustomerLookupLoading(true);
+    try {
+      const found = await customerService.findForPos({ mobile, name });
+      if (found) {
+        setSelectedCustomer(found);
+        setCustomerName(found.name);
+        setCustomerMobile(found.mobile);
+        toast.success(`Customer linked — ${found.loyalty_points} points available`);
+      } else if (mobile && isValidMobile(mobile)) {
+        setSelectedCustomer(null);
+        toast.message("New customer — will be saved when you complete the bill");
+      } else {
+        setSelectedCustomer(null);
+        toast.error("No matching customer found");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Customer lookup failed");
+    } finally {
+      setCustomerLookupLoading(false);
+    }
+  }, [customerMobile, customerName]);
+
+  const saleCustomerParams = () => ({
+    customerId: selectedCustomer?.id,
+    customerName: customerName.trim() || undefined,
+    customerMobile: customerMobile.trim() || undefined,
+  });
 
   const updateQty = (productId: string, delta: number) => {
     setCart((prev) =>
@@ -103,13 +157,25 @@ export default function PosPage() {
       toast.error("Cart is empty");
       return;
     }
+    if (loyaltyRedeem > 0 && !customerMobile.trim()) {
+      toast.error("Enter customer mobile to redeem loyalty points");
+      return;
+    }
+    if (
+      loyaltyRedeem > 0 &&
+      selectedCustomer &&
+      loyaltyRedeem > selectedCustomer.loyalty_points
+    ) {
+      toast.error(`Only ${selectedCustomer.loyalty_points} points available`);
+      return;
+    }
+
     setProcessing(true);
     try {
       const sale = await posService.createSale({
         lines: cart,
         paymentMethod,
-        customerName: customerName || undefined,
-        customerMobile: customerMobile || undefined,
+        ...saleCustomerParams(),
         discount,
         loyaltyPointsRedeemed: loyaltyRedeem,
       });
@@ -117,7 +183,16 @@ export default function PosPage() {
       setCart([]);
       setDiscount(0);
       setLoyaltyRedeem(0);
-      toast.success(`Bill ${sale.bill_number} completed`);
+      clearCustomer();
+      const earned =
+        sale.customer_id && sale.sale_status === "completed"
+          ? Math.floor(Number(sale.total_amount) / 100) * LOYALTY_POINTS_PER_100
+          : 0;
+      toast.success(
+        earned > 0
+          ? `Bill ${sale.bill_number} — +${earned} loyalty points`
+          : `Bill ${sale.bill_number} completed`
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sale failed");
     } finally {
@@ -131,6 +206,7 @@ export default function PosPage() {
     try {
       await posService.holdBill({
         lines: cart,
+        ...saleCustomerParams(),
         customerName: customerName || "Held Bill",
         notes: "Held at counter",
       });
@@ -236,17 +312,77 @@ export default function PosPage() {
       </div>
 
       <div className="mt-4 flex w-full flex-col rounded-xl border bg-white p-4 lg:mt-0 lg:w-[45%]">
-        <div className="mb-4 grid gap-2 sm:grid-cols-2">
-          <Input
-            placeholder="Customer mobile"
-            value={customerMobile}
-            onChange={(e) => setCustomerMobile(e.target.value)}
-          />
-          <Input
-            placeholder="Customer name"
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-          />
+        <div className="mb-4 space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              placeholder="Customer mobile (10 digits)"
+              value={customerMobile}
+              onChange={(e) => {
+                setCustomerMobile(e.target.value);
+                setSelectedCustomer(null);
+              }}
+              onBlur={() => void lookupCustomer()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void lookupCustomer();
+                }
+              }}
+            />
+            <Input
+              placeholder="Customer name"
+              value={customerName}
+              onChange={(e) => {
+                setCustomerName(e.target.value);
+                setSelectedCustomer(null);
+              }}
+              onBlur={() => void lookupCustomer()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void lookupCustomer();
+                }
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={customerLookupLoading}
+              onClick={() => void lookupCustomer()}
+            >
+              Find customer
+            </Button>
+            {selectedCustomer && (
+              <Button type="button" size="sm" variant="ghost" onClick={clearCustomer}>
+                Clear
+              </Button>
+            )}
+          </div>
+          {selectedCustomer ? (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm">
+              <p className="font-medium text-green-900">{selectedCustomer.name}</p>
+              <p className="text-green-800">
+                {selectedCustomer.mobile} ·{" "}
+                <span className="font-semibold">
+                  {selectedCustomer.loyalty_points} points
+                </span>{" "}
+                (₹{selectedCustomer.loyalty_points} redeemable)
+              </p>
+              {pointsToEarn > 0 && (
+                <p className="text-xs text-green-700">
+                  This bill will earn +{pointsToEarn} points (₹100 = {LOYALTY_POINTS_PER_100}{" "}
+                  pt)
+                </p>
+              )}
+            </div>
+          ) : customerMobile.trim() && isValidMobile(customerMobile) ? (
+            <p className="text-xs text-gray-500">
+              New customer will be created on Pay using this mobile.
+            </p>
+          ) : null}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -273,12 +409,32 @@ export default function PosPage() {
             value={discount || ""}
             onChange={(e) => setDiscount(Number(e.target.value) || 0)}
           />
-          <Input
-            type="number"
-            placeholder="Loyalty points"
-            value={loyaltyRedeem || ""}
-            onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
-          />
+          <div className="space-y-1">
+            <Input
+              type="number"
+              min={0}
+              placeholder="Redeem points (1 pt = ₹1)"
+              value={loyaltyRedeem || ""}
+              onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
+              disabled={!selectedCustomer && !isValidMobile(customerMobile)}
+            />
+            {selectedCustomer && selectedCustomer.loyalty_points > 0 && (
+              <button
+                type="button"
+                className="text-xs font-medium text-green-700 underline"
+                onClick={() =>
+                  setLoyaltyRedeem(
+                    Math.min(
+                      selectedCustomer.loyalty_points,
+                      Math.max(0, subtotal - discount)
+                    )
+                  )
+                }
+              >
+                Use max ({selectedCustomer.loyalty_points} pts)
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="mb-4 rounded-lg bg-green-50 p-4">

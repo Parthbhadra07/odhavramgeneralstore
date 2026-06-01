@@ -175,6 +175,7 @@ CREATE POLICY "Cart own delete" ON public.cart_items FOR DELETE USING (auth.uid(
 
 -- Addresses
 CREATE POLICY "Addresses own read" ON public.addresses FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Addresses admin read" ON public.addresses FOR SELECT TO authenticated USING (public.is_admin());
 CREATE POLICY "Addresses own insert" ON public.addresses FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Addresses own update" ON public.addresses FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Addresses own delete" ON public.addresses FOR DELETE USING (auth.uid() = user_id);

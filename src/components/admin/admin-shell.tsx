@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { AdminOrderNotificationsProvider } from "@/components/admin/admin-order-notifications-provider";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
 
@@ -27,6 +28,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }, [sidebarOpen]);
 
   return (
+    <AdminOrderNotificationsProvider>
     <div className="flex w-full max-w-[100vw] min-w-0 overflow-x-hidden bg-gray-50">
       {sidebarOpen && (
         <button
@@ -63,5 +65,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <main className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-6">{children}</main>
       </div>
     </div>
+    </AdminOrderNotificationsProvider>
   );
 }

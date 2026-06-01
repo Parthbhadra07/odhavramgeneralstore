@@ -4,6 +4,7 @@ import { APP_NAME, STORE_PHONE, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { ORDER_STATUS_LABELS, type StoreOrderStatus } from "@/lib/constants";
 import { formatPrice, formatDate } from "@/utils/format";
 import { orderItemsSubtotal, resolveDeliveryCharge } from "@/utils/order-pricing";
+import { getOrderAddress } from "@/utils/order-address";
 import type { Order } from "@/types/database";
 
 interface ThermalReceiptProps {
@@ -20,6 +21,7 @@ export function ThermalReceipt({ order, width = "80mm" }: ThermalReceiptProps) {
     order.delivery_charge
   );
   const w = width === "58mm" ? "58mm" : "80mm";
+  const deliveryAddress = getOrderAddress(order);
 
   return (
     <div
@@ -49,13 +51,13 @@ export function ThermalReceipt({ order, width = "80mm" }: ThermalReceiptProps) {
         </p>
       </div>
 
-      {order.addresses && (
+      {deliveryAddress && (
         <div className="border-b border-dashed border-black py-2 text-xs">
           <p className="font-bold">Delivery Address:</p>
-          <p>{order.addresses.address_line}</p>
+          <p>{deliveryAddress.address_line}</p>
           <p>
-            {order.addresses.city}, {order.addresses.state} -{" "}
-            {order.addresses.postal_code}
+            {deliveryAddress.city}, {deliveryAddress.state} -{" "}
+            {deliveryAddress.postal_code}
           </p>
         </div>
       )}

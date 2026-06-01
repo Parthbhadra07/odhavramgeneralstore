@@ -23,6 +23,7 @@ import {
   orderItemsSubtotal,
   resolveDeliveryCharge,
 } from "@/utils/order-pricing";
+import { getOrderAddress } from "@/utils/order-address";
 import { Button } from "@/components/ui/button";
 import type { Order, Product, OrderStatus } from "@/types/database";
 
@@ -162,6 +163,8 @@ function AdminOrderDetailContent() {
   if (!id) return <p className="p-8">Invalid order.</p>;
   if (!order) return <p>Loading...</p>;
 
+  const deliveryAddress = getOrderAddress(order);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -193,15 +196,21 @@ function AdminOrderDetailContent() {
               </dd>
             </div>
           </dl>
-          {order.addresses && (
+          {deliveryAddress ? (
             <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
-              <p className="font-medium">Address</p>
-              <p>{order.addresses.address_line}</p>
+              <p className="font-medium">Delivery address</p>
+              <p>{deliveryAddress.address_line}</p>
               <p>
-                {order.addresses.city}, {order.addresses.state} -{" "}
-                {order.addresses.postal_code}
+                {deliveryAddress.city}, {deliveryAddress.state} -{" "}
+                {deliveryAddress.postal_code}
               </p>
             </div>
+          ) : (
+            <p className="mt-4 text-sm text-amber-700">
+              {order.address_id
+                ? "Address could not be loaded. Run supabase/migrations/008_admin_addresses_read.sql in Supabase, then refresh."
+                : "No delivery address saved on this order."}
+            </p>
           )}
         </div>
 

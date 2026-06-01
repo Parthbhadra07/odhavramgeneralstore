@@ -11,6 +11,8 @@ import {
   BarChart3,
   Store,
   LogOut,
+  Volume2,
+  VolumeX,
   Monitor,
   Warehouse,
   Truck,
@@ -25,6 +27,11 @@ import { cn } from "@/utils/cn";
 import { authService } from "@/services/auth.service";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useAdminOrderNotifications } from "@/hooks/use-admin-order-notifications";
+import {
+  playNewOrderSound,
+  unlockNotificationAudio,
+} from "@/utils/notification-sound";
 
 const links = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -50,6 +57,7 @@ interface AdminSidebarProps {
 export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { soundEnabled, setSoundEnabled } = useAdminOrderNotifications();
 
   const handleLogout = async () => {
     onNavigate?.();
@@ -90,6 +98,28 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
         ))}
       </nav>
       <div className="border-t p-3">
+        <button
+          type="button"
+          onClick={() => {
+            const next = !soundEnabled;
+            setSoundEnabled(next);
+            if (next) {
+              unlockNotificationAudio();
+              playNewOrderSound();
+              toast.success("Order alert sound on");
+            } else {
+              toast.message("Order alert sound off");
+            }
+          }}
+          className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+        >
+          {soundEnabled ? (
+            <Volume2 className="h-4 w-4 text-green-600" />
+          ) : (
+            <VolumeX className="h-4 w-4" />
+          )}
+          {soundEnabled ? "Order sound on" : "Order sound off"}
+        </button>
         <Link
           href="/"
           onClick={onNavigate}

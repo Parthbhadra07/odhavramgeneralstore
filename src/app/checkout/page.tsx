@@ -15,6 +15,7 @@ import type { Address } from "@/types/database";
 import type { AddressInput } from "@/lib/validators";
 import { cn } from "@/utils/cn";
 import { calculateDeliveryCharge } from "@/utils/order-pricing";
+import { useCartHydrated } from "@/hooks/use-cart-hydrated";
 
 type PaymentMethod = "cod" | "qr";
 
@@ -23,7 +24,8 @@ const BANK_QR_IMAGE = "/images/bank-qr.svg";
 export default function CheckoutPage() {
   const router = useRouter();
   const { user, profile, loading: authLoading } = useAuth();
-  const { items, getTotal, clearCart } = useCartStore();
+  const cartHydrated = useCartHydrated();
+  const { items, getTotal, clearCart, setOpen } = useCartStore();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [showNewAddress, setShowNewAddress] = useState(false);
@@ -33,6 +35,10 @@ export default function CheckoutPage() {
   const subtotal = getTotal();
   const delivery = calculateDeliveryCharge(subtotal);
   const total = subtotal + delivery;
+
+  useEffect(() => {
+    setOpen(false);
+  }, [setOpen]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -102,19 +108,21 @@ export default function CheckoutPage() {
     }
   };
 
-  if (authLoading || items.length === 0) {
+  if (!cartHydrated || authLoading) {
     return (
       <div className="container mx-auto px-4 py-16 text-center">
-        {items.length === 0 ? (
-          <>
-            <p className="text-gray-600">Your cart is empty</p>
-            <Button href="/products" className="mt-4">
-              Continue Shopping
-            </Button>
-          </>
-        ) : (
-          <p>Loading...</p>
-        )}
+        <p className="text-gray-600">Loading checkout...</p>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="container mx-auto px-4 py-16 text-center">
+        <p className="text-gray-600">Your cart is empty</p>
+        <Button href="/products" className="mt-4">
+          Continue Shopping
+        </Button>
       </div>
     );
   }
