@@ -4,32 +4,10 @@ import withPWA from "@ducanh2912/next-pwa";
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 const nextConfig: NextConfig = {
-  output: isCapacitorBuild ? "export" : undefined,
-  trailingSlash: isCapacitorBuild ? true : false,
+  output: "export",
+  trailingSlash: true,
   images: {
-    unoptimized: isCapacitorBuild,
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**.supabase.co",
-        pathname: "/**",
-      },
-      {
-        protocol: "https",
-        hostname: "images.unsplash.com",
-        pathname: "/**",
-      },
-      {
-        protocol: "https",
-        hostname: "www.quickpantry.in",
-        pathname: "/**",
-      },
-      {
-        protocol: "https",
-        hostname: "*.quickpantry.in",
-        pathname: "/**",
-      },
-    ],
+    unoptimized: true,
   },
   turbopack: {},
 };
