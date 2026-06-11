@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import type { User } from "@/types/database";
+import type { User, UserRole } from "@/types/database";
 
 export const adminService = {
   async getDashboardStats() {
@@ -44,7 +44,7 @@ export const adminService = {
     return (data ?? []) as User[];
   },
 
-  async updateUserRole(userId: string, role: "customer" | "admin") {
+  async updateUserRole(userId: string, role: UserRole) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("users")

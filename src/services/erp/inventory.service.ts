@@ -106,7 +106,7 @@ export const inventoryService = {
     productId: string,
     quantity: number,
     notes?: string,
-    movementType: "adjustment" | "damaged" = "adjustment"
+    movementType: "adjustment" | "damaged" | "expired" = "adjustment"
   ) {
     const supabase = createClient();
     const { data, error } = await supabase.rpc("apply_stock_movement", {
@@ -118,6 +118,21 @@ export const inventoryService = {
     });
     if (error) throw error;
     return data as number;
+  },
+
+  async getStockLedger(limit = 500): Promise<
+    import("@/types/erp").StockLedgerRow[]
+  > {
+    const movements = await this.getStockMovements(undefined, limit);
+    return movements.map((m) => ({
+      date: m.created_at,
+      productName: m.products?.name ?? "—",
+      transactionType: m.movement_type,
+      referenceNumber: m.reference_id,
+      qtyIn: m.quantity > 0 ? m.quantity : 0,
+      qtyOut: m.quantity < 0 ? Math.abs(m.quantity) : 0,
+      balance: m.stock_after,
+    }));
   },
 
   async getStockMovements(productId?: string, limit = 100): Promise<StockMovement[]> {

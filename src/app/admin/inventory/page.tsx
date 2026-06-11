@@ -305,7 +305,7 @@ export default function InventoryPage() {
             <Barcode className="mr-1 inline h-5 w-5" />
             Barcode Labels
           </h2>
-          <Button variant="outline" size="sm" onClick={printBarcodeLabels}>
+          <Button variant="outline" size="sm" onClick={() => printBarcodeLabels()}>
             Print Labels
           </Button>
         </div>

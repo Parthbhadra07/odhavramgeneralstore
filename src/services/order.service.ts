@@ -326,6 +326,21 @@ export const orderService = {
     return data as Order;
   },
 
+  async assignDeliveryPerson(orderId: string, deliveryPerson: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("orders")
+      .update({
+        delivery_person: deliveryPerson.trim() || null,
+        delivery_assigned_at: deliveryPerson.trim() ? new Date().toISOString() : null,
+      })
+      .eq("id", orderId)
+      .select()
+      .single();
+    if (error) throw new Error(parseDbError(error));
+    return data as Order;
+  },
+
   async updateStatus(orderId: string, orderStatus: OrderStatus, note?: string) {
     const supabase = createClient();
 

@@ -68,6 +68,7 @@ export const STOCK_MOVEMENT_LABELS: Record<string, string> = {
   adjustment: "Adjustment",
   cancel: "Cancelled",
   transfer: "Stock Transfer",
+  expired: "Expired",
 };
 
 export const PURCHASE_RETURN_REASONS = [

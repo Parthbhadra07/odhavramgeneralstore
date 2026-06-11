@@ -120,6 +120,8 @@ export default function AdminProductsPage() {
         image_url: data.image_url?.trim() || null,
         category_id: data.category_id?.trim() ? data.category_id : null,
         featured: Boolean(data.featured),
+        is_bestseller: Boolean(data.is_bestseller),
+        is_new_arrival: Boolean(data.is_new_arrival),
         sku: data.sku?.trim() || null,
         barcode: data.barcode?.trim() || null,
         brand: data.brand?.trim() || null,
@@ -255,6 +257,12 @@ export default function AdminProductsPage() {
           />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" {...register("featured")} /> Featured
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" {...register("is_bestseller")} /> Bestseller
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" {...register("is_new_arrival")} /> New Arrival
           </label>
           {Object.keys(errors).length > 0 && (
             <p className="col-span-full text-sm text-red-600">

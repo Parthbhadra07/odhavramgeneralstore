@@ -87,6 +87,8 @@ export interface Order {
   payment_method: PaymentMethod | string | null;
   tracking_notes: string | null;
   delivered_at: string | null;
+  delivery_person?: string | null;
+  delivery_assigned_at?: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   is_new?: boolean;

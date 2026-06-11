@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   Minus,
@@ -54,6 +54,11 @@ export default function PosPage() {
   const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [splitPayment, setSplitPayment] = useState(false);
+  const [splitCash, setSplitCash] = useState(0);
+  const [splitUpi, setSplitUpi] = useState(0);
+  const [splitCard, setSplitCard] = useState(0);
+  const completeSaleRef = useRef<() => Promise<void>>(async () => {});
 
   const loadHeld = useCallback(() => {
     posService.getHeldBills().then(setHeldBills);
@@ -63,6 +68,29 @@ export default function PosPage() {
     loadHeld();
     settingsService.get().then((s) => setPrintWidth(s.receipt_width));
   }, [loadHeld]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F2") {
+        e.preventDefault();
+        setShowProductPicker(true);
+      }
+      if (e.key === "F4") {
+        e.preventDefault();
+        setCart([]);
+        clearCustomer();
+        setDiscount(0);
+        setLoyaltyRedeem(0);
+        toast.message("New sale — cart cleared");
+      }
+      if (e.key === "F8" && cart.length) {
+        e.preventDefault();
+        void completeSaleRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cart.length]);
 
   useEffect(() => {
     if (!productSearch.trim()) {
@@ -242,11 +270,28 @@ export default function PosPage() {
       return;
     }
 
+    if (splitPayment) {
+      const splitTotal = splitCash + splitUpi + splitCard;
+      if (Math.abs(splitTotal - total) > 0.01) {
+        toast.error(`Split total ${formatPrice(splitTotal)} must equal ${formatPrice(total)}`);
+        return;
+      }
+    }
+
     setProcessing(true);
     try {
+      const splits = splitPayment
+        ? ([
+            splitCash > 0 ? { method: "cash" as const, amount: splitCash } : null,
+            splitUpi > 0 ? { method: "upi" as const, amount: splitUpi } : null,
+            splitCard > 0 ? { method: "card" as const, amount: splitCard } : null,
+          ].filter(Boolean) as { method: PosPaymentMethod; amount: number }[])
+        : undefined;
+
       const sale = await posService.createSale({
         lines: cart,
-        paymentMethod,
+        paymentMethod: splits?.[0]?.method ?? paymentMethod,
+        splitPayments: splits,
         ...saleCustomerParams(),
         discount: computedDiscount,
         loyaltyPointsRedeemed: loyaltyRedeem,
@@ -256,6 +301,9 @@ export default function PosPage() {
       setCart([]);
       setDiscount(0);
       setLoyaltyRedeem(0);
+      setSplitCash(0);
+      setSplitUpi(0);
+      setSplitCard(0);
       clearCustomer();
       const earned =
         sale.customer_id && sale.sale_status === "completed"
@@ -267,11 +315,25 @@ export default function PosPage() {
           : `Bill ${sale.bill_number} completed`
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sale failed");
+      if (!navigator.onLine) {
+        const { queueOfflinePosSale } = await import("@/lib/offline/pos-queue");
+        queueOfflinePosSale({
+          lines: cart,
+          paymentMethod,
+          customerName: customerName.trim() || undefined,
+          customerMobile: customerMobile.trim() || undefined,
+          discount: computedDiscount,
+        });
+        toast.message("Offline — sale queued for sync");
+      } else {
+        toast.error(e instanceof Error ? e.message : "Sale failed");
+      }
     } finally {
       setProcessing(false);
     }
   };
+
+  completeSaleRef.current = completeSale;
 
   const holdBill = async () => {
     if (!cart.length) return;
@@ -323,6 +385,7 @@ export default function PosPage() {
         <div className="border-b p-3 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
+            <p className="text-xs text-gray-500">F2 Search · F4 New · F8 Save</p>
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -513,21 +576,39 @@ export default function PosPage() {
           )}
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-2">
-          {(["cash", "upi", "card", "credit"] as PosPaymentMethod[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setPaymentMethod(m)}
-              className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                paymentMethod === m
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
-            >
-              {POS_PAYMENT_LABELS[m]}
-            </button>
-          ))}
+        <div className="mb-4">
+          <label className="mb-2 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={splitPayment}
+              onChange={(e) => setSplitPayment(e.target.checked)}
+            />
+            Split Payment (Cash + UPI + Card)
+          </label>
+          {splitPayment ? (
+            <div className="grid grid-cols-3 gap-2">
+              <Input type="number" placeholder="Cash ₹" value={splitCash || ""} onChange={(e) => setSplitCash(Number(e.target.value) || 0)} />
+              <Input type="number" placeholder="UPI ₹" value={splitUpi || ""} onChange={(e) => setSplitUpi(Number(e.target.value) || 0)} />
+              <Input type="number" placeholder="Card ₹" value={splitCard || ""} onChange={(e) => setSplitCard(Number(e.target.value) || 0)} />
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {(["cash", "upi", "card", "credit"] as PosPaymentMethod[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPaymentMethod(m)}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                    paymentMethod === m
+                      ? "bg-green-600 text-white"
+                      : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {POS_PAYMENT_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-2">

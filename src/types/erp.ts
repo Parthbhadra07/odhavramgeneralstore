@@ -15,7 +15,8 @@ export type StockMovementType =
   | "damaged"
   | "adjustment"
   | "cancel"
-  | "transfer";
+  | "transfer"
+  | "expired";
 
 export type PurchaseReturnReason =
   | "damage"
@@ -68,6 +69,8 @@ export interface ErpProduct {
   image_url: string | null;
   category_id: string | null;
   featured: boolean;
+  is_bestseller?: boolean;
+  is_new_arrival?: boolean;
   is_active: boolean | null;
   created_at: string;
   categories?: { id: string; name: string; slug: string } | null;
@@ -270,6 +273,9 @@ export interface StoreSettings {
   store_mobile: string;
   store_address: string | null;
   store_logo_url: string | null;
+  gst_number: string | null;
+  currency: string | null;
+  default_gst_percentage: number | null;
   upi_id: string | null;
   upi_merchant_name: string | null;
   enable_upi_qr: boolean;
@@ -278,6 +284,48 @@ export interface StoreSettings {
   receipt_width: "58mm" | "80mm";
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  name: string;
+  barcode: string | null;
+  stock: number;
+  purchase_rate: number;
+  selling_price: number;
+  mrp: number | null;
+  is_primary: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductImage {
+  id: string;
+  product_id: string;
+  url: string;
+  is_primary: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface PosPaymentSplit {
+  id: string;
+  pos_sale_id: string;
+  payment_method: PosPaymentMethod;
+  amount: number;
+  created_at: string;
+}
+
+export interface StockLedgerRow {
+  date: string;
+  productName: string;
+  transactionType: string;
+  referenceNumber: string | null;
+  qtyIn: number;
+  qtyOut: number;
+  balance: number;
 }
 
 export interface ProductLot {

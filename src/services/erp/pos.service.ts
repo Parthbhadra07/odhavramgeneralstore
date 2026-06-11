@@ -56,6 +56,7 @@ export const posService = {
     loyaltyPointsRedeemed?: number;
     saleStatus?: PosSaleStatus;
     notes?: string;
+    splitPayments?: { method: PosPaymentMethod; amount: number }[];
   }): Promise<PosSale> {
     const supabase = createClient();
     const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
@@ -117,6 +118,16 @@ export const posService = {
       items.map((i) => ({ ...i, pos_sale_id: saleId }))
     );
     if (itemsErr) throw itemsErr;
+
+    if (params.splitPayments?.length && params.saleStatus !== "held") {
+      await supabase.from("pos_payment_splits").insert(
+        params.splitPayments.map((sp) => ({
+          pos_sale_id: saleId,
+          payment_method: sp.method,
+          amount: sp.amount,
+        }))
+      );
+    }
 
     if (params.saleStatus !== "held") {
       for (const line of params.lines) {

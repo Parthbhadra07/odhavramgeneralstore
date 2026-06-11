@@ -48,6 +48,8 @@ export type ProductInput = {
   image_url: string;
   category_id?: string;
   featured: boolean;
+  is_bestseller?: boolean;
+  is_new_arrival?: boolean;
   sku?: string;
   barcode?: string;
   brand?: string;
@@ -93,6 +95,8 @@ export const productSchema = z.object({
       { message: "Select a valid category" }
     ),
   featured: z.boolean().default(false),
+  is_bestseller: z.boolean().default(false),
+  is_new_arrival: z.boolean().default(false),
   sku: z.string().optional(),
   barcode: z.string().optional(),
   brand: z.string().optional(),

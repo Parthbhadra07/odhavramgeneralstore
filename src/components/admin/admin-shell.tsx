@@ -29,8 +29,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminOrderNotificationsProvider>
-      <div className="flex w-full min-w-0 max-w-[100vw] overflow-x-hidden bg-gray-50 dark:bg-slate-950">
-        {/* Mobile backdrop */}
+<div className="flex w-full min-w-0 max-w-[100vw] overflow-x-hidden bg-gray-50">        {/* Mobile backdrop */}
         <div
           className={cn(
             "fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden",
@@ -52,22 +51,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Sticky mobile admin header */}
-          <header className="sticky top-16 z-30 flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur-sm lg:hidden dark:border-gray-800 dark:bg-slate-900/95">
-            <button
+          <header className="sticky top-16 z-30 flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur-sm lg:hidden">            <button
               type="button"
               onClick={() => setSidebarOpen((o) => !o)}
-              className="rounded-lg p-2 text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+              className="rounded-lg p-2 text-gray-700 transition-colors hover:bg-gray-100"              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
               aria-expanded={sidebarOpen}
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
-            <span className="truncate text-sm font-semibold text-green-800 dark:text-green-400">
-              Admin — {APP_NAME}
+            <span className="truncate text-sm font-semibold text-green-800">              Admin — {APP_NAME}
             </span>
           </header>
 
-          <main className="min-w-0 flex-1 overflow-x-hidden p-4 pb-24 sm:p-6 lg:pb-6">
+          <main className="min-w-0 flex-1 overflow-x-hidden p-4 pb-28 sm:p-6 lg:pb-6">
             {children}
           </main>
         </div>

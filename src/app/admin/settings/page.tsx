@@ -16,6 +16,9 @@ export default function AdminSettingsPage() {
     store_mobile: "",
     store_address: "",
     store_logo_url: "",
+    gst_number: "",
+    currency: "INR",
+    default_gst_percentage: 5,
     upi_id: "",
     upi_merchant_name: "",
     enable_upi_qr: false,
@@ -31,6 +34,9 @@ export default function AdminSettingsPage() {
         store_mobile: s.store_mobile,
         store_address: s.store_address ?? "",
         store_logo_url: s.store_logo_url ?? "",
+        gst_number: s.gst_number ?? "",
+        currency: s.currency ?? "INR",
+        default_gst_percentage: Number(s.default_gst_percentage ?? 5),
         upi_id: s.upi_id ?? "",
         upi_merchant_name: s.upi_merchant_name ?? "",
         enable_upi_qr: s.enable_upi_qr,
@@ -51,6 +57,9 @@ export default function AdminSettingsPage() {
         store_mobile: form.store_mobile.trim(),
         store_address: form.store_address.trim() || null,
         store_logo_url: form.store_logo_url.trim() || null,
+        gst_number: form.gst_number.trim() || null,
+        currency: form.currency.trim() || "INR",
+        default_gst_percentage: form.default_gst_percentage,
         upi_id: form.upi_id.trim() || null,
         upi_merchant_name: form.upi_merchant_name.trim() || null,
         enable_upi_qr: form.enable_upi_qr,
@@ -100,6 +109,31 @@ export default function AdminSettingsPage() {
                 value={form.store_mobile}
                 onChange={(e) => setForm({ ...form, store_mobile: e.target.value })}
                 required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">GST Number</label>
+              <Input
+                placeholder="22AAAAA0000A1Z5"
+                value={form.gst_number}
+                onChange={(e) => setForm({ ...form, gst_number: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Default GST %</label>
+              <Input
+                type="number"
+                min={0}
+                max={28}
+                value={form.default_gst_percentage}
+                onChange={(e) => setForm({ ...form, default_gst_percentage: Number(e.target.value) })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Currency</label>
+              <Input
+                value={form.currency}
+                onChange={(e) => setForm({ ...form, currency: e.target.value })}
               />
             </div>
             <div>

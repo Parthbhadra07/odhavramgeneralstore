@@ -27,6 +27,7 @@ import {
 } from "@/utils/order-pricing";
 import { getOrderAddress } from "@/utils/order-address";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Order, Product, OrderStatus } from "@/types/database";
 
 interface EditableItem {
@@ -50,6 +51,7 @@ function AdminOrderDetailContent() {
   const [saving, setSaving] = useState(false);
   const [addProductId, setAddProductId] = useState("");
   const [deliveryCharge, setDeliveryCharge] = useState(0);
+  const [deliveryPerson, setDeliveryPerson] = useState("");
 
   const load = () => {
     if (!id) return;
@@ -57,6 +59,7 @@ function AdminOrderDetailContent() {
       if (o) {
         setOrder(o);
         setStatus(o.order_status);
+        setDeliveryPerson(o.delivery_person ?? "");
         const mapped = (o.order_items ?? []).map((i) => ({
           id: i.id,
           productId: i.product_id,
@@ -266,6 +269,34 @@ function AdminOrderDetailContent() {
               </option>
             ))}
           </select>
+          <div className="mb-3 flex gap-2">
+            <Input
+              placeholder="Delivery person name"
+              value={deliveryPerson}
+              onChange={(e) => setDeliveryPerson(e.target.value)}
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              loading={saving}
+              onClick={async () => {
+                if (!order) return;
+                setSaving(true);
+                try {
+                  await orderService.assignDeliveryPerson(order.id, deliveryPerson);
+                  toast.success("Delivery person assigned");
+                  load();
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Failed");
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              Assign
+            </Button>
+          </div>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}

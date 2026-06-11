@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
   salesReturnService,
   posService,
   customerService,
 } from "@/services/erp";
-import { orderService } from "@/services/order.service";
-import type { SalesReturn, Customer, PosSale } from "@/types/erp";
+import type { SalesReturn, Customer, PosSale, SalesReturnReason, SalesReturnType } from "@/types/erp";
 import {
   SALES_RETURN_REASONS,
   SALES_RETURN_REASON_LABELS,
@@ -18,31 +17,39 @@ import {
 } from "@/lib/erp/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/admin/modal";
+import { ActionButton } from "@/components/admin/action-button";
 import { formatPrice, formatDate } from "@/utils/format";
+
+const emptyForm = {
+  sourceType: "pos" as "pos" | "order",
+  posSaleId: "",
+  orderId: "",
+  customerId: "",
+  customerName: "",
+  customerMobile: "",
+  returnDate: new Date().toISOString().slice(0, 10),
+  reason: "customer_return" as SalesReturnReason,
+  returnType: "refund" as SalesReturnType,
+  reasonNotes: "",
+  productId: "",
+  productName: "",
+  quantity: 1,
+  rate: 0,
+  createRefund: true,
+  refundMethod: "cash" as const,
+};
 
 export default function SalesReturnsPage() {
   const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [posSales, setPosSales] = useState<PosSale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    sourceType: "pos" as "pos" | "order",
-    posSaleId: "",
-    orderId: "",
-    customerId: "",
-    customerName: "",
-    customerMobile: "",
-    returnDate: new Date().toISOString().slice(0, 10),
-    reason: "customer_return" as const,
-    returnType: "refund" as const,
-    reasonNotes: "",
-    productId: "",
-    productName: "",
-    quantity: 1,
-    rate: 0,
-    createRefund: true,
-    refundMethod: "cash" as const,
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [editReturn, setEditReturn] = useState<SalesReturn | null>(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editItemId, setEditItemId] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = () => {
     salesReturnService.list().then(setReturns);
@@ -63,6 +70,7 @@ export default function SalesReturnsPage() {
       toast.error("Select product and quantity");
       return;
     }
+    setSaving(true);
     try {
       await salesReturnService.create({
         customerId: form.customerId || undefined,
@@ -87,9 +95,73 @@ export default function SalesReturnsPage() {
       });
       toast.success("Sales return saved — stock restored");
       setShowForm(false);
+      setForm(emptyForm);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEdit = (ret: SalesReturn) => {
+    const item = ret.sales_return_items?.[0];
+    if (!item) {
+      toast.error("No return items to edit");
+      return;
+    }
+    setEditReturn(ret);
+    setEditItemId(item.id);
+    setEditForm({
+      sourceType: ret.pos_sale_id ? "pos" : "order",
+      posSaleId: ret.pos_sale_id ?? "",
+      orderId: ret.order_id ?? "",
+      customerId: ret.customer_id ?? "",
+      customerName: ret.customer_name ?? "",
+      customerMobile: ret.customer_mobile ?? "",
+      returnDate: ret.return_date,
+      reason: ret.reason,
+      returnType: ret.return_type,
+      reasonNotes: ret.reason_notes ?? "",
+      productId: item.product_id,
+      productName: item.product_name,
+      quantity: item.quantity,
+      rate: Number(item.rate),
+      createRefund: ret.return_type === "refund",
+      refundMethod: "cash",
+    });
+  };
+
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editReturn || !editForm.productId || !editForm.quantity) {
+      toast.error("Select product and quantity");
+      return;
+    }
+    setSaving(true);
+    try {
+      await salesReturnService.update({
+        returnId: editReturn.id,
+        itemId: editItemId,
+        customerId: editForm.customerId || null,
+        customerName: editForm.customerName || null,
+        customerMobile: editForm.customerMobile || null,
+        returnDate: editForm.returnDate,
+        reason: editForm.reason,
+        returnType: editForm.returnType,
+        reasonNotes: editForm.reasonNotes || null,
+        productId: editForm.productId,
+        productName: editForm.productName,
+        quantity: editForm.quantity,
+        rate: editForm.rate,
+      });
+      toast.success("Sales return updated — stock adjusted");
+      setEditReturn(null);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -227,7 +299,7 @@ export default function SalesReturnsPage() {
             value={form.rate}
             onChange={(e) => setForm({ ...form, rate: Number(e.target.value) })}
           />
-          <Button type="submit" className="sm:col-span-2 lg:col-span-1">
+          <Button type="submit" disabled={saving} className="sm:col-span-2 lg:col-span-1">
             Save Return
           </Button>
         </form>
@@ -243,6 +315,7 @@ export default function SalesReturnsPage() {
               <th>Reason</th>
               <th>Type</th>
               <th>Amount</th>
+              <th className="p-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -258,11 +331,18 @@ export default function SalesReturnsPage() {
                   {SALES_RETURN_TYPE_LABELS[r.return_type] ?? r.return_type}
                 </td>
                 <td className="p-3 font-medium">{formatPrice(r.total_amount)}</td>
+                <td className="p-3 text-right">
+                  <ActionButton
+                    label="Edit return"
+                    icon={Pencil}
+                    onClick={() => openEdit(r)}
+                  />
+                </td>
               </tr>
             ))}
             {returns.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-gray-500">
+                <td colSpan={7} className="p-6 text-center text-gray-500">
                   No sales returns yet
                 </td>
               </tr>
@@ -270,6 +350,91 @@ export default function SalesReturnsPage() {
           </tbody>
         </table>
       </div>
+
+      <Modal
+        open={!!editReturn}
+        onClose={() => setEditReturn(null)}
+        title={`Edit Return ${editReturn?.return_number ?? ""}`}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setEditReturn(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="edit-sales-return-form" disabled={saving}>
+              Save Changes
+            </Button>
+          </div>
+        }
+      >
+        <form id="edit-sales-return-form" onSubmit={handleEdit} className="grid gap-3 sm:grid-cols-2">
+          <Input
+            placeholder="Customer name"
+            value={editForm.customerName}
+            onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })}
+          />
+          <Input
+            placeholder="Customer mobile"
+            value={editForm.customerMobile}
+            onChange={(e) => setEditForm({ ...editForm, customerMobile: e.target.value })}
+          />
+          <Input
+            type="date"
+            value={editForm.returnDate}
+            onChange={(e) => setEditForm({ ...editForm, returnDate: e.target.value })}
+          />
+          <select
+            className="rounded-lg border px-3 py-2"
+            value={editForm.reason}
+            onChange={(e) =>
+              setEditForm({ ...editForm, reason: e.target.value as typeof editForm.reason })
+            }
+          >
+            {SALES_RETURN_REASONS.map((r) => (
+              <option key={r} value={r}>
+                {SALES_RETURN_REASON_LABELS[r]}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-lg border px-3 py-2"
+            value={editForm.returnType}
+            onChange={(e) =>
+              setEditForm({ ...editForm, returnType: e.target.value as typeof editForm.returnType })
+            }
+          >
+            {SALES_RETURN_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {SALES_RETURN_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+          <Input
+            placeholder="Reason notes"
+            value={editForm.reasonNotes}
+            onChange={(e) => setEditForm({ ...editForm, reasonNotes: e.target.value })}
+            className="sm:col-span-2"
+          />
+          <Input
+            placeholder="Product name"
+            value={editForm.productName}
+            onChange={(e) => setEditForm({ ...editForm, productName: e.target.value })}
+            className="sm:col-span-2"
+          />
+          <Input
+            type="number"
+            min={1}
+            placeholder="Return qty"
+            value={editForm.quantity}
+            onChange={(e) => setEditForm({ ...editForm, quantity: Number(e.target.value) })}
+          />
+          <Input
+            type="number"
+            placeholder="Rate"
+            value={editForm.rate}
+            onChange={(e) => setEditForm({ ...editForm, rate: Number(e.target.value) })}
+          />
+        </form>
+      </Modal>
     </div>
   );
 }

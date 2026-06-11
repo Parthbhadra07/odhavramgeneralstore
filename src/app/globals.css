@@ -1,16 +1,21 @@
 @import "tailwindcss";
 
+/* Only apply dark: utilities when .dark class is present — not via OS preference */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f9fafb;
   --foreground: #111827;
   --primary: #16a34a;
   --primary-dark: #15803d;
   --admin-sidebar-width: 16rem;
+  color-scheme: light;
 }
 
 .dark {
   --background: #0f172a;
   --foreground: #f1f5f9;
+  color-scheme: dark;
 }
 
 @theme inline {

@@ -26,6 +26,14 @@ import {
   Undo2,
   Wallet2,
   CalendarClock,
+  History,
+  SlidersHorizontal,
+  Archive,
+  Bell,
+  TrendingDown,
+  Sparkles,
+  Database,
+  Printer,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -38,25 +46,68 @@ import {
   unlockNotificationAudio,
 } from "@/utils/notification-sound";
 
-const links = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/pos", label: "POS Billing", icon: Monitor },
-  { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
-  { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
-  { href: "/admin/purchases", label: "Purchases", icon: Truck },
-  { href: "/admin/purchase-returns", label: "Purchase Returns", icon: Undo2 },
-  { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },
-  { href: "/admin/refunds", label: "Refunds", icon: Wallet2 },
-  { href: "/admin/expiry", label: "Expiry", icon: CalendarClock },
-  { href: "/admin/products", label: "Products", icon: Package },
-  { href: "/admin/categories", label: "Categories", icon: FolderTree },
-  { href: "/admin/suppliers", label: "Suppliers", icon: Building2 },
-  { href: "/admin/customers", label: "Customers", icon: UserCircle },
-  { href: "/admin/expenses", label: "Expenses", icon: Receipt },
-  { href: "/admin/cash-closing", label: "Cash Closing", icon: Banknote },
-  { href: "/admin/reports", label: "Reports", icon: BarChart3 },
-  { href: "/admin/users", label: "Users", icon: Wallet },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+const navGroups = [
+  {
+    label: "Overview",
+    links: [
+      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/admin/notifications", label: "Notifications", icon: Bell },
+      { href: "/admin/reports", label: "Reports", icon: BarChart3 },
+      { href: "/admin/profit-loss", label: "Profit & Loss", icon: TrendingDown },
+    ],
+  },
+  {
+    label: "Sales",
+    links: [
+      { href: "/admin/pos", label: "POS Billing", icon: Monitor },
+      { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
+      { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },
+      { href: "/admin/refunds", label: "Refunds", icon: Wallet2 },
+      { href: "/admin/cash-closing", label: "Cash Closing", icon: Banknote },
+    ],
+  },
+  {
+    label: "Inventory",
+    links: [
+      { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
+      { href: "/admin/stock-history", label: "Stock History", icon: History },
+      { href: "/admin/stock-adjustment", label: "Stock Adjustment", icon: SlidersHorizontal },
+      { href: "/admin/dead-stock", label: "Dead Stock", icon: Archive },
+      { href: "/admin/barcode-labels", label: "Barcode Labels", icon: Printer },
+      { href: "/admin/expiry", label: "Expiry", icon: CalendarClock },
+      { href: "/admin/reorder", label: "Reorder AI", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Purchasing",
+    links: [
+      { href: "/admin/purchases", label: "Purchases", icon: Truck },
+      { href: "/admin/purchase-returns", label: "Purchase Returns", icon: Undo2 },
+      { href: "/admin/suppliers", label: "Suppliers", icon: Building2 },
+    ],
+  },
+  {
+    label: "Catalog",
+    links: [
+      { href: "/admin/products", label: "Products", icon: Package },
+      { href: "/admin/categories", label: "Categories", icon: FolderTree },
+    ],
+  },
+  {
+    label: "People & Finance",
+    links: [
+      { href: "/admin/customers", label: "Customers", icon: UserCircle },
+      { href: "/admin/expenses", label: "Expenses", icon: Receipt },
+      { href: "/admin/users", label: "Users & Roles", icon: Wallet },
+    ],
+  },
+  {
+    label: "System",
+    links: [
+      { href: "/admin/settings", label: "Settings", icon: Settings },
+      { href: "/admin/backup", label: "Backup", icon: Database },
+    ],
+  },
 ];
 
 interface AdminSidebarProps {
@@ -89,31 +140,41 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
         </div>
         <span className="text-sm font-bold leading-tight text-green-800">{APP_NAME}</span>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {links.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href;
-          const showBadge = href === "/admin/orders" && newOrderCount > 0;
-          return (
-          <Link
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              isActive
-                ? "bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-300"
-                : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
-            )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1 truncate">{label}</span>
-            {showBadge && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
-                {newOrderCount > 99 ? "99+" : newOrderCount}
-              </span>
-            )}
-          </Link>
-        );})}
+      <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.links.map(({ href, label, icon: Icon }) => {
+                const isActive = pathname === href;
+                const showBadge = href === "/admin/orders" && newOrderCount > 0;
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={onNavigate}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-green-50 text-green-800"
+                        : "text-gray-600 hover:bg-gray-50"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 truncate">{label}</span>
+                    {showBadge && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                        {newOrderCount > 99 ? "99+" : newOrderCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
       <div className="border-t p-3">
         <button

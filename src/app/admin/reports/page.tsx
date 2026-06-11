@@ -36,6 +36,8 @@ export default function AdminReportsPage() {
   const [topProducts, setTopProducts] = useState<
     { name: string; quantity: number }[]
   >([]);
+  const [gstSales, setGstSales] = useState<{ cgst: number; sgst: number; igst: number; total: number } | null>(null);
+  const [gstPurchase, setGstPurchase] = useState<{ cgst: number; sgst: number; igst: number; total: number } | null>(null);
 
   const load = () => {
     const from = `${dateFrom}T00:00:00.000Z`;
@@ -51,6 +53,8 @@ export default function AdminReportsPage() {
     );
     erpReportsService.stockSummary().then(setStock);
     erpReportsService.topProducts(10).then(setTopProducts);
+    erpReportsService.gstSalesReport(from, to).then(setGstSales);
+    erpReportsService.gstPurchaseReport(from, to).then(setGstPurchase);
   };
 
   useEffect(() => {
@@ -178,6 +182,59 @@ export default function AdminReportsPage() {
           </div>
         )}
       </div>
+
+      {(gstSales || gstPurchase) && (
+        <div className="mb-8 grid gap-4 lg:grid-cols-2">
+          {gstSales && (
+            <div className="rounded-xl border bg-white p-6">
+              <h2 className="mb-4 font-semibold">GST Sales Report</h2>
+              <div className="space-y-1 text-sm">
+                <p>CGST: {formatPrice(gstSales.cgst)}</p>
+                <p>SGST: {formatPrice(gstSales.sgst)}</p>
+                <p>IGST: {formatPrice(gstSales.igst)}</p>
+                <p className="font-bold">Total: {formatPrice(gstSales.total)}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() =>
+                  erpReportsService.exportCsv(
+                    [{ cgst: gstSales.cgst, sgst: gstSales.sgst, igst: gstSales.igst, total: gstSales.total }],
+                    `gst-sales-${dateFrom}.csv`
+                  )
+                }
+              >
+                Export CSV
+              </Button>
+            </div>
+          )}
+          {gstPurchase && (
+            <div className="rounded-xl border bg-white p-6">
+              <h2 className="mb-4 font-semibold">GST Purchase Report</h2>
+              <div className="space-y-1 text-sm">
+                <p>CGST: {formatPrice(gstPurchase.cgst)}</p>
+                <p>SGST: {formatPrice(gstPurchase.sgst)}</p>
+                <p>IGST: {formatPrice(gstPurchase.igst)}</p>
+                <p className="font-bold">Total: {formatPrice(gstPurchase.total)}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() =>
+                  erpReportsService.exportCsv(
+                    [{ cgst: gstPurchase.cgst, sgst: gstPurchase.sgst, igst: gstPurchase.igst, total: gstPurchase.total }],
+                    `gst-purchase-${dateFrom}.csv`
+                  )
+                }
+              >
+                Export CSV
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {stock && (
         <div className="mb-8 rounded-xl border bg-white p-6">
