@@ -21,6 +21,11 @@ import {
   Receipt,
   Wallet,
   Banknote,
+  Settings,
+  RotateCcw,
+  Undo2,
+  Wallet2,
+  CalendarClock,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -39,6 +44,10 @@ const links = [
   { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
   { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
   { href: "/admin/purchases", label: "Purchases", icon: Truck },
+  { href: "/admin/purchase-returns", label: "Purchase Returns", icon: Undo2 },
+  { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },
+  { href: "/admin/refunds", label: "Refunds", icon: Wallet2 },
+  { href: "/admin/expiry", label: "Expiry", icon: CalendarClock },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/categories", label: "Categories", icon: FolderTree },
   { href: "/admin/suppliers", label: "Suppliers", icon: Building2 },
@@ -47,6 +56,7 @@ const links = [
   { href: "/admin/cash-closing", label: "Cash Closing", icon: Banknote },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   { href: "/admin/users", label: "Users", icon: Wallet },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 interface AdminSidebarProps {
@@ -57,7 +67,7 @@ interface AdminSidebarProps {
 export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { soundEnabled, setSoundEnabled } = useAdminOrderNotifications();
+  const { soundEnabled, setSoundEnabled, newOrderCount } = useAdminOrderNotifications();
 
   const handleLogout = async () => {
     onNavigate?.();
@@ -80,22 +90,30 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
         <span className="text-sm font-bold leading-tight text-green-800">{APP_NAME}</span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {links.map(({ href, label, icon: Icon }) => (
+        {links.map(({ href, label, icon: Icon }) => {
+          const isActive = pathname === href;
+          const showBadge = href === "/admin/orders" && newOrderCount > 0;
+          return (
           <Link
             key={href}
             href={href}
             onClick={onNavigate}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              pathname === href
-                ? "bg-green-50 text-green-800"
-                : "text-gray-600 hover:bg-gray-50"
+              isActive
+                ? "bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-300"
+                : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
             )}
           >
-            <Icon className="h-4 w-4" />
-            {label}
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate">{label}</span>
+            {showBadge && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
+                {newOrderCount > 99 ? "99+" : newOrderCount}
+              </span>
+            )}
           </Link>
-        ))}
+        );})}
       </nav>
       <div className="border-t p-3">
         <button

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
-import type { ErpProduct, LowStockProduct, StockMovement } from "@/types/erp";
+import { lotService } from "./lot.service";
+import type { ErpProduct, LowStockProduct, ProductLot, StockMovement } from "@/types/erp";
 
 const productSelect = `*, categories(id, name, slug)`;
 
@@ -35,14 +36,31 @@ export const inventoryService = {
   },
 
   async getByBarcode(barcode: string): Promise<ErpProduct | null> {
+    const resolved = await this.resolveByBarcode(barcode);
+    return resolved?.product ?? null;
+  },
+
+  async resolveByBarcode(
+    barcode: string
+  ): Promise<{ product: ErpProduct; lot: ProductLot | null } | null> {
+    const trimmed = barcode.trim();
+    if (!trimmed) return null;
+
+    const lot = await lotService.getByBarcode(trimmed);
+    if (lot?.products) {
+      const product = await this.getById(lot.product_id);
+      if (product) return { product, lot };
+    }
+
     const supabase = createClient();
     const { data, error } = await supabase
       .from("products")
       .select(productSelect)
-      .eq("barcode", barcode.trim())
+      .eq("barcode", trimmed)
       .maybeSingle();
     if (error) throw error;
-    return data as ErpProduct | null;
+    if (!data) return null;
+    return { product: data as ErpProduct, lot: null };
   },
 
   async getById(id: string): Promise<ErpProduct | null> {

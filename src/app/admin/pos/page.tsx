@@ -7,24 +7,33 @@ import {
   Trash2,
   Pause,
   Play,
-  Printer,
   MessageCircle,
   ShoppingCart,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
-import { PosThermalReceipt, printPosThermalReceipt } from "@/components/erp/pos-thermal-receipt";
-import { customerService, inventoryService, posService } from "@/services/erp";
-import type { Customer, PosCartLine, PosSale } from "@/types/erp";
+import { ReceiptActions } from "@/components/erp/receipt-actions";
+import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
+import { useStoreSettings } from "@/hooks/use-store-settings";
+import { useAuth } from "@/hooks/use-auth";
+import type { Customer, ErpProduct, PosCartLine, PosSale } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { LOYALTY_POINTS_PER_100, POS_PAYMENT_LABELS } from "@/lib/erp/constants";
 import { isValidMobile } from "@/utils/phone";
 import { formatPrice } from "@/utils/format";
+import { receiptFromPosSale } from "@/utils/receipt";
 import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
 
+function cartLineKey(line: PosCartLine) {
+  return `${line.productId}-${line.lotId ?? "default"}`;
+}
+
 export default function PosPage() {
+  const { settings } = useStoreSettings();
+  const { profile } = useAuth();
   const [cart, setCart] = useState<PosCartLine[]>([]);
   const [heldBills, setHeldBills] = useState<PosSale[]>([]);
   const [lastSale, setLastSale] = useState<PosSale | null>(null);
@@ -34,10 +43,17 @@ export default function PosPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
   const [discount, setDiscount] = useState(0);
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
+  const [discountPercent, setDiscountPercent] = useState(0);
   const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
+  const [billNotes, setBillNotes] = useState("");
   const [processing, setProcessing] = useState(false);
   const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
-  const [showScanner, setShowScanner] = useState(true);
+  const [showScanner, setShowScanner] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   const loadHeld = useCallback(() => {
     posService.getHeldBills().then(setHeldBills);
@@ -45,49 +61,105 @@ export default function PosPage() {
 
   useEffect(() => {
     loadHeld();
+    settingsService.get().then((s) => setPrintWidth(s.receipt_width));
   }, [loadHeld]);
 
-  const addProductToCart = useCallback(async (barcode: string) => {
-    const product =
-      (await inventoryService.getByBarcode(barcode)) ??
-      (await inventoryService.listProducts({ search: barcode }))[0];
-    if (!product) {
-      toast.error("Product not found");
+  useEffect(() => {
+    if (!productSearch.trim()) {
+      setSearchResults([]);
       return;
     }
-    if (product.stock <= 0) {
-      toast.error(`${product.name} is out of stock`);
-      return;
-    }
-    const rate = Number(product.selling_price ?? product.price);
-    setCart((prev) => {
-      const existing = prev.find((l) => l.productId === product.id);
-      if (existing) {
-        if (existing.quantity >= product.stock) {
-          toast.error("Not enough stock");
-          return prev;
-        }
-        return prev.map((l) =>
-          l.productId === product.id ? { ...l, quantity: l.quantity + 1 } : l
-        );
+    const t = setTimeout(() => {
+      setSearchLoading(true);
+      inventoryService
+        .listProducts({ search: productSearch.trim() })
+        .then(setSearchResults)
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [productSearch]);
+
+  const addLineToCart = useCallback(
+    (
+      product: ErpProduct,
+      lot?: { id: string; barcode: string; current_stock: number; selling_price: number | null } | null
+    ) => {
+      const stock = lot ? lot.current_stock : product.stock;
+      if (stock <= 0) {
+        toast.error(`${product.name} is out of stock`);
+        return;
       }
-      return [
-        ...prev,
-        {
-          productId: product.id,
-          name: product.name,
-          barcode: product.barcode,
-          rate,
-          gstPercentage: Number(product.gst_percentage ?? 0),
-          quantity: 1,
-        },
-      ];
-    });
-    toast.success(`Added: ${product.name}`);
-  }, []);
+      const rate = Number(
+        lot?.selling_price ?? product.selling_price ?? product.price
+      );
+      const lotId = lot?.id ?? null;
+      const barcode = lot?.barcode ?? product.barcode;
+
+      setCart((prev) => {
+        const key = `${product.id}-${lotId ?? "default"}`;
+        const existing = prev.find((l) => cartLineKey(l) === key);
+        if (existing) {
+          if (existing.quantity >= stock) {
+            toast.error("Not enough stock");
+            return prev;
+          }
+          return prev.map((l) =>
+            cartLineKey(l) === key ? { ...l, quantity: l.quantity + 1 } : l
+          );
+        }
+        return [
+          ...prev,
+          {
+            productId: product.id,
+            lotId,
+            name: product.name,
+            barcode,
+            rate,
+            gstPercentage: Number(product.gst_percentage ?? 0),
+            quantity: 1,
+          },
+        ];
+      });
+      toast.success(`Added: ${product.name}`);
+      setShowProductPicker(false);
+      setProductSearch("");
+    },
+    []
+  );
+
+  const addProductToCart = useCallback(
+    async (barcode: string) => {
+      const resolved = await inventoryService.resolveByBarcode(barcode);
+      if (resolved) {
+        addLineToCart(
+          resolved.product,
+          resolved.lot
+            ? {
+                id: resolved.lot.id,
+                barcode: resolved.lot.barcode,
+                current_stock: resolved.lot.current_stock,
+                selling_price: resolved.lot.selling_price,
+              }
+            : null
+        );
+        return;
+      }
+      const products = await inventoryService.listProducts({ search: barcode });
+      if (products[0]) {
+        addLineToCart(products[0]);
+        return;
+      }
+      toast.error("Product not found");
+    },
+    [addLineToCart]
+  );
 
   const subtotal = cart.reduce((s, l) => s + l.rate * l.quantity, 0);
-  const total = Math.max(0, subtotal - discount - loyaltyRedeem);
+  const computedDiscount =
+    discountMode === "percent"
+      ? Math.round((subtotal * discountPercent) / 100)
+      : discount;
+  const total = Math.max(0, subtotal - computedDiscount - loyaltyRedeem);
   const pointsToEarn =
     selectedCustomer && total > 0
       ? Math.floor(total / 100) * LOYALTY_POINTS_PER_100
@@ -140,11 +212,11 @@ export default function PosPage() {
     customerMobile: customerMobile.trim() || undefined,
   });
 
-  const updateQty = (productId: string, delta: number) => {
+  const updateQty = (key: string, delta: number) => {
     setCart((prev) =>
       prev
         .map((l) =>
-          l.productId === productId
+          cartLineKey(l) === key
             ? { ...l, quantity: Math.max(1, l.quantity + delta) }
             : l
         )
@@ -176,8 +248,9 @@ export default function PosPage() {
         lines: cart,
         paymentMethod,
         ...saleCustomerParams(),
-        discount,
+        discount: computedDiscount,
         loyaltyPointsRedeemed: loyaltyRedeem,
+        notes: billNotes.trim() || undefined,
       });
       setLastSale(sale);
       setCart([]);
@@ -227,6 +300,7 @@ export default function PosPage() {
       setCart(
         sale.pos_sale_items.map((i) => ({
           productId: i.product_id,
+          lotId: (i as { lot_id?: string }).lot_id ?? null,
           name: i.product_name,
           barcode: i.barcode,
           rate: Number(i.rate),
@@ -243,91 +317,165 @@ export default function PosPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col lg:flex-row lg:gap-4">
-      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border bg-white lg:max-w-[55%]">
-        <div className="border-b p-4">
-          <h1 className="text-xl font-bold text-green-900">POS Billing</h1>
-          <button
-            type="button"
-            className="mt-2 text-sm text-green-700 underline"
-            onClick={() => setShowScanner((s) => !s)}
-          >
-            {showScanner ? "Hide" : "Show"} barcode scanner
-          </button>
+    <div className="flex min-h-0 flex-col gap-4 lg:min-h-[calc(100vh-4rem)] lg:flex-row">
+      {/* Left: cart + scanner */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white lg:max-w-[55%]">
+        <div className="border-b p-3 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => setShowProductPicker(true)}
+                className="shrink-0"
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                Add Product
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowScanner((s) => !s)}
+              >
+                {showScanner ? "Hide" : "Scan"}
+              </Button>
+            </div>
+          </div>
+
+          {showProductPicker && (
+            <div className="mt-3 rounded-lg border bg-gray-50 p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  autoFocus
+                  placeholder="Search product name, SKU, barcode..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              {searchLoading && (
+                <p className="mt-2 text-xs text-gray-500">Searching...</p>
+              )}
+              {searchResults.length > 0 && (
+                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                  {searchResults.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        onClick={() => addLineToCart(p)}
+                        className="flex w-full items-center justify-between rounded-lg border bg-white px-3 py-2 text-left text-sm hover:bg-green-50"
+                      >
+                        <span className="min-w-0 truncate font-medium">{p.name}</span>
+                        <span className="ml-2 shrink-0 text-gray-600">
+                          {formatPrice(p.selling_price ?? p.price)} · {p.stock} left
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {productSearch && !searchLoading && searchResults.length === 0 && (
+                <p className="mt-2 text-xs text-gray-500">No products found</p>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="mt-2 w-full"
+                onClick={() => {
+                  setShowProductPicker(false);
+                  setProductSearch("");
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          )}
+
           {showScanner && (
             <div className="mt-3">
-              <BarcodeScanner onScan={addProductToCart} />
+              <BarcodeScanner onScan={addProductToCart} defaultMode="camera" />
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="min-h-[12rem] flex-1 overflow-y-auto p-3 sm:p-4">
           {cart.length === 0 ? (
-            <p className="text-center text-gray-500">Scan or search products to add</p>
+            <p className="py-8 text-center text-gray-500">
+              Scan barcode or tap Add Product to start billing
+            </p>
           ) : (
             <ul className="space-y-2">
-              {cart.map((line) => (
-                <li
-                  key={line.productId}
-                  className="flex items-center gap-2 rounded-lg border p-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{line.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {formatPrice(line.rate)} × {line.quantity} ={" "}
-                      {formatPrice(line.rate * line.quantity)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => updateQty(line.productId, -1)}
-                      className="rounded p-1 hover:bg-gray-100"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </button>
-                    <span className="w-8 text-center">{line.quantity}</span>
-                    <button
-                      type="button"
-                      onClick={() => updateQty(line.productId, 1)}
-                      className="rounded p-1 hover:bg-gray-100"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCart((c) => c.filter((l) => l.productId !== line.productId))
-                      }
-                      className="rounded p-1 text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
-              ))}
+              {cart.map((line) => {
+                const key = cartLineKey(line);
+                return (
+                  <li
+                    key={key}
+                    className="flex items-center gap-2 rounded-lg border p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{line.name}</p>
+                      <p className="text-sm text-gray-500">
+                        {formatPrice(line.rate)} × {line.quantity} ={" "}
+                        {formatPrice(line.rate * line.quantity)}
+                      </p>
+                      {line.lotId && (
+                        <p className="text-xs text-gray-400">Lot barcode: {line.barcode}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => updateQty(key, -1)}
+                        className="rounded p-1.5 hover:bg-gray-100"
+                        aria-label="Decrease quantity"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="w-8 text-center text-sm">{line.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateQty(key, 1)}
+                        className="rounded p-1.5 hover:bg-gray-100"
+                        aria-label="Increase quantity"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCart((c) => c.filter((l) => cartLineKey(l) !== key))
+                        }
+                        className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                        aria-label="Remove item"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
       </div>
 
-      <div className="mt-4 flex w-full flex-col rounded-xl border bg-white p-4 lg:mt-0 lg:w-[45%]">
+      {/* Right: payment panel */}
+      <div className="flex w-full shrink-0 flex-col rounded-xl border bg-white p-3 sm:p-4 lg:w-[45%]">
         <div className="mb-4 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <Input
-              placeholder="Customer mobile (10 digits)"
+              placeholder="Customer mobile"
               value={customerMobile}
               onChange={(e) => {
                 setCustomerMobile(e.target.value);
                 setSelectedCustomer(null);
               }}
               onBlur={() => void lookupCustomer()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void lookupCustomer();
-                }
-              }}
             />
             <Input
               placeholder="Customer name"
@@ -337,12 +485,6 @@ export default function PosPage() {
                 setSelectedCustomer(null);
               }}
               onBlur={() => void lookupCustomer()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void lookupCustomer();
-                }
-              }}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -361,28 +503,14 @@ export default function PosPage() {
               </Button>
             )}
           </div>
-          {selectedCustomer ? (
+          {selectedCustomer && (
             <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm">
               <p className="font-medium text-green-900">{selectedCustomer.name}</p>
               <p className="text-green-800">
-                {selectedCustomer.mobile} ·{" "}
-                <span className="font-semibold">
-                  {selectedCustomer.loyalty_points} points
-                </span>{" "}
-                (₹{selectedCustomer.loyalty_points} redeemable)
+                {selectedCustomer.loyalty_points} points available
               </p>
-              {pointsToEarn > 0 && (
-                <p className="text-xs text-green-700">
-                  This bill will earn +{pointsToEarn} points (₹100 = {LOYALTY_POINTS_PER_100}{" "}
-                  pt)
-                </p>
-              )}
             </div>
-          ) : customerMobile.trim() && isValidMobile(customerMobile) ? (
-            <p className="text-xs text-gray-500">
-              New customer will be created on Pay using this mobile.
-            </p>
-          ) : null}
+          )}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -403,39 +531,58 @@ export default function PosPage() {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-2">
-          <Input
-            type="number"
-            placeholder="Discount ₹"
-            value={discount || ""}
-            onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-          />
-          <div className="space-y-1">
+          <div className="col-span-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDiscountMode("amount")}
+              className={`rounded px-2 py-1 text-xs ${
+                discountMode === "amount" ? "bg-green-600 text-white" : "bg-gray-100"
+              }`}
+            >
+              ₹ Discount
+            </button>
+            <button
+              type="button"
+              onClick={() => setDiscountMode("percent")}
+              className={`rounded px-2 py-1 text-xs ${
+                discountMode === "percent" ? "bg-green-600 text-white" : "bg-gray-100"
+              }`}
+            >
+              % Discount
+            </button>
+          </div>
+          {discountMode === "amount" ? (
+            <Input
+              type="number"
+              placeholder="Discount ₹"
+              value={discount || ""}
+              onChange={(e) => setDiscount(Number(e.target.value) || 0)}
+            />
+          ) : (
             <Input
               type="number"
               min={0}
-              placeholder="Redeem points (1 pt = ₹1)"
-              value={loyaltyRedeem || ""}
-              onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
-              disabled={!selectedCustomer && !isValidMobile(customerMobile)}
+              max={100}
+              placeholder="Discount %"
+              value={discountPercent || ""}
+              onChange={(e) => setDiscountPercent(Number(e.target.value) || 0)}
             />
-            {selectedCustomer && selectedCustomer.loyalty_points > 0 && (
-              <button
-                type="button"
-                className="text-xs font-medium text-green-700 underline"
-                onClick={() =>
-                  setLoyaltyRedeem(
-                    Math.min(
-                      selectedCustomer.loyalty_points,
-                      Math.max(0, subtotal - discount)
-                    )
-                  )
-                }
-              >
-                Use max ({selectedCustomer.loyalty_points} pts)
-              </button>
-            )}
-          </div>
+          )}
+          <Input
+            type="number"
+            min={0}
+            placeholder="Redeem points"
+            value={loyaltyRedeem || ""}
+            onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
+            disabled={!selectedCustomer}
+          />
         </div>
+        <Input
+          placeholder="Bill notes (optional)"
+          value={billNotes}
+          onChange={(e) => setBillNotes(e.target.value)}
+          className="mb-4"
+        />
 
         <div className="mb-4 rounded-lg bg-green-50 p-4">
           <div className="flex justify-between text-sm">
@@ -448,7 +595,7 @@ export default function PosPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="sticky bottom-0 grid grid-cols-2 gap-2 bg-white pt-2 lg:static">
           <Button
             variant="outline"
             onClick={holdBill}
@@ -483,48 +630,36 @@ export default function PosPage() {
         {lastSale && (
           <div className="mt-4 border-t pt-4">
             <p className="mb-2 text-sm font-medium">Last Bill: {lastSale.bill_number}</p>
-            <div className="flex flex-wrap gap-2">
-              <select
-                value={printWidth}
-                onChange={(e) => setPrintWidth(e.target.value as "58mm" | "80mm")}
-                className="rounded border px-2 py-1 text-sm"
-              >
-                <option value="58mm">58mm</option>
-                <option value="80mm">80mm</option>
-              </select>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => printPosThermalReceipt(printWidth)}
-              >
-                <Printer className="mr-1 h-4 w-4" />
-                Reprint
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  openWhatsAppShare(
-                    invoiceShareMessage(
-                      lastSale.bill_number,
-                      formatPrice(lastSale.total_amount)
-                    )
+            <ReceiptActions
+              data={{
+                ...receiptFromPosSale(lastSale),
+                cashierName: profile?.name ?? null,
+                discountPercent:
+                  discountMode === "percent" ? discountPercent : undefined,
+              }}
+              settings={settings}
+              defaultWidth={printWidth}
+              receiptId="pos-thermal-receipt"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={() =>
+                openWhatsAppShare(
+                  invoiceShareMessage(
+                    lastSale.bill_number,
+                    formatPrice(lastSale.total_amount)
                   )
-                }
-              >
-                <MessageCircle className="mr-1 h-4 w-4" />
-                WhatsApp
-              </Button>
-            </div>
+                )
+              }
+            >
+              <MessageCircle className="mr-1 h-4 w-4" />
+              WhatsApp
+            </Button>
           </div>
         )}
       </div>
-
-      {lastSale && (
-        <div className="pointer-events-none fixed -left-[9999px] top-0 opacity-0">
-          <PosThermalReceipt sale={lastSale} width={printWidth} />
-        </div>
-      )}
     </div>
   );
 }

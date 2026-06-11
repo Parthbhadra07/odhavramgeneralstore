@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/types/database";
+import { customerService } from "@/services/erp/customer.service";
 
 export const authService = {
   async signUp(email: string, password: string, name: string) {
@@ -24,6 +25,16 @@ export const authService = {
       );
       if (profileError) {
         console.warn("Profile upsert:", profileError.message);
+      }
+
+      try {
+        await customerService.syncFromUser({
+          id: data.user.id,
+          name,
+          email: data.user.email ?? email,
+        });
+      } catch (err) {
+        console.warn("Customer sync on signup:", err);
       }
     }
 

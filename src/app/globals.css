@@ -5,6 +5,12 @@
   --foreground: #111827;
   --primary: #16a34a;
   --primary-dark: #15803d;
+  --admin-sidebar-width: 16rem;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
 }
 
 @theme inline {
@@ -25,11 +31,54 @@ body {
   max-width: 100%;
 }
 
+/* Admin panel utilities */
+.admin-card {
+  @apply rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900;
+}
+
+.admin-section-title {
+  @apply text-lg font-semibold text-gray-900 dark:text-gray-100;
+}
+
+.admin-page-title {
+  @apply text-xl font-bold text-gray-900 sm:text-2xl dark:text-gray-100;
+}
+
 /* Capacitor safe areas */
 @supports (padding: env(safe-area-inset-bottom)) {
   body {
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Thermal receipt print styles */
+.thermal-receipt-border {
+  border: 2px solid #000;
+  padding: 8px;
+}
+
+.thermal-section-title {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.85em;
+}
+
+.thermal-line {
+  border-top: 1px dashed #000;
+  margin: 6px 0;
+}
+
+.thermal-line-solid {
+  border-top: 2px solid #000;
+  margin: 6px 0;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
   }
 }

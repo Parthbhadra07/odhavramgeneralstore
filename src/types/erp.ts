@@ -5,14 +5,37 @@ import type {
 
 export type StockMovementType =
   | "opening"
+  | "opening_stock"
   | "purchase"
   | "purchase_return"
   | "pos_sale"
   | "online_order"
   | "return"
+  | "sales_return"
   | "damaged"
   | "adjustment"
-  | "cancel";
+  | "cancel"
+  | "transfer";
+
+export type PurchaseReturnReason =
+  | "damage"
+  | "expired"
+  | "wrong_item"
+  | "excess_stock"
+  | "other";
+
+export type SalesReturnReason =
+  | "damaged"
+  | "wrong_product"
+  | "expired"
+  | "customer_return"
+  | "other";
+
+export type SalesReturnType = "refund" | "replacement" | "store_credit";
+
+export type RefundStatus = "pending" | "approved" | "rejected" | "paid";
+
+export type RefundMethod = "cash" | "upi" | "bank_transfer" | "store_credit";
 
 export type PosSaleStatus =
   | "completed"
@@ -55,6 +78,7 @@ export interface Customer {
   user_id: string | null;
   name: string;
   mobile: string;
+  email: string | null;
   address: string | null;
   gst_number: string | null;
   credit_balance: number;
@@ -62,6 +86,18 @@ export interface Customer {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CustomerWithStats extends Customer {
+  total_orders: number;
+  total_purchase_amount: number;
+  last_order_date: string | null;
+}
+
+export interface SupplierWithStats extends Supplier {
+  total_purchases: number;
+  last_purchase_date: string | null;
+  purchase_count: number;
 }
 
 export interface Supplier {
@@ -112,8 +148,11 @@ export interface PurchaseItem {
   purchase_bill_id: string;
   product_id: string;
   barcode: string | null;
+  lot_number: string | null;
   quantity: number;
   purchase_rate: number;
+  selling_price: number | null;
+  mrp: number | null;
   gst_percentage: number;
   gst_amount: number;
   total_amount: number;
@@ -152,6 +191,7 @@ export interface PosSaleItem {
   product_id: string;
   product_name: string;
   barcode: string | null;
+  lot_id?: string | null;
   quantity: number;
   rate: number;
   gst_percentage: number;
@@ -216,9 +256,185 @@ export interface LowStockProduct {
 
 export interface PosCartLine {
   productId: string;
+  lotId?: string | null;
   name: string;
   barcode: string | null;
   rate: number;
   gstPercentage: number;
   quantity: number;
+}
+
+export interface StoreSettings {
+  id: string;
+  store_name: string;
+  store_mobile: string;
+  store_address: string | null;
+  store_logo_url: string | null;
+  upi_id: string | null;
+  upi_merchant_name: string | null;
+  enable_upi_qr: boolean;
+  receipt_header_text: string | null;
+  receipt_footer_text: string | null;
+  receipt_width: "58mm" | "80mm";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductLot {
+  id: string;
+  product_id: string;
+  lot_number: string | null;
+  batch_number: string | null;
+  barcode: string;
+  purchase_price: number;
+  selling_price: number | null;
+  mrp: number | null;
+  quantity: number;
+  current_stock: number;
+  expiry_date: string | null;
+  purchase_item_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  products?: Pick<ErpProduct, "name" | "sku" | "barcode" | "price" | "selling_price">;
+}
+
+export interface LotStockMovement {
+  id: string;
+  lot_id: string;
+  product_id: string;
+  movement_type: string;
+  quantity: number;
+  stock_before: number;
+  stock_after: number;
+  reference_type: string | null;
+  reference_id: string | null;
+  notes: string | null;
+  created_at: string;
+  product_lots?: Pick<ProductLot, "barcode" | "lot_number" | "batch_number">;
+  products?: Pick<ErpProduct, "name" | "sku">;
+}
+
+export interface ReceiptLineItem {
+  name: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+export interface ReceiptData {
+  orderId: string;
+  date: string;
+  time: string;
+  cashierName?: string | null;
+  customerName?: string | null;
+  customerMobile?: string | null;
+  deliveryAddress?: string | null;
+  paymentMethod: string;
+  orderStatus?: string | null;
+  items: ReceiptLineItem[];
+  subtotal: number;
+  discount?: number;
+  discountPercent?: number;
+  deliveryCharge?: number;
+  taxCgst?: number;
+  taxSgst?: number;
+  taxIgst?: number;
+  grandTotal: number;
+  notes?: string | null;
+  /** Force UPI QR display (overrides payment method check) */
+  showUpiQr?: boolean;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  return_number: string;
+  supplier_id: string;
+  purchase_bill_id: string | null;
+  return_date: string;
+  reason: PurchaseReturnReason;
+  reason_notes: string | null;
+  total_amount: number;
+  notes: string | null;
+  created_at: string;
+  suppliers?: Supplier;
+  purchase_bills?: Pick<PurchaseBill, "bill_number">;
+  purchase_return_items?: PurchaseReturnItem[];
+}
+
+export interface PurchaseReturnItem {
+  id: string;
+  purchase_return_id: string;
+  product_id: string;
+  lot_id: string | null;
+  purchase_item_id: string | null;
+  product_name: string;
+  barcode: string | null;
+  lot_number: string | null;
+  batch_number: string | null;
+  quantity: number;
+  purchase_rate: number;
+  total_amount: number;
+}
+
+export interface SalesReturn {
+  id: string;
+  return_number: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_mobile: string | null;
+  order_id: string | null;
+  pos_sale_id: string | null;
+  return_date: string;
+  reason: SalesReturnReason;
+  return_type: SalesReturnType;
+  reason_notes: string | null;
+  total_amount: number;
+  notes: string | null;
+  created_at: string;
+  customers?: Customer;
+  sales_return_items?: SalesReturnItem[];
+}
+
+export interface SalesReturnItem {
+  id: string;
+  sales_return_id: string;
+  product_id: string;
+  lot_id: string | null;
+  product_name: string;
+  barcode: string | null;
+  quantity: number;
+  rate: number;
+  total_amount: number;
+}
+
+export interface Refund {
+  id: string;
+  sales_return_id: string | null;
+  order_id: string | null;
+  pos_sale_id: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  amount: number;
+  refund_method: RefundMethod;
+  status: RefundStatus;
+  reference_number: string | null;
+  notes: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+  sales_returns?: Pick<SalesReturn, "return_number">;
+}
+
+export interface ProfitReport {
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  purchaseReturns: number;
+  salesReturns: number;
+  expenses: number;
+  discounts: number;
+  deliveryCharges: number;
+  netProfit: number;
+  inventoryValue: number;
 }

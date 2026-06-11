@@ -14,6 +14,7 @@ import { slugify } from "@/utils/format";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ProductBarcodeField } from "@/components/admin/product-barcode-field";
+import { AdminFab } from "@/components/admin/admin-fab";
 import type { Product, Category } from "@/types/database";
 
 export default function AdminProductsPage() {
@@ -157,11 +158,13 @@ export default function AdminProductsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold sm:text-2xl">Products</h1>
-        <Button onClick={openCreate}>
+        <h1 className="admin-page-title">Products</h1>
+        <Button onClick={openCreate} className="hidden lg:inline-flex">
           <Plus className="h-4 w-4" /> Add Product
         </Button>
       </div>
+
+      <AdminFab label="Add Product" icon={Plus} onClick={openCreate} />
 
       {showForm && (
         <form

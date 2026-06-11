@@ -5,6 +5,7 @@ import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { lineItemGst } from "@/utils/gst";
 import { loyaltyService } from "./loyalty.service";
 import { customerService } from "./customer.service";
+import { lotService } from "./lot.service";
 
 function clientBillNumber(): string {
   const year = new Date().getFullYear();
@@ -24,6 +25,7 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
       product_id: line.productId,
       product_name: line.name,
       barcode: line.barcode,
+      lot_id: line.lotId ?? null,
       quantity: line.quantity,
       rate: line.rate,
       gst_percentage: line.gstPercentage,
@@ -115,6 +117,20 @@ export const posService = {
       items.map((i) => ({ ...i, pos_sale_id: saleId }))
     );
     if (itemsErr) throw itemsErr;
+
+    if (params.saleStatus !== "held") {
+      for (const line of params.lines) {
+        if (line.lotId) {
+          await lotService.deductStock(
+            line.lotId,
+            line.quantity,
+            "pos_sale",
+            saleId,
+            `POS ${billNumber}`
+          );
+        }
+      }
+    }
 
     if (customerId && params.saleStatus !== "held") {
       const points = Math.floor(total / 100) * LOYALTY_POINTS_PER_100;

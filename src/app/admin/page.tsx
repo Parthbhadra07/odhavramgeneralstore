@@ -67,7 +67,7 @@ export default function AdminDashboardPage() {
         inventoryValue: invValue,
         lowStockCount: low.length,
         expiringCount: exp.length,
-        monthlyProfit: pl.profit,
+        monthlyProfit: pl.netProfit,
       });
     });
   };

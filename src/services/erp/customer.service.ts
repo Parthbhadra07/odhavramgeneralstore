@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import type { Customer } from "@/types/erp";
+import type { Customer, CustomerWithStats } from "@/types/erp";
 import { isValidMobile, normalizeMobile } from "@/utils/phone";
 
 export const customerService = {
@@ -12,6 +12,55 @@ export const customerService = {
     const { data, error } = await q;
     if (error) throw error;
     return (data ?? []) as Customer[];
+  },
+
+  async listWithStats(search?: string): Promise<CustomerWithStats[]> {
+    const customers = await this.list(search);
+    if (customers.length === 0) return [];
+
+    const supabase = createClient();
+    const ids = customers.map((c) => c.id);
+    const mobiles = customers.map((c) => normalizeMobile(c.mobile));
+
+    const [{ data: posSales }, { data: orders }] = await Promise.all([
+      supabase
+        .from("pos_sales")
+        .select("customer_id, total_amount, created_at")
+        .in("customer_id", ids)
+        .eq("sale_status", "completed"),
+      supabase
+        .from("orders")
+        .select("customer_phone, total_amount, created_at, order_status")
+        .or(mobiles.map((m) => `customer_phone.ilike.%${m.slice(-10)}`).join(",")),
+    ]);
+
+    return customers.map((c) => {
+      const mobileNorm = normalizeMobile(c.mobile);
+      const posForCustomer = (posSales ?? []).filter((s) => s.customer_id === c.id);
+      const ordersForCustomer = (orders ?? []).filter(
+        (o) =>
+          o.customer_phone &&
+          normalizeMobile(o.customer_phone).slice(-10) === mobileNorm.slice(-10) &&
+          o.order_status !== "cancelled"
+      );
+
+      const allDates = [
+        ...posForCustomer.map((s) => s.created_at),
+        ...ordersForCustomer.map((o) => o.created_at),
+      ].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      const totalOrders = posForCustomer.length + ordersForCustomer.length;
+      const totalAmount =
+        posForCustomer.reduce((sum, s) => sum + Number(s.total_amount), 0) +
+        ordersForCustomer.reduce((sum, o) => sum + Number(o.total_amount), 0);
+
+      return {
+        ...c,
+        total_orders: totalOrders,
+        total_purchase_amount: Math.round(totalAmount * 100) / 100,
+        last_order_date: allDates[0] ?? null,
+      };
+    });
   },
 
   async getByMobile(mobile: string): Promise<Customer | null> {
@@ -38,7 +87,6 @@ export const customerService = {
     return (match ?? null) as Customer | null;
   },
 
-  /** Match saved customer by mobile and/or name (POS counter). */
   async findForPos(opts: {
     mobile?: string;
     name?: string;
@@ -58,7 +106,6 @@ export const customerService = {
     return null;
   },
 
-  /** Link POS sale to customers row; create if new mobile. */
   async resolveForPos(opts: {
     customerId?: string;
     mobile?: string;
@@ -97,13 +144,68 @@ export const customerService = {
     return this.upsert({ mobile, name });
   },
 
-  async upsert(customer: Partial<Customer> & { name: string; mobile: string }): Promise<Customer> {
+  /** Auto-create CRM record from registered user */
+  async syncFromUser(user: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+  }): Promise<Customer | null> {
+    const mobile = user.phone?.trim();
+    if (!mobile || !isValidMobile(mobile)) return null;
+
+    return this.upsert({
+      user_id: user.id,
+      name: user.name?.trim() || "Customer",
+      mobile: normalizeMobile(mobile),
+      email: user.email?.trim() || null,
+      address: user.address ?? null,
+    });
+  },
+
+  /** Auto-create CRM record when placing online order */
+  async ensureFromOrder(params: {
+    userId?: string | null;
+    name: string;
+    mobile: string;
+    email?: string | null;
+    address?: string | null;
+  }): Promise<Customer | null> {
+    if (!params.mobile?.trim() || !isValidMobile(params.mobile)) return null;
+
+    const existing = await this.getByMobile(params.mobile);
+    if (existing) {
+      return this.upsert({
+        ...existing,
+        name: params.name.trim() || existing.name,
+        email: params.email ?? existing.email,
+        address: params.address ?? existing.address,
+        user_id: params.userId ?? existing.user_id,
+      });
+    }
+
+    return this.upsert({
+      user_id: params.userId ?? null,
+      name: params.name.trim() || "Customer",
+      mobile: normalizeMobile(params.mobile),
+      email: params.email ?? null,
+      address: params.address ?? null,
+    });
+  },
+
+  async upsert(
+    customer: Partial<Customer> & { name: string; mobile: string }
+  ): Promise<Customer> {
     const supabase = createClient();
-    const existing = await this.getByMobile(customer.mobile);
+    const mobile = normalizeMobile(customer.mobile);
+    const existing = await this.getByMobile(mobile);
+    const payload = { ...customer, mobile, updated_at: new Date().toISOString() };
+
     if (existing) {
       const { data, error } = await supabase
         .from("customers")
-        .update({ ...customer, updated_at: new Date().toISOString() })
+        .update(payload)
         .eq("id", existing.id)
         .select()
         .single();
@@ -112,7 +214,7 @@ export const customerService = {
     }
     const { data, error } = await supabase
       .from("customers")
-      .insert(customer)
+      .insert({ ...payload, mobile })
       .select()
       .single();
     if (error) throw error;

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Order, OrderItem, OrderStatus, PaymentMethod } from "@/types/database";
+import { customerService } from "@/services/erp/customer.service";
 
 const orderSelectBasic = `
   *,
@@ -245,6 +246,32 @@ export const orderService = {
     }
 
     await supabase.from("cart_items").delete().eq("user_id", params.userId);
+
+    try {
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("email")
+        .eq("id", params.userId)
+        .maybeSingle();
+      const { data: addressRow } = await supabase
+        .from("addresses")
+        .select("address_line, city, state, postal_code")
+        .eq("id", params.addressId)
+        .maybeSingle();
+      const addressStr = addressRow
+        ? `${addressRow.address_line}, ${addressRow.city}, ${addressRow.state} - ${addressRow.postal_code}`
+        : null;
+
+      await customerService.ensureFromOrder({
+        userId: params.userId,
+        name: params.customerName,
+        mobile: params.customerPhone,
+        email: userRow?.email ?? null,
+        address: addressStr,
+      });
+    } catch (err) {
+      console.warn("Customer sync on order:", err);
+    }
 
     const full = await this.getById(order.id);
     if (full) return full;

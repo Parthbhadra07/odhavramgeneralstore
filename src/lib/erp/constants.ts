@@ -57,14 +57,75 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
 
 export const STOCK_MOVEMENT_LABELS: Record<string, string> = {
   opening: "Opening Stock",
+  opening_stock: "Opening Stock",
   purchase: "Purchase",
   purchase_return: "Purchase Return",
   pos_sale: "POS Sale",
   online_order: "Online Order",
   return: "Return",
+  sales_return: "Sales Return",
   damaged: "Damaged",
   adjustment: "Adjustment",
   cancel: "Cancelled",
+  transfer: "Stock Transfer",
+};
+
+export const PURCHASE_RETURN_REASONS = [
+  "damage",
+  "expired",
+  "wrong_item",
+  "excess_stock",
+  "other",
+] as const;
+
+export const PURCHASE_RETURN_REASON_LABELS: Record<string, string> = {
+  damage: "Damage",
+  expired: "Expired",
+  wrong_item: "Wrong Item",
+  excess_stock: "Excess Stock",
+  other: "Other",
+};
+
+export const SALES_RETURN_REASONS = [
+  "damaged",
+  "wrong_product",
+  "expired",
+  "customer_return",
+  "other",
+] as const;
+
+export const SALES_RETURN_REASON_LABELS: Record<string, string> = {
+  damaged: "Damaged",
+  wrong_product: "Wrong Product",
+  expired: "Expired",
+  customer_return: "Customer Return",
+  other: "Other",
+};
+
+export const SALES_RETURN_TYPES = ["refund", "replacement", "store_credit"] as const;
+
+export const SALES_RETURN_TYPE_LABELS: Record<string, string> = {
+  refund: "Refund",
+  replacement: "Replacement",
+  store_credit: "Store Credit",
+};
+
+export const REFUND_STATUSES = ["pending", "approved", "rejected", "paid"] as const;
+
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  paid: "Paid",
+};
+
+export const REFUND_METHODS = ["cash", "upi", "bank_transfer", "store_credit"] as const;
+
+export const REFUND_METHOD_LABELS: Record<string, string> = {
+  cash: "Cash",
+  upi: "UPI",
+  bank_transfer: "Bank Transfer",
+  store_credit: "Store Credit",
 };
 
 /** Loyalty: 1 point per ₹100 spent */

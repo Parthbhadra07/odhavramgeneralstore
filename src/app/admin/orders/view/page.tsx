@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Printer } from "lucide-react";
+import { Plus, Trash2, Save } from "lucide-react";
 import { orderService } from "@/services/order.service";
 import { productService } from "@/services/product.service";
-import { ThermalReceipt, printThermalReceipt } from "@/components/orders/thermal-receipt";
+import { ReceiptActions } from "@/components/erp/receipt-actions";
+import { useStoreSettings } from "@/hooks/use-store-settings";
+import { receiptFromOrder } from "@/utils/receipt";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import {
@@ -44,7 +46,7 @@ function AdminOrderDetailContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [status, setStatus] = useState<OrderStatus>("received");
   const [note, setNote] = useState("");
-  const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
+  const { settings } = useStoreSettings();
   const [saving, setSaving] = useState(false);
   const [addProductId, setAddProductId] = useState("");
   const [deliveryCharge, setDeliveryCharge] = useState(0);
@@ -393,35 +395,17 @@ function AdminOrderDetailContent() {
       </div>
 
       <div className="rounded-xl border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-semibold">Thermal Bill</h2>
-          <div className="flex gap-2">
-            <select
-              value={printWidth}
-              onChange={(e) => setPrintWidth(e.target.value as "58mm" | "80mm")}
-              className="rounded border px-2 py-1 text-sm"
-            >
-              <option value="58mm">58mm</option>
-              <option value="80mm">80mm</option>
-            </select>
-            <Button
-              variant="outline"
-              onClick={() => {
-                orderService.getById(order.id).then((o) => o && printThermalReceipt(printWidth));
-              }}
-            >
-              <Printer className="h-4 w-4" /> Print
-            </Button>
-          </div>
-        </div>
-        <ThermalReceipt
-          order={{
+        <h2 className="mb-4 font-semibold">Thermal Receipt</h2>
+        <ReceiptActions
+          data={receiptFromOrder({
             ...order,
             order_items: order.order_items,
             total_amount: grandTotal,
             delivery_charge: deliveryCharge,
-          }}
-          width={printWidth}
+          })}
+          settings={settings}
+          defaultWidth={settings?.receipt_width ?? "80mm"}
+          receiptId="thermal-receipt"
         />
       </div>
 

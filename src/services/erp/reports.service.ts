@@ -3,6 +3,7 @@ import { inventoryService } from "./inventory.service";
 import { posService } from "./pos.service";
 import { expenseService } from "./expense.service";
 import { orderService } from "@/services/order.service";
+import type { ProfitReport } from "@/types/erp";
 
 export const erpReportsService = {
   async salesSummary(period: "day" | "week" | "month" | "year" = "month") {
@@ -22,7 +23,9 @@ export const erpReportsService = {
       .filter((s) => s.sale_status === "completed")
       .reduce((sum, s) => sum + Number(s.total_amount), 0);
 
-    const onlineTotal = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+    const onlineTotal = orders
+      .filter((o) => new Date(o.created_at) >= from)
+      .reduce((sum, o) => sum + Number(o.total_amount), 0);
 
     return {
       posSales: posTotal,
@@ -33,18 +36,153 @@ export const erpReportsService = {
     };
   },
 
-  async profitLoss(from: string, to: string) {
-    const [sales, expenses, inventoryValue] = await Promise.all([
-      this.salesSummary("month"),
+  async salesInRange(from: string, to: string) {
+    const supabase = createClient();
+    const [posRes, ordersRes] = await Promise.all([
+      supabase
+        .from("pos_sales")
+        .select("total_amount, discount, loyalty_discount, sale_status")
+        .gte("created_at", from)
+        .lte("created_at", to)
+        .eq("sale_status", "completed"),
+      supabase
+        .from("orders")
+        .select("total_amount, delivery_charge")
+        .gte("created_at", from)
+        .lte("created_at", to)
+        .neq("order_status", "cancelled"),
+    ]);
+
+    const posRows = posRes.data ?? [];
+    const orderRows = ordersRes.data ?? [];
+
+    const posRevenue = posRows.reduce((s, r) => s + Number(r.total_amount), 0);
+    const onlineRevenue = orderRows.reduce((s, r) => s + Number(r.total_amount), 0);
+    const discounts = posRows.reduce(
+      (s, r) => s + Number(r.discount) + Number(r.loyalty_discount ?? 0),
+      0
+    );
+    const deliveryCharges = orderRows.reduce(
+      (s, r) => s + Number(r.delivery_charge ?? 0),
+      0
+    );
+
+    return {
+      revenue: posRevenue + onlineRevenue,
+      posRevenue,
+      onlineRevenue,
+      discounts,
+      deliveryCharges,
+    };
+  },
+
+  async profitLoss(from: string, to: string): Promise<ProfitReport> {
+    const supabase = createClient();
+    const [
+      sales,
+      expenses,
+      inventoryValue,
+      purchaseReturnRes,
+      salesReturnRes,
+      posItemsRes,
+    ] = await Promise.all([
+      this.salesInRange(from, to),
       expenseService.list({ from, to }),
       inventoryService.getInventoryValue(),
+      supabase
+        .from("purchase_returns")
+        .select("total_amount")
+        .gte("return_date", from.slice(0, 10))
+        .lte("return_date", to.slice(0, 10)),
+      supabase
+        .from("sales_returns")
+        .select("total_amount")
+        .gte("return_date", from.slice(0, 10))
+        .lte("return_date", to.slice(0, 10)),
+      supabase
+        .from("pos_sale_items")
+        .select("quantity, rate, product_id, pos_sales!inner(created_at, sale_status), products(purchase_price)")
+        .gte("pos_sales.created_at", from)
+        .lte("pos_sales.created_at", to)
+        .eq("pos_sales.sale_status", "completed"),
     ]);
+
     const expenseTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    const purchaseReturns = (purchaseReturnRes.data ?? []).reduce(
+      (s, r) => s + Number(r.total_amount),
+      0
+    );
+    const salesReturns = (salesReturnRes.data ?? []).reduce(
+      (s, r) => s + Number(r.total_amount),
+      0
+    );
+
+    let cogs = 0;
+    for (const item of posItemsRes.data ?? []) {
+      const pp =
+        (item.products as { purchase_price?: number } | null)?.purchase_price ?? 0;
+      cogs += item.quantity * Number(pp);
+    }
+
+    const grossProfit = sales.revenue - cogs;
+    const netProfit =
+      sales.revenue -
+      salesReturns -
+      expenseTotal -
+      sales.discounts +
+      purchaseReturns;
+
     return {
-      revenue: sales.total,
+      revenue: sales.revenue,
+      cogs,
+      grossProfit,
+      purchaseReturns,
+      salesReturns,
       expenses: expenseTotal,
-      profit: sales.total - expenseTotal,
+      discounts: sales.discounts,
+      deliveryCharges: sales.deliveryCharges,
+      netProfit,
       inventoryValue,
+    };
+  },
+
+  async dailyProfit(date: string) {
+    const from = `${date}T00:00:00.000Z`;
+    const to = `${date}T23:59:59.999Z`;
+    return this.profitLoss(from, to);
+  },
+
+  async purchaseReturnReport(from: string, to: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("purchase_returns")
+      .select("*, suppliers(name), purchase_return_items(*)")
+      .gte("return_date", from.slice(0, 10))
+      .lte("return_date", to.slice(0, 10))
+      .order("return_date", { ascending: false });
+    if (error) throw error;
+    const rows = data ?? [];
+    return {
+      count: rows.length,
+      totalValue: rows.reduce((s, r) => s + Number(r.total_amount), 0),
+      returns: rows,
+    };
+  },
+
+  async salesReturnReport(from: string, to: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("sales_returns")
+      .select("*, customers(name), sales_return_items(*)")
+      .gte("return_date", from.slice(0, 10))
+      .lte("return_date", to.slice(0, 10))
+      .order("return_date", { ascending: false });
+    if (error) throw error;
+    const rows = data ?? [];
+    return {
+      count: rows.length,
+      totalValue: rows.reduce((s, r) => s + Number(r.total_amount), 0),
+      returns: rows,
     };
   },
 
