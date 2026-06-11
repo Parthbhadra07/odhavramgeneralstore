@@ -190,7 +190,7 @@ export default function AdminSettingsPage() {
                 Enable UPI QR on receipts
               </label>
               <p className="mt-1 text-xs text-gray-500">
-                Generates QR from upi://pay?pa=...&pn=...&am=... when enabled
+                Shows on all bills (except COD). Configure UPI ID above and enable this option.
               </p>
             </div>
           </div>

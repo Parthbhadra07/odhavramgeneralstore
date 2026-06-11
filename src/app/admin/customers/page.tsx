@@ -1,28 +1,48 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Eye, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { customerService } from "@/services/erp";
+import { creditService, customerService } from "@/services/erp";
 import type { CustomerWithStats } from "@/types/erp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ResponsiveTable } from "@/components/admin/responsive-table";
+import { ActionButton } from "@/components/admin/action-button";
 import { AdminFab } from "@/components/admin/admin-fab";
+import { Modal } from "@/components/admin/modal";
 import { formatPrice, formatDate } from "@/utils/format";
 import { isValidMobile } from "@/utils/phone";
+import { POS_PAYMENT_LABELS, type PosPaymentMethod } from "@/lib/erp/constants";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [ledgerCustomer, setLedgerCustomer] = useState<CustomerWithStats | null>(null);
+  const [ledger, setLedger] = useState<
+    {
+      date: string;
+      type: string;
+      reference: string;
+      notes: string | null;
+      debit: number;
+      credit: number;
+    }[]
+  >([]);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
     email: "",
     address: "",
     gst_number: "",
+  });
+  const [payForm, setPayForm] = useState({
+    customerId: "",
+    amount: 0,
+    paymentMethod: "cash" as PosPaymentMethod,
+    notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const formRef = useRef<HTMLDivElement>(null);
@@ -70,13 +90,54 @@ export default function CustomersPage() {
     }
   };
 
+  const handlePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payForm.customerId || payForm.amount <= 0) {
+      toast.error("Select customer and enter amount");
+      return;
+    }
+    try {
+      const customerId = payForm.customerId;
+      await creditService.recordPayment(
+        customerId,
+        payForm.amount,
+        POS_PAYMENT_LABELS[payForm.paymentMethod],
+        payForm.notes.trim() || undefined
+      );
+      toast.success("Credit payment recorded");
+      setPayForm({ customerId: "", amount: 0, paymentMethod: "cash", notes: "" });
+      load();
+      if (ledgerCustomer?.id === customerId) {
+        const entries = await creditService.getLedger(customerId);
+        setLedger(entries);
+        const updated = customers.find((c) => c.id === customerId);
+        if (updated) {
+          setLedgerCustomer({
+            ...updated,
+            credit_balance: Math.max(0, updated.credit_balance - payForm.amount),
+          });
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  };
+
+  const viewLedger = async (customer: CustomerWithStats) => {
+    setLedgerCustomer(customer);
+    const entries = await creditService.getLedger(customer.id);
+    setLedger(entries);
+  };
+
+  const customersWithCredit = customers.filter((c) => c.credit_balance > 0);
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="admin-page-title">Customer Management</h1>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            CRM records auto-created on signup and orders
+            CRM, loyalty points, and credit (udhaar) tracking
           </p>
         </div>
         <Button onClick={openForm} className="hidden lg:inline-flex">
@@ -137,6 +198,65 @@ export default function CustomersPage() {
         </div>
       )}
 
+      <form
+        onSubmit={handlePayment}
+        className="admin-card mb-6 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+      >
+        <div className="sm:col-span-2 lg:col-span-1">
+          <label className="mb-1 block text-sm font-medium">Record Credit Payment</label>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+            value={payForm.customerId}
+            onChange={(e) => setPayForm({ ...payForm, customerId: e.target.value })}
+            required
+          >
+            <option value="">Select customer</option>
+            {(customersWithCredit.length ? customersWithCredit : customers).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} — {formatPrice(c.credit_balance)} due
+              </option>
+            ))}
+          </select>
+        </div>
+        <Input
+          label="Amount"
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="0.00"
+          value={payForm.amount || ""}
+          onChange={(e) => setPayForm({ ...payForm, amount: Number(e.target.value) })}
+        />
+        <div>
+          <label className="mb-1 block text-sm font-medium">Payment Method</label>
+          <select
+            className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+            value={payForm.paymentMethod}
+            onChange={(e) =>
+              setPayForm({
+                ...payForm,
+                paymentMethod: e.target.value as PosPaymentMethod,
+              })
+            }
+          >
+            {(["cash", "upi", "card"] as PosPaymentMethod[]).map((m) => (
+              <option key={m} value={m}>
+                {POS_PAYMENT_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Input
+          label="Notes"
+          placeholder="Optional"
+          value={payForm.notes}
+          onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })}
+        />
+        <Button type="submit" variant="outline" className="lg:mb-0.5">
+          Record Payment
+        </Button>
+      </form>
+
       <Input
         label="Search"
         placeholder="Search by name or mobile..."
@@ -159,6 +279,21 @@ export default function CustomersPage() {
           },
           { key: "mobile", header: "Mobile", cell: (c) => c.mobile },
           {
+            key: "credit",
+            header: "Credit Due",
+            cell: (c) => (
+              <span
+                className={
+                  c.credit_balance > 0
+                    ? "font-semibold text-amber-700 dark:text-amber-400"
+                    : "text-gray-500"
+                }
+              >
+                {formatPrice(c.credit_balance)}
+              </span>
+            ),
+          },
+          {
             key: "email",
             header: "Email",
             hideOnMobile: true,
@@ -167,16 +302,19 @@ export default function CustomersPage() {
           {
             key: "since",
             header: "Customer Since",
+            hideOnMobile: true,
             cell: (c) => formatDate(c.created_at),
           },
           {
             key: "last",
             header: "Last Order",
+            hideOnMobile: true,
             cell: (c) => (c.last_order_date ? formatDate(c.last_order_date) : "—"),
           },
           {
             key: "orders",
-            header: "Total Orders",
+            header: "Orders",
+            hideOnMobile: true,
             cell: (c) => c.total_orders,
           },
           {
@@ -195,7 +333,56 @@ export default function CustomersPage() {
             cell: (c) => c.loyalty_points,
           },
         ]}
+        actions={(c) => (
+          <ActionButton
+            icon={Eye}
+            label="Credit Ledger"
+            onClick={() => viewLedger(c)}
+            variant="primary"
+          />
+        )}
       />
+
+      <Modal
+        open={!!ledgerCustomer}
+        onClose={() => setLedgerCustomer(null)}
+        title={`Credit Ledger — ${ledgerCustomer?.name ?? ""}`}
+        size="lg"
+      >
+        <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+          Credit Due:{" "}
+          <strong>{formatPrice(ledgerCustomer?.credit_balance ?? 0)}</strong>
+        </div>
+        <div className="space-y-2">
+          {ledger.map((entry, i) => (
+            <div
+              key={i}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm dark:border-gray-700"
+            >
+              <div>
+                <p className="font-medium capitalize">{entry.type}</p>
+                <p className="text-gray-500">
+                  {formatDate(entry.date)} · {entry.reference}
+                </p>
+                {entry.notes && (
+                  <p className="text-xs text-gray-500">{entry.notes}</p>
+                )}
+              </div>
+              <div className="text-right">
+                {entry.debit > 0 && (
+                  <p className="text-red-600">+{formatPrice(entry.debit)}</p>
+                )}
+                {entry.credit > 0 && (
+                  <p className="text-green-600">−{formatPrice(entry.credit)}</p>
+                )}
+              </div>
+            </div>
+          ))}
+          {ledger.length === 0 && (
+            <p className="text-center text-gray-500">No credit entries yet.</p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -16,11 +16,10 @@ function shouldShowUpiQr(data: ReceiptData, settings: StoreSettings): boolean {
   if (!settings.enable_upi_qr || !settings.upi_id || data.grandTotal <= 0) {
     return false;
   }
+  if (data.showUpiQr === false) return false;
   const method = data.paymentMethod.toLowerCase();
   if (method.includes("cod") || method.includes("cash on delivery")) return false;
-  if (method.includes("cash") && !method.includes("upi")) return false;
-  if (method.includes("card") && !method.includes("upi")) return false;
-  return method.includes("upi") || data.showUpiQr === true;
+  return true;
 }
 
 function wrapName(name: string, maxLen: number): string {
@@ -57,8 +56,9 @@ export function ReceiptPrint({
   const fontSize = width === "58mm" ? "9px" : "11px";
   const nameMax = width === "58mm" ? 14 : 20;
   const showUpiQr = shouldShowUpiQr(data, settings);
+  const upiPayAmount = data.upiAmount ?? data.creditDue ?? data.grandTotal;
   const upiUrl = showUpiQr
-    ? settingsService.buildUpiUrl(settings, data.grandTotal)
+    ? settingsService.buildUpiUrl(settings, upiPayAmount)
     : null;
 
   return (
@@ -200,6 +200,16 @@ export function ReceiptPrint({
           Payment: {data.paymentMethod}
           {data.orderStatus ? ` · ${data.orderStatus}` : ""}
         </p>
+        {(data.creditDue ?? 0) > 0 && (
+          <p className="mt-1 font-semibold text-[0.85em]">
+            Credit This Bill: {formatPrice(data.creditDue!)}
+          </p>
+        )}
+        {data.creditBalance !== undefined && data.creditBalance > 0 && (
+          <p className="text-[0.85em]">
+            Total Credit Due: {formatPrice(data.creditBalance)}
+          </p>
+        )}
       </div>
 
       <div className="thermal-line-solid" />
@@ -214,14 +224,18 @@ export function ReceiptPrint({
 
       <div className="thermal-line-solid" />
 
-      {/* UPI QR at bottom — UPI payments only */}
+      {/* UPI QR — shown on all bills when enabled in settings */}
       {showUpiQr && upiUrl && (
         <>
           <div className="py-2 text-center">
             <p className="mb-1 text-[0.9em] font-semibold">Scan to Pay via UPI</p>
+            <p className="mb-1 text-[0.85em]">Amount: {formatPrice(upiPayAmount)}</p>
             <div className="flex justify-center">
               <UpiQr upiUrl={upiUrl} size={width === "58mm" ? 100 : 130} />
             </div>
+            {settings.upi_id && (
+              <p className="mt-1 text-[0.8em]">{settings.upi_id}</p>
+            )}
             {settings.upi_merchant_name && (
               <p className="mt-1 text-[0.85em]">{settings.upi_merchant_name}</p>
             )}

@@ -4,6 +4,7 @@ export { purchaseService } from "./purchase.service";
 export { supplierService } from "./supplier.service";
 export { customerService } from "./customer.service";
 export { loyaltyService } from "./loyalty.service";
+export { creditService } from "./credit.service";
 export { expenseService } from "./expense.service";
 export { cashClosingService } from "./cash-closing.service";
 export { erpReportsService } from "./reports.service";

@@ -34,7 +34,7 @@ export const cashClosingService = {
           cash_sales: posStats.cash,
           upi_sales: posStats.upi,
           card_sales: posStats.card,
-          credit_sales: 0,
+          credit_sales: posStats.credit,
           online_cash_sales: orderStats.todaySales,
           expenses: expenseTotal,
           closing_cash: closingCash,

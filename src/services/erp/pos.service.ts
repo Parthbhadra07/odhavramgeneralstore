@@ -4,6 +4,7 @@ import type { PosCartLine, PosSale, PosSaleStatus } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { lineItemGst } from "@/utils/gst";
 import { loyaltyService } from "./loyalty.service";
+import { creditService } from "./credit.service";
 import { customerService } from "./customer.service";
 import { lotService } from "./lot.service";
 
@@ -77,6 +78,15 @@ export const posService = {
       }
     }
 
+    if (params.paymentMethod === "credit" && params.saleStatus !== "held") {
+      if (!customerId) {
+        throw new Error("Customer mobile is required for credit sales");
+      }
+    }
+
+    const isCreditSale =
+      params.paymentMethod === "credit" && params.saleStatus !== "held";
+
     const { subtotal, cgst, sgst, igst, total, items } = computeCartTotals(
       params.lines,
       params.discount ?? 0,
@@ -105,7 +115,7 @@ export const posService = {
         total_amount: total,
         payment_method: params.paymentMethod,
         sale_status: params.saleStatus ?? "completed",
-        payment_status: "paid",
+        payment_status: isCreditSale ? "pending" : "paid",
         cashier_id: user?.id ?? null,
         notes: params.notes ?? null,
       })
@@ -156,6 +166,15 @@ export const posService = {
           saleId
         );
       }
+      if (isCreditSale) {
+        await creditService.addCredit(
+          customerId,
+          total,
+          "pos_sale",
+          saleId,
+          `POS bill ${billNumber}`
+        );
+      }
     }
 
     return this.getById(saleId) as Promise<PosSale>;
@@ -189,6 +208,20 @@ export const posService = {
     const supabase = createClient();
     const sale = await this.getById(saleId);
     if (!sale) throw new Error("Sale not found");
+
+    if (
+      sale.payment_method === "credit" &&
+      sale.customer_id &&
+      sale.sale_status === "completed"
+    ) {
+      await creditService.reverseCredit(
+        sale.customer_id,
+        Number(sale.total_amount),
+        "pos_sale",
+        saleId,
+        `Cancelled POS bill ${sale.bill_number}`
+      );
+    }
 
     for (const item of sale.pos_sale_items ?? []) {
       await supabase.rpc("apply_stock_movement", {
@@ -258,6 +291,9 @@ export const posService = {
         .reduce((s, x) => s + Number(x.total_amount), 0),
       card: completed
         .filter((s) => s.payment_method === "card")
+        .reduce((s, x) => s + Number(x.total_amount), 0),
+      credit: completed
+        .filter((s) => s.payment_method === "credit")
         .reduce((s, x) => s + Number(x.total_amount), 0),
     };
   },

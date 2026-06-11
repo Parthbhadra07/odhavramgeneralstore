@@ -91,6 +91,17 @@ export interface Customer {
   updated_at: string;
 }
 
+export interface CustomerCredit {
+  id: string;
+  customer_id: string;
+  amount: number;
+  transaction_type: "credit" | "payment" | "adjust";
+  reference_type: string | null;
+  reference_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 export interface CustomerWithStats extends Customer {
   total_orders: number;
   total_purchase_amount: number;
@@ -390,6 +401,12 @@ export interface ReceiptData {
   taxIgst?: number;
   grandTotal: number;
   notes?: string | null;
+  /** Amount charged on credit this bill */
+  creditDue?: number;
+  /** Customer total outstanding credit after bill */
+  creditBalance?: number;
+  /** UPI QR amount (defaults to grandTotal) */
+  upiAmount?: number;
   /** Force UPI QR display (overrides payment method check) */
   showUpiQr?: boolean;
 }

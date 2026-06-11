@@ -28,7 +28,8 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
     paymentMethod:
       POS_PAYMENT_LABELS[sale.payment_method as keyof typeof POS_PAYMENT_LABELS] ??
       sale.payment_method,
-    showUpiQr: sale.payment_method === "upi",
+    showUpiQr: true,
+    creditDue: sale.payment_method === "credit" ? Number(sale.total_amount) : undefined,
     orderStatus: sale.sale_status,
     items,
     subtotal: Number(sale.subtotal),
@@ -71,6 +72,7 @@ export function receiptFromOrder(order: Order): ReceiptData {
       PAYMENT_METHOD_LABELS[order.payment_method ?? "cod"] ??
       order.payment_method ??
       "—",
+    showUpiQr: order.payment_method === "qr",
     orderStatus:
       ORDER_STATUS_LABELS[order.order_status as StoreOrderStatus] ??
       order.order_status,

@@ -37,6 +37,9 @@ export default function PosPage() {
   const [cart, setCart] = useState<PosCartLine[]>([]);
   const [heldBills, setHeldBills] = useState<PosSale[]>([]);
   const [lastSale, setLastSale] = useState<PosSale | null>(null);
+  const [lastSaleCreditBalance, setLastSaleCreditBalance] = useState<number | null>(
+    null
+  );
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("cash");
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -219,7 +222,13 @@ export default function PosPage() {
         setSelectedCustomer(found);
         setCustomerName(found.name);
         setCustomerMobile(found.mobile);
-        toast.success(`Customer linked — ${found.loyalty_points} points available`);
+        const creditMsg =
+          found.credit_balance > 0
+            ? ` · Credit due ${formatPrice(found.credit_balance)}`
+            : "";
+        toast.success(
+          `Customer linked — ${found.loyalty_points} points${creditMsg}`
+        );
       } else if (mobile && isValidMobile(mobile)) {
         setSelectedCustomer(null);
         toast.message("New customer — will be saved when you complete the bill");
@@ -259,6 +268,10 @@ export default function PosPage() {
     }
     if (loyaltyRedeem > 0 && !customerMobile.trim()) {
       toast.error("Enter customer mobile to redeem loyalty points");
+      return;
+    }
+    if (paymentMethod === "credit" && !customerMobile.trim()) {
+      toast.error("Enter customer mobile for credit sale");
       return;
     }
     if (
@@ -304,6 +317,16 @@ export default function PosPage() {
       setSplitCash(0);
       setSplitUpi(0);
       setSplitCard(0);
+      const lastCustomerCredit =
+        sale.customer_id && sale.payment_method === "credit"
+          ? (await customerService.getByMobile(sale.customer_mobile ?? ""))
+              ?.credit_balance
+          : undefined;
+      if (lastCustomerCredit !== undefined) {
+        setLastSaleCreditBalance(lastCustomerCredit);
+      } else {
+        setLastSaleCreditBalance(null);
+      }
       clearCustomer();
       const earned =
         sale.customer_id && sale.sale_status === "completed"
@@ -571,8 +594,18 @@ export default function PosPage() {
               <p className="font-medium text-green-900">{selectedCustomer.name}</p>
               <p className="text-green-800">
                 {selectedCustomer.loyalty_points} points available
+                {selectedCustomer.credit_balance > 0 && (
+                  <span className="ml-2 text-amber-700">
+                    · Credit due {formatPrice(selectedCustomer.credit_balance)}
+                  </span>
+                )}
               </p>
             </div>
+          )}
+          {paymentMethod === "credit" && !customerMobile.trim() && (
+            <p className="text-sm text-amber-700">
+              Customer mobile is required for credit billing
+            </p>
           )}
         </div>
 
@@ -717,6 +750,7 @@ export default function PosPage() {
                 cashierName: profile?.name ?? null,
                 discountPercent:
                   discountMode === "percent" ? discountPercent : undefined,
+                creditBalance: lastSaleCreditBalance ?? undefined,
               }}
               settings={settings}
               defaultWidth={printWidth}
