@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Eye, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
-import type { CustomerWithStats } from "@/types/erp";
+import type { CreditLedgerEntry, CustomerWithStats } from "@/types/erp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ResponsiveTable } from "@/components/admin/responsive-table";
@@ -21,16 +21,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [ledgerCustomer, setLedgerCustomer] = useState<CustomerWithStats | null>(null);
-  const [ledger, setLedger] = useState<
-    {
-      date: string;
-      type: string;
-      reference: string;
-      notes: string | null;
-      debit: number;
-      credit: number;
-    }[]
-  >([]);
+  const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
@@ -362,7 +353,7 @@ export default function CustomersPage() {
               <div>
                 <p className="font-medium capitalize">{entry.type}</p>
                 <p className="text-gray-500">
-                  {formatDate(entry.date)} · {entry.reference}
+                  {formatDate(entry.date)} · {entry.description}
                 </p>
                 {entry.notes && (
                   <p className="text-xs text-gray-500">{entry.notes}</p>

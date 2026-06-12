@@ -2,59 +2,141 @@
 
 import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
+import type { BarcodeFormat, BarcodeLabelConfig } from "@/types/erp";
+import {
+  buildLabelStyle,
+  resolveJsBarcodeFormat,
+  type BarcodeLabelData,
+} from "./barcode-label-utils";
 
-interface BarcodeLabelProps {
-  value: string;
-  productName: string;
-  shopName?: string;
+interface BarcodeLabelProps extends BarcodeLabelData {
+  /** @deprecated use sellingPrice */
   price?: number;
-  mrp?: number;
-  format?: "EAN13" | "CODE128";
+  format?: BarcodeFormat;
+  config?: Partial<BarcodeLabelConfig>;
+  className?: string;
 }
+
+const DEFAULT_CONFIG: BarcodeLabelConfig = {
+  format: "CODE128",
+  labelWidthMm: 50,
+  labelHeightMm: 25,
+  barcodeHeight: 40,
+  fontSize: 10,
+  printerType: "tvs",
+  showProductName: true,
+  showMrp: true,
+  showSellingPrice: true,
+  showSku: false,
+  showBarcodeNumber: true,
+  showStoreName: true,
+  showMfgDate: false,
+  showExpiryDate: false,
+};
 
 export function BarcodeLabel({
   value,
   productName,
   shopName,
+  sku,
+  sellingPrice,
   price,
   mrp,
-  format = "CODE128",
+  mfgDate,
+  expiryDate,
+  format,
+  config: configOverride,
+  className,
 }: BarcodeLabelProps) {
+  const resolvedSelling = sellingPrice ?? price;
+  const config = {
+    ...DEFAULT_CONFIG,
+    ...configOverride,
+    ...(format ? { format } : {}),
+  };
   const svgRef = useRef<SVGSVGElement>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const isQr = config.format === "QR";
 
   useEffect(() => {
+    if (isQr) {
+      if (!qrCanvasRef.current || !value) return;
+      QRCode.toCanvas(qrCanvasRef.current, value, {
+        width: config.barcodeHeight,
+        margin: 1,
+      }).catch(() => {});
+      return;
+    }
+
     if (!svgRef.current || !value) return;
+    const jsFormat = resolveJsBarcodeFormat(config.format, value);
     try {
       JsBarcode(svgRef.current, value, {
-        format: format === "EAN13" && value.length === 13 ? "EAN13" : "CODE128",
-        width: 2,
-        height: 60,
-        displayValue: true,
-        fontSize: 14,
+        format: jsFormat,
+        width: config.printerType === "tvs" ? 1.5 : 2,
+        height: config.barcodeHeight,
+        displayValue: config.showBarcodeNumber,
+        fontSize: config.fontSize,
+        margin: 2,
       });
     } catch {
-      JsBarcode(svgRef.current, value, { format: "CODE128", width: 2, height: 60 });
+      JsBarcode(svgRef.current, value, {
+        format: "CODE128",
+        width: 2,
+        height: config.barcodeHeight,
+        displayValue: true,
+        fontSize: config.fontSize,
+      });
     }
-  }, [value, format]);
+  }, [value, config, isQr]);
+
+  const labelStyle = buildLabelStyle(config);
 
   return (
-    <div className="inline-block w-[220px] rounded border bg-white p-3 text-center print:break-inside-avoid">
-      {shopName && (
-        <p className="mb-1 truncate text-[10px] font-bold uppercase tracking-wide text-green-800">
+    <div
+      className={`thermal-label inline-block rounded border border-gray-200 bg-white text-center print:break-inside-avoid ${className ?? ""}`}
+      style={labelStyle}
+    >
+      {config.showStoreName && shopName && (
+        <p className="mb-0.5 truncate font-bold uppercase tracking-wide text-green-800" style={{ fontSize: config.fontSize - 1 }}>
           {shopName}
         </p>
       )}
-      <p className="mb-1 max-w-[200px] truncate text-xs font-medium">{productName}</p>
-      <svg ref={svgRef} className="mx-auto" />
-      <div className="mt-1 flex justify-center gap-3 text-sm font-bold">
-        {mrp != null && <span>MRP ₹{mrp.toFixed(2)}</span>}
-        {price != null && mrp == null && <span>₹{price.toFixed(2)}</span>}
+      {config.showProductName && (
+        <p className="mb-0.5 truncate font-medium leading-tight">{productName}</p>
+      )}
+      {config.showSku && sku && (
+        <p className="mb-0.5 text-gray-600" style={{ fontSize: config.fontSize - 1 }}>
+          SKU: {sku}
+        </p>
+      )}
+      {isQr ? (
+        <canvas ref={qrCanvasRef} className="mx-auto" />
+      ) : (
+        <svg ref={svgRef} className="mx-auto max-w-full" />
+      )}
+      <div className="mt-0.5 flex flex-wrap justify-center gap-2 font-bold">
+        {config.showMrp && mrp != null && <span>MRP ₹{mrp.toFixed(2)}</span>}
+        {config.showSellingPrice && resolvedSelling != null && (
+          <span>₹{resolvedSelling.toFixed(2)}</span>
+        )}
       </div>
+      {config.showMfgDate && mfgDate && (
+        <p className="text-gray-600" style={{ fontSize: config.fontSize - 2 }}>
+          Mfg: {mfgDate}
+        </p>
+      )}
+      {config.showExpiryDate && expiryDate && (
+        <p className="text-gray-600" style={{ fontSize: config.fontSize - 2 }}>
+          Exp: {expiryDate}
+        </p>
+      )}
     </div>
   );
 }
 
-export function printBarcodeLabels(title = "Barcode Labels") {
+export function printBarcodeLabels(title = "Barcode Labels", printerType: BarcodeLabelConfig["printerType"] = "tvs") {
   const el = document.getElementById("barcode-labels-print");
   if (!el) return;
   const w = window.open("", "_blank");
@@ -62,8 +144,9 @@ export function printBarcodeLabels(title = "Barcode Labels") {
   w.document.write(`
     <html><head><title>${title}</title>
     <style>
-      body{font-family:sans-serif;display:flex;flex-wrap:wrap;gap:8px;}
-      @page{margin:10mm;}
+      body{font-family:Arial,sans-serif;display:flex;flex-wrap:wrap;gap:2mm;margin:0;padding:2mm;}
+      .thermal-label{page-break-inside:avoid;}
+      @page{margin:2mm;}
     </style>
     </head><body>${el.innerHTML}</body></html>
   `);

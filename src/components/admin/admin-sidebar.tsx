@@ -25,6 +25,8 @@ import {
   RotateCcw,
   Undo2,
   Wallet2,
+  BookOpen,
+  FileStack,
   CalendarClock,
   History,
   SlidersHorizontal,
@@ -60,6 +62,7 @@ const navGroups = [
     label: "Sales",
     links: [
       { href: "/admin/pos", label: "POS Billing", icon: Monitor },
+      { href: "/admin/sales-history", label: "Sales History", icon: FileStack },
       { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
       { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },
       { href: "/admin/refunds", label: "Refunds", icon: Wallet2 },
@@ -97,6 +100,7 @@ const navGroups = [
     label: "People & Finance",
     links: [
       { href: "/admin/customers", label: "Customers", icon: UserCircle },
+      { href: "/admin/credit", label: "Credit (Khatabook)", icon: BookOpen },
       { href: "/admin/expenses", label: "Expenses", icon: Receipt },
       { href: "/admin/users", label: "Users & Roles", icon: Wallet },
     ],

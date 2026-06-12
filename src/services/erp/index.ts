@@ -21,3 +21,4 @@ export { reorderService } from "./reorder.service";
 export { backupService } from "./backup.service";
 export { variantService } from "./variant.service";
 export { generateBarcode, generateEan13 } from "./barcode.service";
+export { barcodeLabelService } from "./barcode-label.service";

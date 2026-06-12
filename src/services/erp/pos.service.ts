@@ -1,6 +1,12 @@
 import { createClient } from "@/lib/supabase/client";
 import { LOYALTY_POINTS_PER_100 } from "@/lib/erp/constants";
-import type { PosCartLine, PosSale, PosSaleStatus } from "@/types/erp";
+import type {
+  PosCartLine,
+  PosSale,
+  PosSaleFilters,
+  PosSalesHistoryStats,
+  PosSaleStatus,
+} from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { lineItemGst } from "@/utils/gst";
 import { loyaltyService } from "./loyalty.service";
@@ -251,24 +257,128 @@ export const posService = {
     return data as PosSale;
   },
 
-  async list(filters?: {
-    status?: PosSaleStatus;
-    dateFrom?: string;
-    dateTo?: string;
-    limit?: number;
-  }): Promise<PosSale[]> {
+  async list(filters?: PosSaleFilters): Promise<PosSale[]> {
     const supabase = createClient();
     let q = supabase
       .from("pos_sales")
       .select("*, pos_sale_items(*)")
       .order("created_at", { ascending: false })
-      .limit(filters?.limit ?? 50);
+      .limit(filters?.limit ?? 100);
+
     if (filters?.status) q = q.eq("sale_status", filters.status);
     if (filters?.dateFrom) q = q.gte("created_at", filters.dateFrom);
     if (filters?.dateTo) q = q.lte("created_at", filters.dateTo);
+    if (filters?.customerName) q = q.ilike("customer_name", `%${filters.customerName}%`);
+    if (filters?.customerMobile) q = q.ilike("customer_mobile", `%${filters.customerMobile}%`);
+    if (filters?.billNumber) q = q.ilike("bill_number", `%${filters.billNumber}%`);
+    if (filters?.paymentMethod) q = q.eq("payment_method", filters.paymentMethod);
+    if (filters?.minAmount != null) q = q.gte("total_amount", filters.minAmount);
+    if (filters?.maxAmount != null) q = q.lte("total_amount", filters.maxAmount);
+    if (filters?.creditOnly) q = q.eq("payment_method", "credit");
+    if (filters?.cancelledOnly) q = q.eq("sale_status", "cancelled");
+
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []) as PosSale[];
+
+    let rows = (data ?? []) as PosSale[];
+
+    if (filters?.search?.trim()) {
+      const s = filters.search.trim().toLowerCase();
+      rows = rows.filter(
+        (sale) =>
+          sale.bill_number.toLowerCase().includes(s) ||
+          (sale.customer_name?.toLowerCase().includes(s) ?? false) ||
+          (sale.customer_mobile?.includes(s) ?? false) ||
+          (sale.pos_sale_items ?? []).some(
+            (i) =>
+              i.product_name.toLowerCase().includes(s) ||
+              (i.barcode?.includes(s) ?? false)
+          )
+      );
+    }
+
+    return rows;
+  },
+
+  async searchBills(filters: PosSaleFilters): Promise<PosSale[]> {
+    return this.list({ ...filters, limit: filters.limit ?? 200 });
+  },
+
+  async getHistoryStats(): Promise<PosSalesHistoryStats> {
+    const supabase = createClient();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+    const { data, error } = await supabase
+      .from("pos_sales")
+      .select("total_amount, payment_method, sale_status, created_at")
+      .eq("sale_status", "completed");
+    if (error) throw error;
+
+    const rows = data ?? [];
+    const completed = rows.filter((r) => r.sale_status === "completed");
+    const todaysSales = completed
+      .filter((r) => new Date(r.created_at) >= todayStart)
+      .reduce((s, r) => s + Number(r.total_amount), 0);
+    const monthSales = completed
+      .filter((r) => new Date(r.created_at) >= monthStart)
+      .reduce((s, r) => s + Number(r.total_amount), 0);
+    const totalBills = completed.length;
+    const averageBillValue =
+      totalBills > 0
+        ? Math.round(
+            (completed.reduce((s, r) => s + Number(r.total_amount), 0) / totalBills) * 100
+          ) / 100
+        : 0;
+    const creditBills = completed.filter((r) => r.payment_method === "credit").length;
+    const cashBills = completed.filter((r) => r.payment_method === "cash").length;
+
+    return {
+      todaysSales: Math.round(todaysSales * 100) / 100,
+      monthSales: Math.round(monthSales * 100) / 100,
+      totalBills,
+      averageBillValue,
+      creditBills,
+      cashBills,
+    };
+  },
+
+  async convertToCredit(saleId: string): Promise<PosSale> {
+    const supabase = createClient();
+    const sale = await this.getById(saleId);
+    if (!sale) throw new Error("Sale not found");
+    if (sale.sale_status !== "completed") throw new Error("Only completed bills can be converted");
+    if (sale.payment_method === "credit") throw new Error("Bill is already a credit sale");
+    if (!sale.customer_id) throw new Error("Customer is required for credit conversion");
+
+    await supabase
+      .from("pos_sales")
+      .update({
+        payment_method: "credit",
+        payment_status: "pending",
+      })
+      .eq("id", saleId);
+
+    await creditService.addCredit(
+      sale.customer_id,
+      Number(sale.total_amount),
+      "pos_sale",
+      saleId,
+      `Converted to credit — ${sale.bill_number}`
+    );
+
+    return this.getById(saleId) as Promise<PosSale>;
+  },
+
+  async getLastBills(count = 10): Promise<PosSale[]> {
+    return this.list({ limit: count });
+  },
+
+  async getTodaysBills(): Promise<PosSale[]> {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return this.list({ dateFrom: start.toISOString(), limit: 200 });
   },
 
   async getHeldBills(): Promise<PosSale[]> {

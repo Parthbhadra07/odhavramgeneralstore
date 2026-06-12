@@ -45,6 +45,10 @@ export type PosSaleStatus =
   | "cancelled"
   | "returned";
 
+export type BarcodeFormat = "CODE128" | "EAN13" | "EAN8" | "UPC" | "QR";
+export type ThermalPrinterType = "tvs" | "zebra" | "tsc" | "generic";
+export type CustomerAccountStatus = "active" | "blocked" | "closed";
+
 export interface ErpProduct {
   id: string;
   name: string;
@@ -53,6 +57,8 @@ export interface ErpProduct {
   barcode: string | null;
   brand: string | null;
   unit: string | null;
+  hsn_code?: string | null;
+  discount_percent?: number | null;
   description: string | null;
   price: number;
   purchase_price: number | null;
@@ -85,6 +91,9 @@ export interface Customer {
   address: string | null;
   gst_number: string | null;
   credit_balance: number;
+  credit_limit?: number;
+  account_status?: CustomerAccountStatus;
+  last_payment_date?: string | null;
   loyalty_points: number;
   notes: string | null;
   created_at: string;
@@ -99,7 +108,95 @@ export interface CustomerCredit {
   reference_type: string | null;
   reference_id: string | null;
   notes: string | null;
+  due_date?: string | null;
+  payment_method?: string | null;
+  description?: string | null;
   created_at: string;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  date: string;
+  description: string;
+  type: string;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  notes: string | null;
+  dueDate?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+}
+
+export interface CreditDashboardStats {
+  totalCreditGiven: number;
+  totalCreditCollected: number;
+  outstandingBalance: number;
+  overdueAmount: number;
+  activeCreditCustomers: number;
+  todaysCollection: number;
+}
+
+export interface BarcodeLabelRecord {
+  id: string;
+  product_id: string;
+  barcode: string;
+  label_format: string;
+  printer_type: string | null;
+  label_width_mm: number | null;
+  label_height_mm: number | null;
+  print_quantity: number;
+  printed_at: string | null;
+  created_at: string;
+}
+
+export interface BarcodeDashboardStats {
+  totalWithBarcode: number;
+  generatedToday: number;
+  printedToday: number;
+  withoutBarcode: number;
+}
+
+export interface BarcodeLabelConfig {
+  format: BarcodeFormat;
+  labelWidthMm: number;
+  labelHeightMm: number;
+  barcodeHeight: number;
+  fontSize: number;
+  printerType: ThermalPrinterType;
+  showProductName: boolean;
+  showMrp: boolean;
+  showSellingPrice: boolean;
+  showSku: boolean;
+  showBarcodeNumber: boolean;
+  showStoreName: boolean;
+  showMfgDate: boolean;
+  showExpiryDate: boolean;
+}
+
+export interface PosSalesHistoryStats {
+  todaysSales: number;
+  monthSales: number;
+  totalBills: number;
+  averageBillValue: number;
+  creditBills: number;
+  cashBills: number;
+}
+
+export interface PosSaleFilters {
+  status?: PosSaleStatus;
+  dateFrom?: string;
+  dateTo?: string;
+  customerName?: string;
+  customerMobile?: string;
+  billNumber?: string;
+  paymentMethod?: PosPaymentMethod;
+  minAmount?: number;
+  maxAmount?: number;
+  creditOnly?: boolean;
+  cancelledOnly?: boolean;
+  search?: string;
+  limit?: number;
 }
 
 export interface CustomerWithStats extends Customer {
