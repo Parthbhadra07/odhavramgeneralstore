@@ -49,6 +49,7 @@ export function useErpNotifications(onRefresh?: () => void) {
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) return;
 
     const channels = [
       supabase

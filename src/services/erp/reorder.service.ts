@@ -1,5 +1,5 @@
 import { inventoryService } from "./inventory.service";
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 
 export interface ReorderSuggestion {
   productId: string;
@@ -20,7 +20,7 @@ export interface SalesForecast {
 export const reorderService = {
   async getSuggestions(): Promise<ReorderSuggestion[]> {
     const products = await inventoryService.listProducts();
-    const supabase = createClient();
+    const supabase = requireClient();
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
@@ -68,7 +68,7 @@ export const reorderService = {
   },
 
   async forecast(): Promise<SalesForecast> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const since = new Date();
     since.setDate(since.getDate() - 30);
 

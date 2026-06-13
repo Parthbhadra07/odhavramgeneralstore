@@ -8,6 +8,7 @@ import {
   printReceipt,
   downloadReceiptPdf,
 } from "@/components/erp/receipt-print";
+import { getReceiptPreviewStyles } from "@/utils/receipt-styles";
 import type { ReceiptData, StoreSettings } from "@/types/erp";
 
 interface ReceiptActionsProps {
@@ -91,19 +92,25 @@ export function ReceiptActions({
                 </Button>
               </div>
             </div>
-            <ReceiptPrint
-              data={data}
-              settings={settings}
-              width={width}
-              id={receiptId}
-            />
+            <div className="receipt-preview-scope">
+              <style>{getReceiptPreviewStyles(width)}</style>
+              <ReceiptPrint
+                data={data}
+                settings={settings}
+                width={width}
+                id={receiptId}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Hidden receipt for print when preview is closed */}
+      {/* Hidden receipt for print when preview modal is closed */}
       {!showPreview && (
-        <div className="pointer-events-none fixed -left-[9999px] top-0 opacity-0">
+        <div
+          className="pointer-events-none fixed -left-[9999px] top-0"
+          aria-hidden="true"
+        >
           <ReceiptPrint
             data={data}
             settings={settings}

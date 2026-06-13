@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { ErpProduct, LotStockMovement, ProductLot } from "@/types/erp";
 
 const lotSelect = `*, products(name, sku, barcode, price, selling_price)`;
@@ -10,7 +10,7 @@ export interface BarcodeResolveResult {
 
 export const lotService = {
   async getByBarcode(barcode: string): Promise<ProductLot | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("product_lots")
       .select(lotSelect)
@@ -23,7 +23,7 @@ export const lotService = {
   },
 
   async listByProduct(productId: string): Promise<ProductLot[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("product_lots")
       .select(lotSelect)
@@ -39,7 +39,7 @@ export const lotService = {
     lowStock?: boolean;
     nearExpiryDays?: number;
   }): Promise<ProductLot[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("product_lots")
       .select(lotSelect)
@@ -84,7 +84,7 @@ export const lotService = {
     referenceId: string,
     notes?: string
   ): Promise<number> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("apply_lot_stock_movement", {
       p_lot_id: lotId,
       p_quantity: -quantity,
@@ -98,7 +98,7 @@ export const lotService = {
   },
 
   async getMovements(lotId?: string, limit = 100): Promise<LotStockMovement[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("lot_stock_movements")
       .select("*, product_lots(barcode, lot_number, batch_number), products(name, sku)")
@@ -121,7 +121,7 @@ export const lotService = {
     quantity: number;
     expiryDate?: string;
   }): Promise<ProductLot> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("product_lots")
       .insert({

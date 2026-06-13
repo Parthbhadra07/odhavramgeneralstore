@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { ProductVariant, ProductImage } from "@/types/erp";
 
 export const variantService = {
   async listByProduct(productId: string): Promise<ProductVariant[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("product_variants")
       .select("*")
@@ -14,7 +14,7 @@ export const variantService = {
   },
 
   async upsert(variant: Partial<ProductVariant> & { product_id: string; name: string; selling_price: number }): Promise<ProductVariant> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const payload = {
       ...variant,
       updated_at: new Date().toISOString(),
@@ -39,19 +39,19 @@ export const variantService = {
   },
 
   async remove(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("product_variants").delete().eq("id", id);
     if (error) throw error;
   },
 
   async setPrimary(productId: string, variantId: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("product_variants").update({ is_primary: false }).eq("product_id", productId);
     await supabase.from("product_variants").update({ is_primary: true }).eq("id", variantId);
   },
 
   async listImages(productId: string): Promise<ProductImage[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("product_images")
       .select("*")
@@ -62,7 +62,7 @@ export const variantService = {
   },
 
   async addImage(productId: string, url: string, isPrimary = false): Promise<ProductImage> {
-    const supabase = createClient();
+    const supabase = requireClient();
     if (isPrimary) {
       await supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
     }
@@ -76,7 +76,7 @@ export const variantService = {
   },
 
   async setPrimaryImage(productId: string, imageId: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("product_images").update({ is_primary: false }).eq("product_id", productId);
     await supabase.from("product_images").update({ is_primary: true }).eq("id", imageId);
     const { data } = await supabase.from("product_images").select("url").eq("id", imageId).single();
@@ -86,7 +86,7 @@ export const variantService = {
   },
 
   async removeImage(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("product_images").delete().eq("id", id);
     if (error) throw error;
   },

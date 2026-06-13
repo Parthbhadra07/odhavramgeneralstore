@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { LOYALTY_POINTS_PER_100 } from "@/lib/erp/constants";
 import type {
   PosCartLine,
@@ -8,7 +8,7 @@ import type {
   PosSaleStatus,
 } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
-import { lineItemGst } from "@/utils/gst";
+import { lineItemInclusiveGst } from "@/utils/gst";
 import { loyaltyService } from "./loyalty.service";
 import { creditService } from "./credit.service";
 import { customerService } from "./customer.service";
@@ -24,8 +24,9 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
   let cgst = 0;
   let sgst = 0;
   const items = lines.map((line) => {
-    const gst = lineItemGst(line.rate, line.quantity, line.gstPercentage);
-    subtotal += line.rate * line.quantity;
+    const lineTotal = line.rate * line.quantity;
+    const gst = lineItemInclusiveGst(line.rate, line.quantity, line.gstPercentage);
+    subtotal += lineTotal;
     cgst += gst.cgst;
     sgst += gst.sgst;
     return {
@@ -37,17 +38,17 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
       rate: line.rate,
       gst_percentage: line.gstPercentage,
       gst_amount: gst.totalGst,
-      total_amount: gst.totalWithGst,
+      total_amount: lineTotal,
     };
   });
   const total =
-    Math.round((subtotal + cgst + sgst - discount - loyaltyDiscount) * 100) / 100;
+    Math.round((subtotal - discount - loyaltyDiscount) * 100) / 100;
   return { subtotal, cgst, sgst, igst: 0, total, items };
 }
 
 export const posService = {
   async generateBillNumber(): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("generate_pos_bill_number");
     if (error) return clientBillNumber();
     return data as string;
@@ -65,7 +66,7 @@ export const posService = {
     notes?: string;
     splitPayments?: { method: PosPaymentMethod; amount: number }[];
   }): Promise<PosSale> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
 
     const customer = await customerService.resolveForPos({
@@ -201,7 +202,7 @@ export const posService = {
   },
 
   async resumeBill(saleId: string): Promise<PosSale> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase
       .from("pos_sales")
       .update({ sale_status: "completed", held_at: null })
@@ -211,7 +212,7 @@ export const posService = {
   },
 
   async cancelBill(saleId: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const sale = await this.getById(saleId);
     if (!sale) throw new Error("Sale not found");
 
@@ -247,7 +248,7 @@ export const posService = {
   },
 
   async getById(id: string): Promise<PosSale | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("pos_sales")
       .select("*, pos_sale_items(*)")
@@ -258,7 +259,7 @@ export const posService = {
   },
 
   async list(filters?: PosSaleFilters): Promise<PosSale[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("pos_sales")
       .select("*, pos_sale_items(*)")
@@ -305,7 +306,7 @@ export const posService = {
   },
 
   async getHistoryStats(): Promise<PosSalesHistoryStats> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
@@ -345,7 +346,7 @@ export const posService = {
   },
 
   async convertToCredit(saleId: string): Promise<PosSale> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const sale = await this.getById(saleId);
     if (!sale) throw new Error("Sale not found");
     if (sale.sale_status !== "completed") throw new Error("Only completed bills can be converted");

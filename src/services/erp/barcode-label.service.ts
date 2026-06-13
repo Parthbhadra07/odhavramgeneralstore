@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type {
   BarcodeDashboardStats,
   BarcodeFormat,
@@ -44,7 +44,7 @@ export const PRINTER_PROFILES: Record<
 
 export const barcodeLabelService = {
   async getDashboardStats(): Promise<BarcodeDashboardStats> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -88,7 +88,7 @@ export const barcodeLabelService = {
     const trimmed = barcode.trim();
     if (!trimmed) return false;
 
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase.from("products").select("id").eq("barcode", trimmed);
     if (excludeProductId) q = q.neq("id", excludeProductId);
     const { data: products } = await q;
@@ -120,7 +120,7 @@ export const barcodeLabelService = {
     labelHeightMm: number;
     quantity: number;
   }): Promise<BarcodeLabelRecord> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -146,7 +146,7 @@ export const barcodeLabelService = {
   },
 
   async getRecentPrints(limit = 20): Promise<BarcodeLabelRecord[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("barcode_labels")
       .select("*")

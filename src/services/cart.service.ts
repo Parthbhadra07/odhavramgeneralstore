@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { CartItem } from "@/types/database";
 
 export const cartService = {
   async getItems(userId: string): Promise<CartItem[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("cart_items")
       .select("*, products(*)")
@@ -13,7 +13,7 @@ export const cartService = {
   },
 
   async addItem(userId: string, productId: string, quantity: number) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data: existing } = await supabase
       .from("cart_items")
       .select("id, quantity")
@@ -42,7 +42,7 @@ export const cartService = {
   },
 
   async updateQuantity(itemId: string, quantity: number) {
-    const supabase = createClient();
+    const supabase = requireClient();
     if (quantity <= 0) {
       return this.removeItem(itemId);
     }
@@ -57,13 +57,13 @@ export const cartService = {
   },
 
   async removeItem(itemId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("cart_items").delete().eq("id", itemId);
     if (error) throw error;
   },
 
   async clearCart(userId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase
       .from("cart_items")
       .delete()

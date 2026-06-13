@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type {
   SalesReturn,
   SalesReturnItem,
@@ -13,7 +13,7 @@ function clientReturnNumber(): string {
 
 export const salesReturnService = {
   async generateNumber(): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("generate_return_number", {
       p_prefix: "SR",
     });
@@ -22,7 +22,7 @@ export const salesReturnService = {
   },
 
   async list(): Promise<SalesReturn[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("sales_returns")
       .select("*, customers(*), sales_return_items(*)")
@@ -32,7 +32,7 @@ export const salesReturnService = {
   },
 
   async getById(id: string): Promise<SalesReturn | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("sales_returns")
       .select("*, customers(*), sales_return_items(*)")
@@ -64,7 +64,7 @@ export const salesReturnService = {
     createRefund?: boolean;
     refundMethod?: "cash" | "upi" | "bank_transfer" | "store_credit";
   }): Promise<SalesReturn> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -154,7 +154,7 @@ export const salesReturnService = {
     quantity?: number;
     rate?: number;
   }): Promise<SalesReturn> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const existing = await this.getById(params.returnId);
     if (!existing?.sales_return_items?.length) throw new Error("Return not found");
 
@@ -242,7 +242,7 @@ export const salesReturnService = {
   },
 
   async getByCustomer(customerId: string): Promise<SalesReturn[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("sales_returns")
       .select("*, sales_return_items(*)")

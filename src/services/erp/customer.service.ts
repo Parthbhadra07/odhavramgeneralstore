@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Customer, CustomerWithStats } from "@/types/erp";
 import { isValidMobile, normalizeMobile } from "@/utils/phone";
 
 export const customerService = {
   async list(search?: string): Promise<Customer[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase.from("customers").select("*").order("name");
     if (search) {
       q = q.or(`name.ilike.%${search}%,mobile.ilike.%${search}%`);
@@ -18,7 +18,7 @@ export const customerService = {
     const customers = await this.list(search);
     if (customers.length === 0) return [];
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const ids = customers.map((c) => c.id);
     const mobiles = customers.map((c) => normalizeMobile(c.mobile));
 
@@ -67,7 +67,7 @@ export const customerService = {
     const normalized = normalizeMobile(mobile);
     if (normalized.length < 10) return null;
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("customers")
       .select("*")
@@ -112,7 +112,7 @@ export const customerService = {
     name?: string;
   }): Promise<Customer | null> {
     if (opts.customerId) {
-      const supabase = createClient();
+      const supabase = requireClient();
       const { data, error } = await supabase
         .from("customers")
         .select("*")
@@ -197,7 +197,7 @@ export const customerService = {
   async upsert(
     customer: Partial<Customer> & { name: string; mobile: string }
   ): Promise<Customer> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const mobile = normalizeMobile(customer.mobile);
     const existing = await this.getByMobile(mobile);
     const payload = { ...customer, mobile, updated_at: new Date().toISOString() };
@@ -222,7 +222,7 @@ export const customerService = {
   },
 
   async getPurchaseHistory(customerId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data: pos } = await supabase
       .from("pos_sales")
       .select("*, pos_sale_items(*)")

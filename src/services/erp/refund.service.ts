@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Refund, RefundMethod, RefundStatus } from "@/types/erp";
 
 export const refundService = {
   async list(filters?: { status?: RefundStatus }): Promise<Refund[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("refunds")
       .select("*, sales_returns(return_number)")
@@ -15,7 +15,7 @@ export const refundService = {
   },
 
   async getById(id: string): Promise<Refund | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("refunds")
       .select("*, sales_returns(return_number)")
@@ -30,7 +30,7 @@ export const refundService = {
     status: RefundStatus,
     notes?: string
   ): Promise<Refund> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -63,7 +63,7 @@ export const refundService = {
     refundMethod: RefundMethod;
     notes?: string;
   }): Promise<Refund> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();

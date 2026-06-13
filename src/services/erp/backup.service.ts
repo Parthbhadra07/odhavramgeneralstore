@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { erpReportsService } from "./reports.service";
 
 const EXPORT_TABLES = [
@@ -25,7 +25,7 @@ function downloadBlob(content: string, filename: string, mime: string) {
 
 export const backupService = {
   async exportJson(): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const backup: Record<string, unknown[]> = {};
     const ts = new Date().toISOString().slice(0, 10);
 
@@ -42,7 +42,7 @@ export const backupService = {
   },
 
   async exportTableCsv(table: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.from(table).select("*").limit(5000);
     if (error) throw error;
     if (!data?.length) throw new Error("No data to export");
@@ -50,7 +50,7 @@ export const backupService = {
   },
 
   async restoreFromJson(json: string): Promise<{ imported: number; errors: string[] }> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const parsed = JSON.parse(json) as Record<string, unknown[]>;
     let imported = 0;
     const errors: string[] = [];

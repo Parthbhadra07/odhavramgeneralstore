@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { inventoryService } from "./inventory.service";
 import { posService } from "./pos.service";
 import { expenseService } from "./expense.service";
@@ -37,7 +37,7 @@ export const erpReportsService = {
   },
 
   async salesInRange(from: string, to: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const [posRes, ordersRes] = await Promise.all([
       supabase
         .from("pos_sales")
@@ -77,7 +77,7 @@ export const erpReportsService = {
   },
 
   async profitLoss(from: string, to: string): Promise<ProfitReport> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const [
       sales,
       expenses,
@@ -153,7 +153,7 @@ export const erpReportsService = {
   },
 
   async purchaseReturnReport(from: string, to: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_returns")
       .select("*, suppliers(name), purchase_return_items(*)")
@@ -170,7 +170,7 @@ export const erpReportsService = {
   },
 
   async salesReturnReport(from: string, to: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("sales_returns")
       .select("*, customers(name), sales_return_items(*)")
@@ -187,7 +187,7 @@ export const erpReportsService = {
   },
 
   async gstSalesReport(from: string, to: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data: pos } = await supabase
       .from("pos_sales")
       .select("subtotal, cgst, sgst, igst, total_amount, created_at")
@@ -206,7 +206,7 @@ export const erpReportsService = {
   },
 
   async gstPurchaseReport(from: string, to: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("purchase_bills")
       .select("subtotal, cgst, sgst, igst, total_amount")
@@ -233,7 +233,7 @@ export const erpReportsService = {
   },
 
   async topProducts(limit = 10) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("pos_sale_items")
       .select("product_id, product_name, quantity")

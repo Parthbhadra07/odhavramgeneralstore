@@ -31,7 +31,7 @@ import {
   History,
   SlidersHorizontal,
   Archive,
-  Bell,
+  BellRing,
   TrendingDown,
   Sparkles,
   Database,
@@ -47,13 +47,14 @@ import {
   playNewOrderSound,
   unlockNotificationAudio,
 } from "@/utils/notification-sound";
+import { requestNotificationPermission } from "@/utils/browser-notifications";
 
 const navGroups = [
   {
     label: "Overview",
     links: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/admin/notifications", label: "Notifications", icon: Bell },
+      { href: "/admin/notifications", label: "Notifications", icon: BellRing },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
       { href: "/admin/profit-loss", label: "Profit & Loss", icon: TrendingDown },
     ],
@@ -122,7 +123,8 @@ interface AdminSidebarProps {
 export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { soundEnabled, setSoundEnabled, newOrderCount } = useAdminOrderNotifications();
+  const { soundEnabled, setSoundEnabled, newOrderCount, testNotification } =
+    useAdminOrderNotifications();
 
   const handleLogout = async () => {
     onNavigate?.();
@@ -184,11 +186,23 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
         <button
           type="button"
           onClick={() => {
+            void requestNotificationPermission();
+            unlockNotificationAudio();
+            testNotification();
+          }}
+          className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+        >
+          <BellRing className="h-4 w-4 text-green-600" />
+          Test notification
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             const next = !soundEnabled;
             setSoundEnabled(next);
             if (next) {
               unlockNotificationAudio();
-              playNewOrderSound();
+              playNewOrderSound(`toggle-${Date.now()}`);
               toast.success("Order alert sound on");
             } else {
               toast.message("Order alert sound off");

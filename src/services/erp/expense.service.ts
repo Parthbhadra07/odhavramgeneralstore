@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Expense } from "@/types/erp";
 import type { ExpenseCategory } from "@/lib/erp/constants";
 
 export const expenseService = {
   async list(filters?: { from?: string; to?: string; category?: ExpenseCategory }) {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase.from("expenses").select("*").order("expense_date", { ascending: false });
     if (filters?.from) q = q.gte("expense_date", filters.from);
     if (filters?.to) q = q.lte("expense_date", filters.to);
@@ -21,7 +21,7 @@ export const expenseService = {
     notes?: string;
     receipt_url?: string;
   }): Promise<Expense> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -35,13 +35,13 @@ export const expenseService = {
   },
 
   async delete(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("expenses").delete().eq("id", id);
     if (error) throw error;
   },
 
   async uploadReceipt(file: File, expenseId: string): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const path = `expenses/${expenseId}/${file.name}`;
     const { error } = await supabase.storage
       .from("erp-documents")

@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { loginSchema, type LoginInput } from "@/lib/validators";
 import { authService } from "@/services/auth.service";
+import { requestNotificationPermission } from "@/utils/browser-notifications";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Leaf } from "lucide-react";
@@ -28,6 +29,9 @@ export default function LoginForm() {
     setLoading(true);
     try {
       await authService.signIn(data.email, data.password);
+      if (redirect.startsWith("/admin")) {
+        void requestNotificationPermission();
+      }
       toast.success("Welcome back!");
       router.push(redirect);
       router.refresh();

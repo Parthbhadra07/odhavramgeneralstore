@@ -703,6 +703,7 @@ export default function PosPage() {
             <span>Subtotal</span>
             <span>{formatPrice(subtotal)}</span>
           </div>
+          <p className="mt-1 text-xs italic text-gray-600">(Inclusive of GST)</p>
           <div className="mt-2 flex justify-between text-xl font-bold text-green-900">
             <span>Total</span>
             <span>{formatPrice(total)}</span>

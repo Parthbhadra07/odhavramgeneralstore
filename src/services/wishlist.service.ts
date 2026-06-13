@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { WishlistItem } from "@/types/database";
 
 export const wishlistService = {
   async getItems(userId: string): Promise<WishlistItem[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("wishlist")
       .select("*, products(*)")
@@ -13,7 +13,7 @@ export const wishlistService = {
   },
 
   async add(userId: string, productId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("wishlist")
       .insert({ user_id: userId, product_id: productId })
@@ -24,7 +24,7 @@ export const wishlistService = {
   },
 
   async remove(userId: string, productId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase
       .from("wishlist")
       .delete()
@@ -34,7 +34,7 @@ export const wishlistService = {
   },
 
   async isInWishlist(userId: string, productId: string): Promise<boolean> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("wishlist")
       .select("id")

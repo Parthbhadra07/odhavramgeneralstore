@@ -58,7 +58,65 @@ body {
   }
 }
 
-/* Thermal receipt print styles */
+/* Thermal receipt — shared preview styles (print uses identical CSS via receipt-styles.ts) */
+.receipt-container-border {
+  border: 2px solid #000;
+}
+
+.receipt-section-title {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.85em;
+}
+
+.receipt-line {
+  border-top: 1px dashed #000;
+  margin: 6px 0;
+}
+
+.receipt-line-solid {
+  border-top: 2px solid #000;
+  margin: 6px 0;
+}
+
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.receipt-table th:first-child,
+.receipt-table td:first-child {
+  text-align: left;
+}
+
+.receipt-table th:nth-child(2),
+.receipt-table td:nth-child(2) {
+  text-align: center;
+}
+
+.receipt-table th:nth-child(3),
+.receipt-table td:nth-child(3),
+.receipt-table th:nth-child(4),
+.receipt-table td:nth-child(4) {
+  text-align: right;
+}
+
+.receipt-qr-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Legacy aliases */
 .thermal-receipt-border {
   border: 2px solid #000;
   padding: 8px;

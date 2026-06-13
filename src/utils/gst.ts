@@ -48,3 +48,56 @@ export function lineItemGst(
   const subtotal = rate * qty;
   return calculateGst(subtotal, gstPercent, isInterState);
 }
+
+/** Extract GST from a GST-inclusive amount (prices already include tax). */
+export function extractGstFromInclusive(
+  inclusiveAmount: number,
+  gstPercent: number,
+  isInterState = false
+): GstBreakdown {
+  if (gstPercent <= 0) {
+    return {
+      taxableAmount: inclusiveAmount,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      totalGst: 0,
+      totalWithGst: inclusiveAmount,
+    };
+  }
+
+  const rate = gstPercent / 100;
+  const taxableAmount = Math.round((inclusiveAmount / (1 + rate)) * 100) / 100;
+  const totalGst = Math.round((inclusiveAmount - taxableAmount) * 100) / 100;
+
+  if (isInterState) {
+    return {
+      taxableAmount,
+      cgst: 0,
+      sgst: 0,
+      igst: totalGst,
+      totalGst,
+      totalWithGst: inclusiveAmount,
+    };
+  }
+
+  const half = Math.round((totalGst / 2) * 100) / 100;
+  return {
+    taxableAmount,
+    cgst: half,
+    sgst: half,
+    igst: 0,
+    totalGst,
+    totalWithGst: inclusiveAmount,
+  };
+}
+
+export function lineItemInclusiveGst(
+  rate: number,
+  qty: number,
+  gstPercent: number,
+  isInterState = false
+) {
+  const inclusiveTotal = rate * qty;
+  return extractGstFromInclusive(inclusiveTotal, gstPercent, isInterState);
+}

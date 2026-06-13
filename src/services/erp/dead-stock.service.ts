@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { inventoryService } from "./inventory.service";
 
 export interface DeadStockItem {
@@ -12,7 +12,7 @@ export interface DeadStockItem {
 
 export const deadStockService = {
   async list(daysThreshold: 30 | 60 | 90): Promise<DeadStockItem[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysThreshold);
 

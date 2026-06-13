@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { PurchaseBill } from "@/types/erp";
 import { lineItemGst } from "@/utils/gst";
 
 export const purchaseService = {
   async list(): Promise<PurchaseBill[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_bills")
       .select("*, suppliers(*), purchase_items(*, products(name, sku))")
@@ -14,7 +14,7 @@ export const purchaseService = {
   },
 
   async getById(id: string): Promise<PurchaseBill | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_bills")
       .select("*, suppliers(*), purchase_items(*, products(*))")
@@ -43,7 +43,7 @@ export const purchaseService = {
     notes?: string;
     invoicePdfUrl?: string;
   }): Promise<PurchaseBill> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -139,7 +139,7 @@ export const purchaseService = {
     mrp?: number;
     gstPercentage?: number;
   }): Promise<PurchaseBill> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const bill = await this.getById(params.billId);
     if (!bill?.purchase_items?.length) throw new Error("Purchase not found");
 
@@ -254,7 +254,7 @@ export const purchaseService = {
   },
 
   async delete(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const bill = await this.getById(id);
     if (!bill) return;
 
@@ -281,7 +281,7 @@ export const purchaseService = {
   },
 
   async uploadInvoice(file: File, billId: string): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const path = `purchases/${billId}/${file.name}`;
     const { error } = await supabase.storage
       .from("erp-documents")
@@ -297,7 +297,7 @@ export const purchaseService = {
   },
 
   async getSupplierHistory(supplierId: string): Promise<PurchaseBill[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_bills")
       .select("*, purchase_items(*, products(name))")

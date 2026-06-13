@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { PurchaseBill, Supplier, SupplierPayment, SupplierWithStats } from "@/types/erp";
 
 export const supplierService = {
   async list(): Promise<Supplier[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("suppliers")
       .select("*")
@@ -16,7 +16,7 @@ export const supplierService = {
     const suppliers = await this.list();
     if (suppliers.length === 0) return [];
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const ids = suppliers.map((s) => s.id);
     const { data: bills } = await supabase
       .from("purchase_bills")
@@ -38,7 +38,7 @@ export const supplierService = {
   },
 
   async upsert(supplier: Partial<Supplier> & { name: string }): Promise<Supplier> {
-    const supabase = createClient();
+    const supabase = requireClient();
     if (supplier.id) {
       const { data, error } = await supabase
         .from("suppliers")
@@ -59,7 +59,7 @@ export const supplierService = {
   },
 
   async delete(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("suppliers").delete().eq("id", id);
     if (error) throw error;
   },
@@ -72,7 +72,7 @@ export const supplierService = {
     notes?: string;
     paymentDate?: string;
   }): Promise<SupplierPayment> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -110,7 +110,7 @@ export const supplierService = {
   },
 
   async getPayments(supplierId: string): Promise<SupplierPayment[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("supplier_payments")
       .select("*")
@@ -121,7 +121,7 @@ export const supplierService = {
   },
 
   async getPurchaseHistory(supplierId: string): Promise<PurchaseBill[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_bills")
       .select("*, purchase_items(*, products(name))")

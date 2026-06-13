@@ -16,7 +16,7 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
     name: i.product_name,
     quantity: i.quantity,
     rate: Number(i.rate),
-    amount: Number(i.total_amount),
+    amount: Number(i.rate) * i.quantity,
   }));
 
   return {
@@ -29,14 +29,12 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
       POS_PAYMENT_LABELS[sale.payment_method as keyof typeof POS_PAYMENT_LABELS] ??
       sale.payment_method,
     showUpiQr: true,
+    gstIncluded: true,
     creditDue: sale.payment_method === "credit" ? Number(sale.total_amount) : undefined,
     orderStatus: sale.sale_status,
     items,
     subtotal: Number(sale.subtotal),
     discount: Number(sale.discount) + Number(sale.loyalty_discount ?? 0),
-    taxCgst: Number(sale.cgst),
-    taxSgst: Number(sale.sgst),
-    taxIgst: Number(sale.igst),
     grandTotal: Number(sale.total_amount),
     notes: sale.notes,
   };
@@ -79,6 +77,7 @@ export function receiptFromOrder(order: Order): ReceiptData {
     items,
     subtotal,
     deliveryCharge: delivery,
+    gstIncluded: true,
     grandTotal: Number(order.total_amount),
     notes: order.tracking_notes,
   };

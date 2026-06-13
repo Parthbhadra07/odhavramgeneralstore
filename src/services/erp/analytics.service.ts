@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { posService } from "./pos.service";
 import { orderService } from "@/services/order.service";
 import { inventoryService } from "./inventory.service";
@@ -69,7 +69,7 @@ export const analyticsService = {
   },
 
   async salesTrend(days: number) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const from = new Date();
     from.setDate(from.getDate() - days + 1);
     from.setHours(0, 0, 0, 0);
@@ -103,7 +103,7 @@ export const analyticsService = {
   },
 
   async monthlyRevenueTrend(months = 6) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const from = new Date();
     from.setMonth(from.getMonth() - months + 1);
     from.setDate(1);
@@ -168,7 +168,7 @@ export const analyticsService = {
   },
 
   async categorySales() {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("pos_sale_items")
       .select("quantity, rate, products(category_id, categories(name))")

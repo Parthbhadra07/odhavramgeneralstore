@@ -15,6 +15,10 @@ import {
   playNewOrderSound,
   unlockNotificationAudio,
 } from "@/utils/notification-sound";
+import {
+  requestNotificationPermission,
+  showOrderNotification,
+} from "@/utils/browser-notifications";
 
 type RefreshCallback = () => void;
 
@@ -23,7 +27,8 @@ interface AdminOrderNotificationsContextValue {
   clearCount: () => void;
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
-  registerRefresh: (cb: RefreshCallback) => () => void;
+  registerRefresh: (cb: RefreshCallback) => void;
+  testNotification: () => void;
 }
 
 const AdminOrderNotificationsContext =
@@ -39,6 +44,7 @@ export function AdminOrderNotificationsProvider({
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [soundEnabled, setSoundEnabledState] = useState(true);
   const refreshCallbacks = useRef(new Set<RefreshCallback>());
+  const notifiedOrderIds = useRef(new Set<string>());
 
   useEffect(() => {
     try {
@@ -47,6 +53,10 @@ export function AdminOrderNotificationsProvider({
     } catch {
       // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    void requestNotificationPermission();
   }, []);
 
   const setSoundEnabled = useCallback((enabled: boolean) => {
@@ -66,6 +76,20 @@ export function AdminOrderNotificationsProvider({
     };
   }, []);
 
+  const testNotification = useCallback(() => {
+    unlockNotificationAudio();
+    playNewOrderSound(`test-${Date.now()}`);
+    showOrderNotification({
+      id: `test-${Date.now()}`,
+      order_number: "TEST-001",
+      customer_name: "Test Customer",
+      total_amount: 999,
+    });
+    toast.success("Test notification sent", {
+      description: "Sound and browser notification triggered",
+    });
+  }, []);
+
   useEffect(() => {
     const unlock = () => unlockNotificationAudio();
     window.addEventListener("pointerdown", unlock, { once: true });
@@ -78,6 +102,7 @@ export function AdminOrderNotificationsProvider({
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) return;
 
     const channel = supabase
       .channel("admin-orders-global")
@@ -86,12 +111,19 @@ export function AdminOrderNotificationsProvider({
         { event: "INSERT", schema: "public", table: "orders" },
         (payload) => {
           const order = payload.new as {
+            id?: string;
             order_number?: string;
             total_amount?: number;
             customer_name?: string;
           };
+
+          const orderId = order.id ?? order.order_number;
+          if (orderId && notifiedOrderIds.current.has(orderId)) return;
+          if (orderId) notifiedOrderIds.current.add(orderId);
+
           setNewOrderCount((c) => c + 1);
-          if (soundEnabled) playNewOrderSound();
+          if (soundEnabled) playNewOrderSound(orderId);
+          showOrderNotification(order);
           toast.success("New order received", {
             description: [
               order.order_number && `Order ${order.order_number}`,
@@ -122,6 +154,7 @@ export function AdminOrderNotificationsProvider({
         soundEnabled,
         setSoundEnabled,
         registerRefresh,
+        testNotification,
       }}
     >
       {children}

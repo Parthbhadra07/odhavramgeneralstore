@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { LOYALTY_POINT_VALUE } from "@/lib/erp/constants";
 
 export const loyaltyService = {
@@ -8,7 +8,7 @@ export const loyaltyService = {
     referenceType: string,
     referenceId: string
   ) {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("customer_loyalty").insert({
       customer_id: customerId,
       points,
@@ -36,7 +36,7 @@ export const loyaltyService = {
     referenceType: string,
     referenceId: string
   ) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("customers")
       .select("loyalty_points")
@@ -66,7 +66,7 @@ export const loyaltyService = {
   },
 
   async getHistory(customerId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("customer_loyalty")
       .select("*")

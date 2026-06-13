@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Category } from "@/types/database";
 
 export const categoryService = {
   async getAll(): Promise<Category[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("categories")
       .select("*")
@@ -13,7 +13,7 @@ export const categoryService = {
   },
 
   async getBySlug(slug: string): Promise<Category | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("categories")
       .select("*")
@@ -24,7 +24,7 @@ export const categoryService = {
   },
 
   async create(category: Omit<Category, "id">) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("categories")
       .insert(category)
@@ -35,7 +35,7 @@ export const categoryService = {
   },
 
   async update(id: string, category: Partial<Category>) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("categories")
       .update(category)
@@ -47,7 +47,7 @@ export const categoryService = {
   },
 
   async remove(id: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("categories").delete().eq("id", id);
     if (error) throw error;
   },

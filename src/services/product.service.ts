@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import {
   loadProductCatalog,
   saveProductCatalog,
@@ -47,7 +47,7 @@ function toProductRow(
 
 export const productService = {
   async getAll(filters: ProductFilters = {}): Promise<Product[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let query = supabase
       .from("products")
       .select("*, categories(id, name, slug, image)");
@@ -101,7 +101,7 @@ export const productService = {
 
   async getBySlug(slug: string): Promise<Product | null> {
     try {
-      const supabase = createClient();
+      const supabase = requireClient();
       const { data, error } = await supabase
         .from("products")
         .select("*, categories(id, name, slug, image)")
@@ -116,7 +116,7 @@ export const productService = {
   },
 
   async getById(id: string): Promise<Product | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("products")
       .select("*")
@@ -129,7 +129,7 @@ export const productService = {
   async create(
     product: Omit<Product, "id" | "created_at" | "categories">
   ) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const row = toProductRow(product);
 
     const { data, error } = await supabase
@@ -153,7 +153,7 @@ export const productService = {
   },
 
   async update(id: string, product: Partial<Product>) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const row: Record<string, unknown> = {};
 
     if (product.name !== undefined) row.name = product.name;
@@ -182,7 +182,7 @@ export const productService = {
   },
 
   async remove(id: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) throw error;
   },

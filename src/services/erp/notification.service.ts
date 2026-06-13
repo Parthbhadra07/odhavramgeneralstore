@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { ErpNotification } from "@/types/erp";
 
 export const notificationService = {
   async list(unreadOnly = false): Promise<ErpNotification[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("notifications")
       .select("*")
@@ -16,12 +16,12 @@ export const notificationService = {
   },
 
   async markRead(id: string): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
   },
 
   async markAllRead(): Promise<void> {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase
       .from("notifications")
       .update({ is_read: true })

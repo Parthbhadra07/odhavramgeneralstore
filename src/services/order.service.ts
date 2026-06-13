@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Order, OrderItem, OrderStatus, PaymentMethod } from "@/types/database";
 import { customerService } from "@/services/erp/customer.service";
 
@@ -41,7 +41,7 @@ function parseDbError(error: { message?: string; code?: string; details?: string
 
 export const orderService = {
   async getByUser(userId: string): Promise<Order[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
       .select(orderSelectFull)
@@ -60,7 +60,7 @@ export const orderService = {
   },
 
   async getById(orderId: string): Promise<Order | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
       .select(orderSelectFull)
@@ -77,7 +77,7 @@ export const orderService = {
   },
 
   async getByOrderNumber(orderNumber: string): Promise<Order | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
       .select(orderSelectFull)
@@ -88,7 +88,7 @@ export const orderService = {
   },
 
   async trackByOrderNumber(orderNumber: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("get_order_by_number", {
       p_order_number: orderNumber.trim().toUpperCase(),
     });
@@ -106,7 +106,7 @@ export const orderService = {
     dateFrom?: string;
     dateTo?: string;
   }): Promise<Order[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let query = supabase.from("orders").select(orderSelectFull).order("created_at", { ascending: false });
 
     if (filters?.status && filters.status !== "all") {
@@ -128,7 +128,7 @@ export const orderService = {
   },
 
   async generateOrderNumber(): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("generate_order_number");
     if (!error && data) return data as string;
     return clientOrderNumber();
@@ -148,7 +148,7 @@ export const orderService = {
       throw new Error("Your cart is empty.");
     }
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const orderNumber = await this.generateOrderNumber();
 
     // Try new schema first (received + extra columns), then legacy (pending)
@@ -298,7 +298,7 @@ export const orderService = {
     totalAmount: number;
     deliveryCharge?: number;
   }) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const orderUpdate: Record<string, unknown> = {
       total_amount: params.totalAmount,
     };
@@ -327,7 +327,7 @@ export const orderService = {
   },
 
   async assignDeliveryPerson(orderId: string, deliveryPerson: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
       .update({
@@ -342,7 +342,7 @@ export const orderService = {
   },
 
   async updateStatus(orderId: string, orderStatus: OrderStatus, note?: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
 
     const base: Record<string, unknown> = {
       order_status: orderStatus,
@@ -376,7 +376,7 @@ export const orderService = {
   },
 
   async markOrdersSeen() {
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("orders").update({ is_new: false }).eq("is_new", true);
   },
 
@@ -390,7 +390,7 @@ export const orderService = {
       throw new Error("Order must have at least one item.");
     }
 
-    const supabase = createClient();
+    const supabase = requireClient();
 
     const { error: deleteError } = await supabase
       .from("order_items")
@@ -426,7 +426,7 @@ export const orderService = {
   },
 
   async getDashboardStats() {
-    const supabase = createClient();
+    const supabase = requireClient();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -456,7 +456,7 @@ export const orderService = {
   },
 
   async getSalesReport() {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
       .select("total_amount, payment_status, created_at, order_status")

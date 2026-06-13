@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import {
   APP_NAME,
   STORE_ADDRESS,
@@ -37,7 +37,7 @@ export const settingsService = {
       return cachedSettings;
     }
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("settings")
       .select("*")
@@ -64,7 +64,7 @@ export const settingsService = {
       Omit<StoreSettings, "id" | "created_at" | "updated_at">
     >
   ): Promise<StoreSettings> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const current = await this.get();
 
     if (current.id === "default") {

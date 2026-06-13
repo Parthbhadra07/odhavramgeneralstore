@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { lotService } from "./lot.service";
 import type { ErpProduct, LowStockProduct, ProductLot, StockMovement } from "@/types/erp";
 
@@ -10,7 +10,7 @@ export const inventoryService = {
     categoryId?: string;
     lowStockOnly?: boolean;
   }): Promise<ErpProduct[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("products")
       .select(productSelect)
@@ -52,7 +52,7 @@ export const inventoryService = {
       if (product) return { product, lot };
     }
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("products")
       .select(productSelect)
@@ -64,7 +64,7 @@ export const inventoryService = {
   },
 
   async getById(id: string): Promise<ErpProduct | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("products")
       .select(productSelect)
@@ -77,7 +77,7 @@ export const inventoryService = {
   async upsertProduct(
     product: Partial<ErpProduct> & { name: string; slug: string; price: number }
   ): Promise<ErpProduct> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const payload = {
       ...product,
       selling_price: product.selling_price ?? product.price,
@@ -108,7 +108,7 @@ export const inventoryService = {
     notes?: string,
     movementType: "adjustment" | "damaged" | "expired" = "adjustment"
   ) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("apply_stock_movement", {
       p_product_id: productId,
       p_quantity: quantity,
@@ -136,7 +136,7 @@ export const inventoryService = {
   },
 
   async getStockMovements(productId?: string, limit = 100): Promise<StockMovement[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("stock_movements")
       .select("*, products(name, sku, barcode)")
@@ -163,7 +163,7 @@ export const inventoryService = {
   },
 
   async getExpiringProducts(withinDays = 30): Promise<ErpProduct[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const until = new Date();
     until.setDate(until.getDate() + withinDays);
     const { data, error } = await supabase

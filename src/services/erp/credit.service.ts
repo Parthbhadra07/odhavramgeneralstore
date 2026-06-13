@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type {
   CreditDashboardStats,
   CreditLedgerEntry,
@@ -35,7 +35,7 @@ export const creditService = {
   ) {
     if (amount <= 0) throw new Error("Credit amount must be positive");
 
-    const supabase = createClient();
+    const supabase = requireClient();
     await supabase.from("customer_credit").insert({
       customer_id: customerId,
       amount,
@@ -68,7 +68,7 @@ export const creditService = {
     dueDate?: string;
     notes?: string;
   }) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const refId = crypto.randomUUID();
     await this.addCredit(
       params.customerId,
@@ -89,7 +89,7 @@ export const creditService = {
   ) {
     if (amount <= 0) throw new Error("Payment amount must be positive");
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("customers")
       .select("credit_balance")
@@ -127,7 +127,7 @@ export const creditService = {
   async adjust(customerId: string, signedAmount: number, notes?: string) {
     if (signedAmount === 0) throw new Error("Adjustment amount cannot be zero");
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("customers")
       .select("credit_balance")
@@ -165,7 +165,7 @@ export const creditService = {
   ) {
     if (amount <= 0) return;
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data } = await supabase
       .from("customers")
       .select("credit_balance")
@@ -195,7 +195,7 @@ export const creditService = {
     customerId: string,
     updates: Partial<Pick<Customer, "credit_limit" | "account_status" | "notes">>
   ) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase
       .from("customers")
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -204,7 +204,7 @@ export const creditService = {
   },
 
   async getHistory(customerId: string): Promise<CustomerCredit[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("customer_credit")
       .select("*")
@@ -261,7 +261,7 @@ export const creditService = {
   },
 
   async getCustomer(customerId: string): Promise<Customer | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("customers")
       .select("*")
@@ -272,7 +272,7 @@ export const creditService = {
   },
 
   async getDashboardStats(): Promise<CreditDashboardStats> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -325,7 +325,7 @@ export const creditService = {
   },
 
   async getReminders() {
-    const supabase = createClient();
+    const supabase = requireClient();
     const today = format(new Date(), "yyyy-MM-dd");
     const tomorrow = format(new Date(Date.now() + 86400000), "yyyy-MM-dd");
 
@@ -347,7 +347,7 @@ export const creditService = {
   },
 
   async getAnalytics() {
-    const supabase = createClient();
+    const supabase = requireClient();
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
     sixMonthsAgo.setDate(1);
@@ -428,7 +428,7 @@ export const creditService = {
   },
 
   async listCreditCustomers(search?: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     let q = supabase
       .from("customers")
       .select("*")

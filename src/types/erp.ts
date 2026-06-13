@@ -506,6 +506,8 @@ export interface ReceiptData {
   upiAmount?: number;
   /** Force UPI QR display (overrides payment method check) */
   showUpiQr?: boolean;
+  /** Prices include GST — show note instead of separate tax lines */
+  gstIncluded?: boolean;
 }
 
 export interface PurchaseReturn {

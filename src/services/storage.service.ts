@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 
 const BUCKET = "products";
 
 /** Upload product image to Supabase Storage and return public URL */
 export async function uploadProductImage(file: File): Promise<string> {
-  const supabase = createClient();
+  const supabase = requireClient();
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 

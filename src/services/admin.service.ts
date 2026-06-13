@@ -1,9 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { User, UserRole } from "@/types/database";
 
 export const adminService = {
   async getDashboardStats() {
-    const supabase = createClient();
+    const supabase = requireClient();
 
     const [products, orders, users, paidOrders] = await Promise.all([
       supabase.from("products").select("id", { count: "exact", head: true }),
@@ -35,7 +35,7 @@ export const adminService = {
   },
 
   async getUsers(): Promise<User[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("users")
       .select("*")
@@ -45,7 +45,7 @@ export const adminService = {
   },
 
   async updateUserRole(userId: string, role: UserRole) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("users")
       .update({ role })

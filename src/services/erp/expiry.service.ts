@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import { inventoryService } from "./inventory.service";
 import { lotService } from "./lot.service";
 import type { ErpProduct, ProductLot } from "@/types/erp";
@@ -12,7 +12,7 @@ export interface ExpiryBucket {
 
 export const expiryService = {
   async getExpiredProducts(): Promise<ErpProduct[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const today = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase
       .from("products")
@@ -50,7 +50,7 @@ export const expiryService = {
         this.getExpiringLots(90),
       ]);
 
-    const supabase = createClient();
+    const supabase = requireClient();
     const today = new Date().toISOString().slice(0, 10);
     const { data: expiredLotsData } = await supabase
       .from("product_lots")

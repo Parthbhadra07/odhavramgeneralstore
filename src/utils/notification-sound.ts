@@ -1,62 +1,79 @@
 /** Shared alert sounds for admin (unlocked after first user gesture). */
 
-let audioContext: AudioContext | null = null;
-let unlocked = false;
+const SOUND_URL = "/sounds/new-order.mp3";
+const SOUND_FALLBACK_URL = "/sounds/new-order.wav";
 
-function getContext(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  if (!audioContext) {
-    const Ctx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!Ctx) return null;
-    audioContext = new Ctx();
+let audio: HTMLAudioElement | null = null;
+let unlocked = false;
+const playedOrderIds = new Set<string>();
+
+function getAudio(): HTMLAudioElement {
+  if (!audio) {
+    audio = new Audio(SOUND_URL);
+    audio.preload = "auto";
+    audio.addEventListener(
+      "error",
+      () => {
+        if (audio && !audio.src.endsWith(SOUND_FALLBACK_URL)) {
+          audio.src = SOUND_FALLBACK_URL;
+        }
+      },
+      { once: true }
+    );
   }
-  return audioContext;
+  return audio;
 }
 
 /** Call once after click/tap so order sounds are not blocked by the browser. */
 export function unlockNotificationAudio(): void {
-  const ctx = getContext();
-  if (!ctx || unlocked) return;
-  void ctx.resume().then(() => {
-    unlocked = true;
-  });
-}
-
-function playTone(
-  ctx: AudioContext,
-  frequency: number,
-  startAt: number,
-  duration: number,
-  volume = 0.22
-) {
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = "sine";
-  osc.frequency.value = frequency;
-  gain.gain.setValueAtTime(0, startAt);
-  gain.gain.linearRampToValueAtTime(volume, startAt + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(startAt);
-  osc.stop(startAt + duration + 0.05);
-}
-
-/** Distinct three-tone chime for new online orders. */
-export function playNewOrderSound(): void {
+  if (typeof window === "undefined" || unlocked) return;
   try {
-    const ctx = getContext();
-    if (!ctx) return;
-    if (ctx.state === "suspended") void ctx.resume();
-
-    const t = ctx.currentTime;
-    playTone(ctx, 880, t, 0.12);
-    playTone(ctx, 1108, t + 0.14, 0.12);
-    playTone(ctx, 1318, t + 0.28, 0.18);
+    const el = getAudio();
+    el.volume = 0;
+    const playPromise = el.play();
+    if (playPromise) {
+      void playPromise
+        .then(() => {
+          el.pause();
+          el.currentTime = 0;
+          el.volume = 1;
+          unlocked = true;
+        })
+        .catch(() => {
+          el.volume = 1;
+        });
+    }
   } catch {
     // ignore
   }
+}
+
+/** Play new-order notification sound. Pass orderId to prevent duplicate playback. */
+export function playNewOrderSound(orderId?: string): void {
+  if (typeof window === "undefined") return;
+  if (orderId) {
+    if (playedOrderIds.has(orderId)) return;
+    playedOrderIds.add(orderId);
+  }
+
+  try {
+    const el = getAudio();
+    el.currentTime = 0;
+    el.volume = 1;
+    void el.play().catch((err) => {
+      console.log("Notification sound blocked:", err);
+    });
+  } catch {
+    // ignore
+  }
+}
+
+/** Clear deduplication cache (e.g. after long session). */
+export function resetPlayedOrderIds(): void {
+  playedOrderIds.clear();
+}
+
+/** Test notification sound from admin panel. */
+export function testNotificationSound(): void {
+  playNewOrderSound(`test-${Date.now()}`);
 }

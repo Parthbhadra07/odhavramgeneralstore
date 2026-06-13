@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type {
   PurchaseReturn,
   PurchaseReturnItem,
@@ -12,7 +12,7 @@ function clientReturnNumber(): string {
 
 export const purchaseReturnService = {
   async generateNumber(): Promise<string> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase.rpc("generate_return_number", {
       p_prefix: "PR",
     });
@@ -21,7 +21,7 @@ export const purchaseReturnService = {
   },
 
   async list(): Promise<PurchaseReturn[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_returns")
       .select(
@@ -33,7 +33,7 @@ export const purchaseReturnService = {
   },
 
   async getById(id: string): Promise<PurchaseReturn | null> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_returns")
       .select(
@@ -64,7 +64,7 @@ export const purchaseReturnService = {
       purchaseRate: number;
     }[];
   }): Promise<PurchaseReturn> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -132,7 +132,7 @@ export const purchaseReturnService = {
     quantity?: number;
     purchaseRate?: number;
   }): Promise<PurchaseReturn> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const existing = await this.getById(params.returnId);
     if (!existing?.purchase_return_items?.length) throw new Error("Return not found");
 
@@ -215,7 +215,7 @@ export const purchaseReturnService = {
   },
 
   async getBySupplier(supplierId: string): Promise<PurchaseReturn[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("purchase_returns")
       .select("*, purchase_return_items(*)")

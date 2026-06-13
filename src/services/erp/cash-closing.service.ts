@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { CashClosing } from "@/types/erp";
 import { posService } from "./pos.service";
 import { expenseService } from "./expense.service";
@@ -6,7 +6,7 @@ import { orderService } from "@/services/order.service";
 
 export const cashClosingService = {
   async generateForDate(date: string, openingCash = 0): Promise<CashClosing> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const dayStart = `${date}T00:00:00.000Z`;
     const dayEnd = `${date}T23:59:59.999Z`;
 
@@ -49,7 +49,7 @@ export const cashClosingService = {
   },
 
   async list(): Promise<CashClosing[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("cash_closing")
       .select("*")

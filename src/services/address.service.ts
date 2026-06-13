@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/client";
+import { requireClient } from "@/lib/supabase/client";
 import type { Address } from "@/types/database";
 import type { AddressInput } from "@/lib/validators";
 
 export const addressService = {
   async getByUser(userId: string): Promise<Address[]> {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { data, error } = await supabase
       .from("addresses")
       .select("*")
@@ -15,7 +15,7 @@ export const addressService = {
   },
 
   async create(userId: string, input: AddressInput) {
-    const supabase = createClient();
+    const supabase = requireClient();
 
     if (input.is_default) {
       await supabase
@@ -34,7 +34,7 @@ export const addressService = {
   },
 
   async update(id: string, userId: string, input: Partial<AddressInput>) {
-    const supabase = createClient();
+    const supabase = requireClient();
 
     if (input.is_default) {
       await supabase
@@ -55,7 +55,7 @@ export const addressService = {
   },
 
   async remove(id: string, userId: string) {
-    const supabase = createClient();
+    const supabase = requireClient();
     const { error } = await supabase
       .from("addresses")
       .delete()

@@ -74,7 +74,6 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
   if (!saleId) return null;
 
   const receiptData = sale ? receiptFromPosSale(sale) : null;
-  const gstTotal = sale ? Number(sale.cgst) + Number(sale.sgst) + Number(sale.igst) : 0;
   return (
     <Modal open={!!saleId} onClose={onClose} title="Bill Details" size="xl">
       {loading && <p className="text-sm text-gray-500">Loading bill…</p>}
@@ -137,7 +136,7 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
                     <td className="p-3 text-right">{formatPrice(Number(item.rate))}</td>
                     <td className="p-3 text-right">{item.gst_percentage}%</td>
                     <td className="p-3 text-right font-medium">
-                      {formatPrice(Number(item.total_amount))}
+                      {formatPrice(Number(item.rate) * item.quantity)}
                     </td>
                   </tr>
                 ))}
@@ -157,9 +156,9 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
                   {formatPrice(Number(sale.discount) + Number(sale.loyalty_discount ?? 0))}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span>GST</span>
-                <span>{formatPrice(gstTotal)}</span>
+              <div className="flex justify-between text-sm italic text-gray-600">
+                <span>Inclusive of GST</span>
+                <span>—</span>
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-bold">
                 <span>Grand Total</span>
