@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" fill="none">
+  <rect width="400" height="400" fill="#f0fdf4"/>
+  <path d="M200 120c-44 0-80 36-80 80s36 80 80 80 80-36 80-80-36-80-80-80zm0 120c-22 0-40-18-40-40s18-40 40-40 40 18 40 40-18 40-40 40z" fill="#86efac"/>
+  <text x="200" y="320" text-anchor="middle" fill="#16a34a" font-family="system-ui" font-size="14">Odhavram General Store</text>
+</svg>
