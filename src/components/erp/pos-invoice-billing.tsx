@@ -116,7 +116,7 @@ export function PosInvoiceBilling() {
   }, [loadHeld]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "F2") {
         e.preventDefault();
         scanInputRef.current?.focus();
