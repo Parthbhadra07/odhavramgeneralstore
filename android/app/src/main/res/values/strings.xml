@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Odhavram General Store</string>
+    <string name="title_activity_main">Odhavram General Store</string>
+    <string name="package_name">com.odhavram.generalstore</string>
+    <string name="custom_url_scheme">com.odhavram.generalstore</string>
+</resources>
