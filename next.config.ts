@@ -4,7 +4,7 @@ import withPWA from "@ducanh2912/next-pwa";
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(isCapacitorBuild ? { output: "export" as const } : {}),
   trailingSlash: true,
   images: {
     unoptimized: true,

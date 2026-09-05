@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Eye, Plus } from "lucide-react";
+import { Eye, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
-import type { CreditLedgerEntry, CustomerWithStats } from "@/types/erp";
+import type { CreditLedgerEntry, Customer, CustomerWithStats } from "@/types/erp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ResponsiveTable } from "@/components/admin/responsive-table";
@@ -14,6 +14,10 @@ import { Modal } from "@/components/admin/modal";
 import { formatPrice, formatDate } from "@/utils/format";
 import { isValidMobile } from "@/utils/phone";
 import { POS_PAYMENT_LABELS, type PosPaymentMethod } from "@/lib/erp/constants";
+import {
+  KhataPartyForm,
+  partyToForm,
+} from "@/components/erp/khata-party-book";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([]);
@@ -36,6 +40,7 @@ export default function CustomersPage() {
     notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
   const load = () => {
@@ -325,12 +330,19 @@ export default function CustomersPage() {
           },
         ]}
         actions={(c) => (
-          <ActionButton
-            icon={Eye}
-            label="Credit Ledger"
-            onClick={() => viewLedger(c)}
-            variant="primary"
-          />
+          <div className="flex flex-wrap justify-end gap-1">
+            <ActionButton
+              icon={Pencil}
+              label="Edit"
+              onClick={() => setEditCustomer(c)}
+            />
+            <ActionButton
+              icon={Eye}
+              label="Credit Ledger"
+              onClick={() => viewLedger(c)}
+              variant="primary"
+            />
+          </div>
         )}
       />
 
@@ -374,6 +386,18 @@ export default function CustomersPage() {
           )}
         </div>
       </Modal>
+      {editCustomer && (
+        <KhataPartyForm
+          title={`Edit — ${editCustomer.name}`}
+          initial={partyToForm(editCustomer)}
+          partyId={editCustomer.id}
+          onClose={() => setEditCustomer(null)}
+          onSaved={() => {
+            setEditCustomer(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

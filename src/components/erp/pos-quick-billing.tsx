@@ -100,6 +100,10 @@ export function PosQuickBilling() {
         setLoyaltyRedeem(0);
         toast.message("New sale — cart cleared");
       }
+      if (e.key === "Enter" && cart.length && !typing) {
+        e.preventDefault();
+        void completeSaleRef.current(false);
+      }
       if (e.key === "F6" && cart.length && !typing) {
         e.preventDefault();
         void holdBillRef.current();

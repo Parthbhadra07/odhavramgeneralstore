@@ -17,7 +17,7 @@ import { LOYALTY_POINTS_PER_100, POS_PAYMENT_LABELS } from "@/lib/erp/constants"
 import { isValidMobile } from "@/utils/phone";
 import { formatPrice } from "@/utils/format";
 import { receiptFromPosSale } from "@/utils/receipt";
-import { resolveReceiptWidth, getAutoPrintPreference } from "@/utils/printer-prefs";
+import { resolveReceiptWidth } from "@/utils/printer-prefs";
 import { lineItemInclusiveGst } from "@/utils/gst";
 
 type InvoiceRow = {
@@ -59,6 +59,19 @@ function cellClass(extra = "") {
   return `h-8 w-full border-0 bg-transparent px-1.5 text-sm outline-none focus:bg-amber-100 ${extra}`;
 }
 
+function focusCell(id: string) {
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  if (!el) return;
+  el.focus();
+  el.select();
+}
+
+const CHECKOUT_PAY_OPTIONS: { id: PosPaymentMethod; label: string; key: string }[] = [
+  { id: "cash", label: "Cash", key: "1" },
+  { id: "upi", label: "Online", key: "2" },
+  { id: "credit", label: "Credit", key: "3" },
+];
+
 export function PosInvoiceBilling() {
   const { settings } = useStoreSettings();
   const { profile } = useAuth();
@@ -80,11 +93,19 @@ export function PosInvoiceBilling() {
   const [showSuggest, setShowSuggest] = useState(false);
   const [scanCode, setScanCode] = useState("");
   const [showCameraScan, setShowCameraScan] = useState(false);
-  const completeSaleRef = useRef<(autoPrint?: boolean) => Promise<void>>(async () => {});
+  const [checkoutStep, setCheckoutStep] = useState<"idle" | "payment" | "save">("idle");
+  const [payOptionIndex, setPayOptionIndex] = useState(0);
+  const [saveBillHighlight, setSaveBillHighlight] = useState(false);
+  const completeSaleRef = useRef<(autoPrint?: boolean, method?: PosPaymentMethod) => Promise<void>>(
+    async () => {}
+  );
+  const promptCheckoutRef = useRef<() => void>(() => {});
+  const confirmPaymentRef = useRef<(index?: number) => void>(() => {});
   const holdBillRef = useRef<() => Promise<void>>(async () => {});
   const autoPrintSaleIdRef = useRef<string | null>(null);
   const itemInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const savePrintTimerRef = useRef<number | null>(null);
 
   const filledLines = rows.filter((r) => r.productId);
   const subtotal = filledLines.reduce((s, r) => s + lineAmount(r), 0);
@@ -117,6 +138,38 @@ export function PosInvoiceBilling() {
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
+      if (checkoutStep === "payment") {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setCheckoutStep("idle");
+          return;
+        }
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+          e.preventDefault();
+          setPayOptionIndex((i) => (i + 1) % CHECKOUT_PAY_OPTIONS.length);
+          return;
+        }
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+          e.preventDefault();
+          setPayOptionIndex(
+            (i) => (i - 1 + CHECKOUT_PAY_OPTIONS.length) % CHECKOUT_PAY_OPTIONS.length
+          );
+          return;
+        }
+        if (e.key === "1" || e.key === "2" || e.key === "3") {
+          e.preventDefault();
+          confirmPaymentRef.current(Number(e.key) - 1);
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          confirmPaymentRef.current();
+          return;
+        }
+        return;
+      }
+
       if (e.key === "F2") {
         e.preventDefault();
         scanInputRef.current?.focus();
@@ -127,22 +180,18 @@ export function PosInvoiceBilling() {
         resetInvoice();
         toast.message("New invoice");
       }
-      if (e.key === "F8" && filledLines.length) {
+      if ((e.key === "F8" || e.key === "F9") && filledLines.length) {
         e.preventDefault();
-        void completeSaleRef.current(false);
-      }
-      if (e.key === "F9" && filledLines.length) {
-        e.preventDefault();
-        void completeSaleRef.current(true);
+        promptCheckoutRef.current();
       }
       if (e.key === "F6" && filledLines.length) {
         e.preventDefault();
         void holdBillRef.current();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [filledLines.length]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [filledLines.length, checkoutStep]);
 
   const resetInvoice = () => {
     const fresh = newRow();
@@ -156,6 +205,12 @@ export function PosInvoiceBilling() {
     setPaymentMethod("cash");
     setActiveRowId(fresh.id);
     setShowSuggest(false);
+    setCheckoutStep("idle");
+    setSaveBillHighlight(false);
+    if (savePrintTimerRef.current) {
+      window.clearTimeout(savePrintTimerRef.current);
+      savePrintTimerRef.current = null;
+    }
     requestAnimationFrame(() => scanInputRef.current?.focus());
   };
 
@@ -309,21 +364,24 @@ export function PosInvoiceBilling() {
       quantity: r.quantity,
     }));
 
-  const completeSale = async (autoPrint = false) => {
+  const completeSale = async (autoPrint = false, method?: PosPaymentMethod) => {
     const lines = toCartLines();
     if (!lines.length) {
       toast.error("Add at least one item");
       return;
     }
-    if (paymentMethod === "credit" && !customerMobile.trim()) {
+    const pay = method ?? paymentMethod;
+    if (pay === "credit" && !customerMobile.trim()) {
       toast.error("Enter customer mobile for credit sale");
+      setCheckoutStep("payment");
+      setSaveBillHighlight(false);
       return;
     }
     setProcessing(true);
     try {
       const sale = await posService.createSale({
         lines,
-        paymentMethod,
+        paymentMethod: pay,
         customerId: selectedCustomer?.id,
         customerName: customerName.trim() || undefined,
         customerMobile: customerMobile.trim() || undefined,
@@ -331,17 +389,50 @@ export function PosInvoiceBilling() {
         notes: billNotes.trim() || undefined,
       });
       setLastSale(sale);
-      if (autoPrint && getAutoPrintPreference()) autoPrintSaleIdRef.current = sale.id;
+      if (autoPrint) autoPrintSaleIdRef.current = sale.id;
       toast.success(`Invoice ${sale.bill_number} saved`);
       resetInvoice();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sale failed");
+      setCheckoutStep("idle");
+      setSaveBillHighlight(false);
     } finally {
       setProcessing(false);
     }
   };
 
   completeSaleRef.current = completeSale;
+
+  const promptCheckout = () => {
+    if (!filledLines.length) {
+      toast.error("Add at least one item");
+      return;
+    }
+    if (processing) return;
+    setPayOptionIndex(0);
+    setCheckoutStep("payment");
+    setSaveBillHighlight(false);
+  };
+
+  promptCheckoutRef.current = promptCheckout;
+
+  const confirmPayment = (index = payOptionIndex) => {
+    const option = CHECKOUT_PAY_OPTIONS[index] ?? CHECKOUT_PAY_OPTIONS[0];
+    setPaymentMethod(option.id);
+    setPayOptionIndex(index);
+    if (option.id === "credit" && !customerMobile.trim()) {
+      toast.error("Enter customer mobile for credit sale");
+      return;
+    }
+    setCheckoutStep("save");
+    setSaveBillHighlight(true);
+    if (savePrintTimerRef.current) window.clearTimeout(savePrintTimerRef.current);
+    savePrintTimerRef.current = window.setTimeout(() => {
+      void completeSaleRef.current(true, option.id);
+    }, 400);
+  };
+
+  confirmPaymentRef.current = confirmPayment;
 
   useEffect(() => {
     if (!lastSale || lastSale.id !== autoPrintSaleIdRef.current) return;
@@ -433,14 +524,16 @@ export function PosInvoiceBilling() {
     if (e.key === "Enter" && (!showSuggest || !suggestions.length || activeRowId !== row.id)) {
       e.preventDefault();
       const typed = row.name.trim();
-      if (typed && /^[0-9A-Za-z._-]{6,}$/.test(typed)) {
+      if (!typed) {
+        if (filledLines.length) promptCheckoutRef.current();
+        return;
+      }
+      if (/^[0-9A-Za-z._-]{6,}$/.test(typed)) {
         void addProductFromScan(typed, { clearRowId: row.id, exactBarcodeOnly: true }).then(
-          (found) => {
-            if (!found) document.getElementById(`qty-${row.id}`)?.focus();
-          }
+          () => focusCell(`qty-${row.id}`)
         );
       } else {
-        document.getElementById(`qty-${row.id}`)?.focus();
+        focusCell(`qty-${row.id}`);
       }
       return;
     }
@@ -455,7 +548,7 @@ export function PosInvoiceBilling() {
       const pick = suggestions[suggestIndex];
       if (pick) {
         applyProduct(row.id, pick);
-        requestAnimationFrame(() => document.getElementById(`qty-${row.id}`)?.focus());
+        requestAnimationFrame(() => focusCell(`qty-${row.id}`));
       }
     } else if (e.key === "Escape") {
       setShowSuggest(false);
@@ -468,7 +561,7 @@ export function PosInvoiceBilling() {
         <div>
           <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
           <p className="text-[11px] text-slate-300">
-            Scan gun (F2) · Type item → Tab Qty → Tab Rate · F4 New · F8 Save · F9 Print
+            Enter: Qty → Price → Cash/Online/Credit → Save &amp; Print
           </p>
         </div>
         <div className="flex gap-6 text-sm">
@@ -495,9 +588,14 @@ export function PosInvoiceBilling() {
                 if (e.key !== "Enter") return;
                 e.preventDefault();
                 e.stopPropagation();
-                void addProductFromScan(scanCode, { keepScanFocus: true });
+                const code = scanCode.trim();
+                if (code) {
+                  void addProductFromScan(code, { keepScanFocus: true });
+                  return;
+                }
+                if (filledLines.length) promptCheckoutRef.current();
               }}
-              placeholder="Focus here and scan, then Enter"
+              placeholder="Scan item, or Enter on empty to save bill"
               className="h-9 flex-1 rounded border border-slate-300 bg-white px-2 font-mono text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
             />
             <Button
@@ -653,7 +751,7 @@ export function PosInvoiceBilling() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        document.getElementById(`rate-${row.id}`)?.focus();
+                        focusCell(`rate-${row.id}`);
                       }
                     }}
                     className={cellClass("text-right")}
@@ -674,15 +772,12 @@ export function PosInvoiceBilling() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
+                        if (filledLines.length) {
+                          promptCheckoutRef.current();
+                          return;
+                        }
                         const next = rows[idx + 1];
                         if (next) itemInputRefs.current[next.id]?.focus();
-                        else {
-                          const extra = newRow();
-                          setRows((prev) => [...prev, extra]);
-                          requestAnimationFrame(() =>
-                            itemInputRefs.current[extra.id]?.focus()
-                          );
-                        }
                       }
                     }}
                     className={cellClass("text-right font-medium")}
@@ -690,6 +785,7 @@ export function PosInvoiceBilling() {
                 </td>
                 <td className="px-0 py-0.5">
                   <input
+                    id={`disc-${row.id}`}
                     type="number"
                     min={0}
                     max={100}
@@ -700,6 +796,12 @@ export function PosInvoiceBilling() {
                         discountPercent: Number(e.target.value) || 0,
                       })
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (filledLines.length) promptCheckoutRef.current();
+                      }
+                    }}
                     className={cellClass("text-right")}
                   />
                 </td>
@@ -763,7 +865,7 @@ export function PosInvoiceBilling() {
               <span className="ml-1 text-[10px] opacity-60">F6</span>
             </Button>
             <Button
-              onClick={() => void completeSale(false)}
+              onClick={() => promptCheckout()}
               disabled={processing || !filledLines.length}
               className="bg-[#1a365d] hover:bg-[#153054]"
             >
@@ -771,11 +873,16 @@ export function PosInvoiceBilling() {
               <span className="ml-1 text-[10px] opacity-70">F8</span>
             </Button>
             <Button
-              onClick={() => void completeSale(true)}
+              onClick={() => promptCheckout()}
               disabled={processing || !filledLines.length}
+              className={
+                saveBillHighlight || checkoutStep === "save"
+                  ? "scale-105 bg-green-600 text-white ring-4 ring-amber-400 ring-offset-2"
+                  : undefined
+              }
             >
               <Printer className="mr-1 h-4 w-4" />
-              Save &amp; Print
+              Save Bill
               <span className="ml-1 text-[10px] opacity-70">F9</span>
             </Button>
             <Button type="button" variant="ghost" onClick={resetInvoice}>
@@ -859,6 +966,44 @@ export function PosInvoiceBilling() {
           )}
         </div>
       </div>
+      {checkoutStep === "payment" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            role="dialog"
+            aria-labelledby="pos-pay-title"
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+          >
+            <h2 id="pos-pay-title" className="text-lg font-bold text-slate-900">
+              Make payment
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Total <span className="font-semibold text-slate-900">{formatPrice(total)}</span>
+            </p>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {CHECKOUT_PAY_OPTIONS.map((opt, i) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => confirmPayment(i)}
+                  className={`rounded-lg px-3 py-6 text-center text-sm font-semibold ${
+                    i === payOptionIndex
+                      ? "bg-[#1a365d] text-white ring-4 ring-amber-400"
+                      : "border border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100"
+                  }`}
+                >
+                  {opt.label}
+                  <span className="mt-1 block text-xs font-normal opacity-80">
+                    {opt.key}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-slate-500">
+              Arrow keys to change · Enter to confirm · Esc to cancel
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

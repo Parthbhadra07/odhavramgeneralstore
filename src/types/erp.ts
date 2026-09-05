@@ -114,6 +114,7 @@ export interface CustomerCredit {
   due_date?: string | null;
   payment_method?: string | null;
   description?: string | null;
+  entry_date?: string | null;
   created_at: string;
 }
 
@@ -514,6 +515,8 @@ export interface ReceiptData {
   showUpiQr?: boolean;
   /** Prices include GST — show note instead of separate tax lines */
   gstIncluded?: boolean;
+  /** 6-digit handover code printed on the customer receipt */
+  deliveryOtp?: string | null;
 }
 
 export interface PurchaseReturn {

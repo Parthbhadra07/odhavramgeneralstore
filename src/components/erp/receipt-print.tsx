@@ -258,6 +258,31 @@ export function ReceiptPrint({
 
       <div className="receipt-line-solid" />
 
+      {data.deliveryOtp && (
+        <>
+          <div style={{ padding: "8px 4px", textAlign: "center" }}>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: "0.95em" }}>
+              Delivery OTP
+            </p>
+            <p
+              style={{
+                margin: "6px 0 4px",
+                fontWeight: 700,
+                fontSize: dim.grandTotalSize,
+                letterSpacing: "0.28em",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              {data.deliveryOtp}
+            </p>
+            <p style={{ margin: 0, fontSize: "0.8em", lineHeight: 1.3 }}>
+              Share this code only with our delivery person when the order arrives.
+            </p>
+          </div>
+          <div className="receipt-line-solid" />
+        </>
+      )}
+
       {/* UPI QR */}
       {showUpiQr && upiUrl && (
         <>

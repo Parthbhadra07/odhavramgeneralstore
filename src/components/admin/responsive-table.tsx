@@ -22,6 +22,7 @@ interface ResponsiveTableProps<T> {
   loading?: boolean;
   actions?: (row: T) => ReactNode;
   actionsHeader?: string;
+  onRowClick?: (row: T) => void;
 }
 
 export function ResponsiveTable<T>({
@@ -32,6 +33,7 @@ export function ResponsiveTable<T>({
   loading,
   actions,
   actionsHeader = "Actions",
+  onRowClick,
 }: ResponsiveTableProps<T>) {
   if (loading) {
     return (
@@ -78,7 +80,11 @@ export function ResponsiveTable<T>({
               {data.map((row) => (
                 <tr
                   key={keyExtractor(row)}
-                  className="border-t transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50"
+                  className={cn(
+                    "border-t transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50",
+                    onRowClick && "cursor-pointer"
+                  )}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
                     <td key={col.key} className={cn("px-4 py-3", col.className)}>
@@ -86,7 +92,7 @@ export function ResponsiveTable<T>({
                     </td>
                   ))}
                   {actions && (
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">{actions(row)}</div>
                     </td>
                   )}
@@ -103,6 +109,7 @@ export function ResponsiveTable<T>({
           <div
             key={keyExtractor(row)}
             className="rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-900"
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
           >
             <div className="mb-2 font-semibold text-gray-900 dark:text-gray-100">
               {primaryCol.cell(row)}
@@ -120,7 +127,10 @@ export function ResponsiveTable<T>({
                 ))}
             </dl>
             {actions && (
-              <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t pt-3 dark:border-gray-700">
+              <div
+                className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t pt-3 dark:border-gray-700"
+                onClick={(e) => e.stopPropagation()}
+              >
                 {actions(row)}
               </div>
             )}

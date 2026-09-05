@@ -2,22 +2,42 @@
 
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useCartStore } from "@/store/cart-store";
+import { useCartHydrated } from "@/hooks/use-cart-hydrated";
+import {
+  clearCartClearedAfterOrderFlag,
+  emptyCartAfterOrder,
+  useCartStore,
+  wasCartClearedAfterOrder,
+} from "@/store/cart-store";
 import { cartService } from "@/services/cart.service";
 
 /** Syncs local cart with Supabase when user logs in */
 export function useCartSync() {
   const { user } = useAuth();
   const setItems = useCartStore((s) => s.setItems);
+  const hydrated = useCartHydrated();
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !hydrated) return;
 
     const sync = async () => {
       try {
+        if (wasCartClearedAfterOrder()) {
+          emptyCartAfterOrder();
+          try {
+            await cartService.clearCart(user.id);
+          } catch {
+            // Keep the cleared flag so a later refresh still does not restore items
+            return;
+          }
+          return;
+        }
+
         const localItems = useCartStore.getState().items;
         const serverItems = await cartService.getItems(user.id);
+
         if (serverItems.length > 0) {
+          clearCartClearedAfterOrderFlag();
           setItems(
             serverItems.map((item) => ({
               productId: item.product_id,
@@ -35,7 +55,6 @@ export function useCartSync() {
       }
     };
 
-    sync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+    void sync();
+  }, [user?.id, hydrated, setItems]);
 }

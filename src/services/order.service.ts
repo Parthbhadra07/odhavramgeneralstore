@@ -1,4 +1,10 @@
 import { requireClient } from "@/lib/supabase/client";
+import {
+  embedOtpInNotes,
+  generateDeliveryOtp,
+  getOrderDeliveryOtp,
+  stripOtpFromNotes,
+} from "@/utils/delivery-otp";
 import type { Order, OrderItem, OrderStatus, PaymentMethod } from "@/types/database";
 import { customerService } from "@/services/erp/customer.service";
 
@@ -150,6 +156,7 @@ export const orderService = {
 
     const supabase = requireClient();
     const orderNumber = await this.generateOrderNumber();
+    const deliveryOtp = generateDeliveryOtp();
 
     // Try new schema first (received + extra columns), then legacy (pending)
     const deliveryCharge = params.deliveryCharge ?? 0;
@@ -166,6 +173,8 @@ export const orderService = {
         order_status: "received",
         customer_name: params.customerName,
         customer_phone: params.customerPhone || null,
+        delivery_otp: deliveryOtp,
+        delivery_otp_verified: false,
         is_new: true,
       },
       {
@@ -178,6 +187,8 @@ export const orderService = {
         order_status: "received",
         customer_name: params.customerName,
         customer_phone: params.customerPhone || null,
+        delivery_otp: deliveryOtp,
+        delivery_otp_verified: false,
         is_new: true,
       },
       {
@@ -190,6 +201,7 @@ export const orderService = {
         order_status: "pending",
         customer_name: params.customerName,
         customer_phone: params.customerPhone || null,
+        tracking_notes: embedOtpInNotes(null, deliveryOtp),
       },
       {
         user_id: params.userId,
@@ -248,6 +260,12 @@ export const orderService = {
     await supabase.from("cart_items").delete().eq("user_id", params.userId);
 
     try {
+      await this.issueDeliveryOtp(order.id);
+    } catch (err) {
+      console.warn("Could not attach delivery OTP:", err);
+    }
+
+    try {
       const { data: userRow } = await supabase
         .from("users")
         .select("email")
@@ -287,6 +305,8 @@ export const orderService = {
       payment_method: params.paymentMethod,
       tracking_notes: null,
       delivered_at: null,
+      delivery_otp: deliveryOtp,
+      delivery_otp_verified: false,
       customer_name: params.customerName,
       customer_phone: params.customerPhone,
       created_at: new Date().toISOString(),
@@ -373,6 +393,69 @@ export const orderService = {
     }
 
     throw new Error(parseDbError(lastError ?? { message: "Could not update order status" }));
+  },
+
+  getDeliveryOtp(order: Pick<Order, "delivery_otp" | "tracking_notes">): string | null {
+    return getOrderDeliveryOtp(order);
+  },
+
+  async issueDeliveryOtp(orderId: string): Promise<string> {
+    const existing = await this.getById(orderId);
+    const current = existing ? this.getDeliveryOtp(existing) : null;
+    if (current && existing?.order_status !== "delivered") return current;
+
+    const otp = generateDeliveryOtp();
+    const supabase = requireClient();
+    const withColumn = await supabase
+      .from("orders")
+      .update({
+        delivery_otp: otp,
+        delivery_otp_verified: false,
+      })
+      .eq("id", orderId)
+      .select("id")
+      .single();
+
+    if (withColumn.error) {
+      const fallback = await supabase
+        .from("orders")
+        .update({ tracking_notes: embedOtpInNotes(existing?.tracking_notes, otp) })
+        .eq("id", orderId);
+      if (fallback.error) throw new Error(parseDbError(fallback.error));
+    }
+    return otp;
+  },
+
+  async verifyDeliveryOtp(orderId: string, otp: string): Promise<void> {
+    const order = await this.getById(orderId);
+    if (!order) throw new Error("Order not found");
+    const expected = this.getDeliveryOtp(order);
+    const entered = otp.replace(/\D/g, "");
+    if (!expected || entered !== expected) {
+      throw new Error("Wrong OTP. Ask the customer for the 6-digit code from their order page.");
+    }
+
+    const supabase = requireClient();
+    const paid = {
+      order_status: "delivered" as const,
+      delivered_at: new Date().toISOString(),
+      payment_status: "paid",
+      delivery_otp_verified: true,
+      tracking_notes: stripOtpFromNotes(order.tracking_notes),
+    };
+    const { error } = await supabase.from("orders").update(paid).eq("id", orderId);
+    if (error) {
+      const { error: fallback } = await supabase
+        .from("orders")
+        .update({
+          order_status: "delivered",
+          delivered_at: paid.delivered_at,
+          payment_status: "paid",
+          tracking_notes: stripOtpFromNotes(order.tracking_notes),
+        })
+        .eq("id", orderId);
+      if (fallback) throw new Error(parseDbError(fallback));
+    }
   },
 
   async markOrdersSeen() {

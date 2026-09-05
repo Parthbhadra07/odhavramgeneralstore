@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { orderService } from "@/services/order.service";
 import { productService } from "@/services/product.service";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import { receiptFromOrder } from "@/utils/receipt";
+import { deliveryOtpMessage } from "@/utils/delivery-otp";
+import { openWhatsAppShare } from "@/utils/whatsapp";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import {
@@ -48,10 +51,13 @@ function AdminOrderDetailContent() {
   const [status, setStatus] = useState<OrderStatus>("received");
   const [note, setNote] = useState("");
   const { settings } = useStoreSettings();
+  const { isSuperAdmin } = useAuth();
   const [saving, setSaving] = useState(false);
   const [addProductId, setAddProductId] = useState("");
   const [deliveryCharge, setDeliveryCharge] = useState(0);
   const [deliveryPerson, setDeliveryPerson] = useState("");
+  const [deliveryOtpInput, setDeliveryOtpInput] = useState("");
+  const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
 
   const load = () => {
     if (!id) return;
@@ -60,6 +66,7 @@ function AdminOrderDetailContent() {
         setOrder(o);
         setStatus(o.order_status);
         setDeliveryPerson(o.delivery_person ?? "");
+        setIssuedOtp(orderService.getDeliveryOtp(o));
         const mapped = (o.order_items ?? []).map((i) => ({
           id: i.id,
           productId: i.product_id,
@@ -104,8 +111,47 @@ function AdminOrderDetailContent() {
         totalAmount: grandTotal,
         deliveryCharge,
       });
+
+      if (status === "delivered") {
+        const existingOtp = issuedOtp ?? (order ? orderService.getDeliveryOtp(order) : null);
+        if (!existingOtp) {
+          const otp = await orderService.issueDeliveryOtp(id);
+          setIssuedOtp(otp);
+          toast.message(
+            isSuperAdmin
+              ? `Delivery OTP ${otp} created. It is on the customer receipt. Enter it to complete.`
+              : "Ask the customer for the 6-digit OTP on their receipt, then enter it to complete."
+          );
+          setSaving(false);
+          return;
+        }
+        if (!deliveryOtpInput.trim()) {
+          toast.error("Enter the customer’s 6-digit delivery OTP to mark delivered");
+          setSaving(false);
+          return;
+        }
+        await orderService.verifyDeliveryOtp(id, deliveryOtpInput);
+        if (note.trim()) {
+          await orderService.updateStatus(id, "delivered", note);
+        }
+        toast.success("OTP verified — order delivered");
+        setDeliveryOtpInput("");
+        load();
+        return;
+      }
+
       await orderService.updateStatus(id, status, note);
-      toast.success("Order updated");
+      if (status === "out_for_delivery" || status === "packed") {
+        const otp = await orderService.issueDeliveryOtp(id);
+        setIssuedOtp(otp);
+        toast.success(
+          isSuperAdmin
+            ? `Order updated. Delivery OTP ${otp} is on the customer receipt.`
+            : "Order updated. Ask the customer for the OTP on their receipt at delivery."
+        );
+      } else {
+        toast.success("Order updated");
+      }
       load();
     } catch (err: unknown) {
       toast.error(orderErrorMessage(err), { duration: 6000 });
@@ -304,6 +350,50 @@ function AdminOrderDetailContent() {
             className="mb-3 w-full rounded-lg border px-3 py-2 text-sm"
             rows={2}
           />
+          {(status === "delivered" ||
+            status === "out_for_delivery" ||
+            status === "packed" ||
+            order.order_status === "out_for_delivery" ||
+            order.order_status === "packed") &&
+            order.order_status !== "delivered" && (
+              <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3">
+                <p className="mb-1 flex items-center gap-1 text-sm font-medium text-green-900">
+                  <ShieldCheck className="h-4 w-4" />
+                  Delivery OTP
+                </p>
+                <p className="mb-2 text-xs text-green-800">
+                  Ask the customer for the 6-digit code printed on their receipt, then enter it
+                  to mark delivered.
+                </p>
+                <Input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Enter 6-digit OTP"
+                  value={deliveryOtpInput}
+                  onChange={(e) => setDeliveryOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+                {isSuperAdmin && issuedOtp && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <p className="font-mono text-lg font-bold tracking-widest text-green-900">
+                      {issuedOtp}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        openWhatsAppShare(
+                          deliveryOtpMessage(order.order_number ?? order.id, issuedOtp),
+                          order.customer_phone ?? order.users?.phone ?? undefined
+                        )
+                      }
+                    >
+                      WhatsApp OTP to customer
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button onClick={updateStatus} loading={saving} className="w-full sm:w-auto">
               Update Status
@@ -428,12 +518,15 @@ function AdminOrderDetailContent() {
       <div className="rounded-xl border bg-white p-6 shadow-sm">
         <h2 className="mb-4 font-semibold">Thermal Receipt</h2>
         <ReceiptActions
-          data={receiptFromOrder({
-            ...order,
-            order_items: order.order_items,
-            total_amount: grandTotal,
-            delivery_charge: deliveryCharge,
-          })}
+          data={receiptFromOrder(
+            {
+              ...order,
+              order_items: order.order_items,
+              total_amount: grandTotal,
+              delivery_charge: deliveryCharge,
+            },
+            { showDeliveryOtp: isSuperAdmin }
+          )}
           settings={settings}
           defaultWidth={settings?.receipt_width ?? "80mm"}
           receiptId="thermal-receipt"

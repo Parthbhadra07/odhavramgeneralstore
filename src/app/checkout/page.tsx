@@ -4,13 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import NextImage from "next/image";
 import { toast } from "sonner";
-import { useCartStore } from "@/store/cart-store";
+import { emptyCartAfterOrder, useCartStore } from "@/store/cart-store";
 import { useAuth } from "@/hooks/use-auth";
 import { formatPrice } from "@/utils/format";
 import { CheckoutForm } from "@/components/checkout-form";
 import { Button } from "@/components/ui/button";
 import { addressService } from "@/services/address.service";
-import { cartService } from "@/services/cart.service";
 import { orderService } from "@/services/order.service";
 import type { Address } from "@/types/database";
 import type { AddressInput } from "@/lib/validators";
@@ -26,7 +25,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { user, profile, loading: authLoading } = useAuth();
   const cartHydrated = useCartHydrated();
-  const { items, getTotal, clearCart, setOpen } = useCartStore();
+  const { items, getTotal, setOpen } = useCartStore();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [showNewAddress, setShowNewAddress] = useState(false);
@@ -89,13 +88,7 @@ export default function CheckoutPage() {
           price: i.product?.price ?? 0,
         })),
       });
-      try {
-        await cartService.clearCart(user.id);
-      } catch {
-        // Local cart is still cleared so the shopper is not left with old items
-      }
-      clearCart();
-      setOpen(false);
+      emptyCartAfterOrder();
 
       if (method === "cod") {
         toast.success("Order placed! Pay on delivery.");

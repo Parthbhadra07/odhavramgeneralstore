@@ -47,19 +47,7 @@ export const creditService = {
       due_date: dueDate ?? null,
     });
 
-    const { data } = await supabase
-      .from("customers")
-      .select("credit_balance")
-      .eq("id", customerId)
-      .single();
-
-    await supabase
-      .from("customers")
-      .update({
-        credit_balance: Number(data?.credit_balance ?? 0) + amount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customerId);
+    await this.syncCustomerBalance(customerId);
   },
 
   async createManualCreditSale(params: {
@@ -90,17 +78,6 @@ export const creditService = {
     if (amount <= 0) throw new Error("Payment amount must be positive");
 
     const supabase = requireClient();
-    const { data } = await supabase
-      .from("customers")
-      .select("credit_balance")
-      .eq("id", customerId)
-      .single();
-
-    const balance = Number(data?.credit_balance ?? 0);
-    if (amount > balance) {
-      throw new Error(`Payment exceeds outstanding credit (₹${balance.toFixed(2)})`);
-    }
-
     const paymentNote = [paymentMethod, notes].filter(Boolean).join(" — ") || null;
 
     await supabase.from("customer_credit").insert({
@@ -114,29 +91,13 @@ export const creditService = {
       payment_method: paymentMethod ?? null,
     });
 
-    await supabase
-      .from("customers")
-      .update({
-        credit_balance: Math.max(0, balance - amount),
-        last_payment_date: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customerId);
+    await this.syncCustomerBalance(customerId);
   },
 
   async adjust(customerId: string, signedAmount: number, notes?: string) {
     if (signedAmount === 0) throw new Error("Adjustment amount cannot be zero");
 
     const supabase = requireClient();
-    const { data } = await supabase
-      .from("customers")
-      .select("credit_balance")
-      .eq("id", customerId)
-      .single();
-
-    const balance = Number(data?.credit_balance ?? 0);
-    const nextBalance = Math.max(0, balance + signedAmount);
-
     await supabase.from("customer_credit").insert({
       customer_id: customerId,
       amount: signedAmount,
@@ -144,16 +105,10 @@ export const creditService = {
       reference_type: "adjust",
       reference_id: null,
       notes: notes ?? null,
-      description: notes ?? (signedAmount > 0 ? "Discount Adjustment" : "Return Adjustment"),
+      description: notes ?? (signedAmount > 0 ? "Balance increased" : "Balance reduced"),
     });
 
-    await supabase
-      .from("customers")
-      .update({
-        credit_balance: nextBalance,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customerId);
+    await this.syncCustomerBalance(customerId);
   },
 
   async reverseCredit(
@@ -166,12 +121,6 @@ export const creditService = {
     if (amount <= 0) return;
 
     const supabase = requireClient();
-    const { data } = await supabase
-      .from("customers")
-      .select("credit_balance")
-      .eq("id", customerId)
-      .single();
-
     await supabase.from("customer_credit").insert({
       customer_id: customerId,
       amount,
@@ -182,13 +131,7 @@ export const creditService = {
       description: notes ?? "Return Adjustment",
     });
 
-    await supabase
-      .from("customers")
-      .update({
-        credit_balance: Math.max(0, Number(data?.credit_balance ?? 0) - amount),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customerId);
+    await this.syncCustomerBalance(customerId);
   },
 
   async updateCustomerProfile(
@@ -203,21 +146,132 @@ export const creditService = {
     if (error) throw error;
   },
 
-  async getHistory(customerId: string): Promise<CustomerCredit[]> {
+  async syncCustomerBalance(customerId: string) {
     const supabase = requireClient();
-    const { data, error } = await supabase
-      .from("customer_credit")
-      .select("*")
-      .eq("customer_id", customerId)
-      .order("created_at", { ascending: true });
+    const history = await this.getHistory(customerId);
+    const ledger = this.ledgerFromHistory(history);
+    const balance = ledger.length ? ledger[ledger.length - 1].runningBalance : 0;
+    const lastPayment = [...history]
+      .reverse()
+      .find((e) => e.transaction_type === "payment");
+
+    const { error } = await supabase
+      .from("customers")
+      .update({
+        credit_balance: Math.round(balance * 100) / 100,
+        last_payment_date: lastPayment?.created_at ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", customerId);
     if (error) throw error;
-    return (data ?? []) as CustomerCredit[];
+    return balance;
   },
 
-  async getLedger(customerId: string): Promise<CreditLedgerEntry[]> {
-    const history = await this.getHistory(customerId);
-    let runningBalance = 0;
+  async recordVoucher(params: {
+    customerId: string;
+    type: "credit" | "payment" | "adjust";
+    amount: number;
+    date?: string;
+    notes?: string;
+    description?: string;
+    paymentMethod?: string;
+    dueDate?: string;
+  }) {
+    const amount = Number(params.amount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      throw new Error("Enter a valid amount");
+    }
+    const supabase = requireClient();
+    const signed =
+      params.type === "adjust" ? amount : Math.abs(amount);
+    const row: Record<string, unknown> = {
+      customer_id: params.customerId,
+      amount: params.type === "payment" ? Math.abs(amount) : signed,
+      transaction_type: params.type,
+      reference_type: params.type === "credit" ? "manual_credit" : params.type,
+      reference_id: null,
+      notes: params.notes ?? null,
+      description:
+        params.description ??
+        (params.type === "credit"
+          ? "You gave (udhaar)"
+          : params.type === "payment"
+            ? "You got (collection)"
+            : "Adjustment"),
+      payment_method: params.paymentMethod ?? null,
+      due_date: params.dueDate || null,
+    };
+    if (params.date) row.entry_date = params.date;
 
+    const { error } = await supabase.from("customer_credit").insert(row);
+    if (error) {
+      if (params.date && String(error.message).includes("entry_date")) {
+        const { entry_date: _ignored, ...withoutDate } = row;
+        const retry = await supabase.from("customer_credit").insert(withoutDate);
+        if (retry.error) throw retry.error;
+      } else {
+        throw error;
+      }
+    }
+    await this.syncCustomerBalance(params.customerId);
+  },
+
+  async updateLedgerEntry(
+    entryId: string,
+    updates: {
+      amount?: number;
+      type?: "credit" | "payment" | "adjust";
+      notes?: string | null;
+      description?: string | null;
+      date?: string;
+      dueDate?: string | null;
+      paymentMethod?: string | null;
+    }
+  ) {
+    const supabase = requireClient();
+    const { data: existing, error: loadErr } = await supabase
+      .from("customer_credit")
+      .select("*")
+      .eq("id", entryId)
+      .single();
+    if (loadErr || !existing) throw new Error("Entry not found");
+
+    const patch: Record<string, unknown> = {};
+    if (updates.amount != null) patch.amount = updates.amount;
+    if (updates.type) patch.transaction_type = updates.type;
+    if (updates.notes !== undefined) patch.notes = updates.notes;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.dueDate !== undefined) patch.due_date = updates.dueDate;
+    if (updates.paymentMethod !== undefined) patch.payment_method = updates.paymentMethod;
+    if (updates.date) {
+      patch.entry_date = updates.date;
+      patch.created_at = `${updates.date}T12:00:00.000Z`;
+    }
+
+    const { error } = await supabase
+      .from("customer_credit")
+      .update(patch)
+      .eq("id", entryId);
+    if (error) throw error;
+    await this.syncCustomerBalance(existing.customer_id as string);
+  },
+
+  async deleteLedgerEntry(entryId: string) {
+    const supabase = requireClient();
+    const { data: existing, error: loadErr } = await supabase
+      .from("customer_credit")
+      .select("customer_id")
+      .eq("id", entryId)
+      .single();
+    if (loadErr || !existing) throw new Error("Entry not found");
+
+    const { error } = await supabase.from("customer_credit").delete().eq("id", entryId);
+    if (error) throw error;
+    await this.syncCustomerBalance(existing.customer_id as string);
+  },
+
+  ledgerFromHistory(history: CustomerCredit[]): CreditLedgerEntry[] {
+    let runningBalance = 0;
     return history.map((entry) => {
       const amount = Number(entry.amount);
       const debit =
@@ -232,10 +286,11 @@ export const creditService = {
           : 0;
 
       runningBalance = Math.round((runningBalance + debit - credit) * 100) / 100;
+      const date = entry.entry_date ?? entry.created_at;
 
       return {
         id: entry.id,
-        date: entry.created_at,
+        date,
         description: ledgerDescription(entry),
         type: entry.transaction_type,
         debit,
@@ -247,6 +302,28 @@ export const creditService = {
         referenceId: entry.reference_id,
       };
     });
+  },
+
+  async getHistory(customerId: string): Promise<CustomerCredit[]> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from("customer_credit")
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    const rows = (data ?? []) as CustomerCredit[];
+    return rows.sort((a, b) => {
+      const da = a.entry_date ?? a.created_at.slice(0, 10);
+      const db = b.entry_date ?? b.created_at.slice(0, 10);
+      if (da !== db) return da.localeCompare(db);
+      return a.created_at.localeCompare(b.created_at);
+    });
+  },
+
+  async getLedger(customerId: string): Promise<CreditLedgerEntry[]> {
+    const history = await this.getHistory(customerId);
+    return this.ledgerFromHistory(history);
   },
 
   async getLedgerWithOpening(customerId: string) {
@@ -289,7 +366,7 @@ export const creditService = {
       .filter((r) => r.transaction_type === "payment")
       .reduce((s, r) => s + Number(r.amount), 0);
     const outstandingBalance = (customers ?? []).reduce(
-      (s, c) => s + Number(c.credit_balance),
+      (s, c) => s + Math.max(0, Number(c.credit_balance)),
       0
     );
     const activeCreditCustomers = (customers ?? []).filter(
@@ -428,15 +505,22 @@ export const creditService = {
   },
 
   async listCreditCustomers(search?: string) {
+    return this.listParties(search, "due");
+  },
+
+  async listParties(
+    search?: string,
+    filter: "all" | "due" | "settled" | "blocked" | "advance" = "all"
+  ) {
     const supabase = requireClient();
-    let q = supabase
-      .from("customers")
-      .select("*")
-      .gt("credit_balance", 0)
-      .order("credit_balance", { ascending: false });
+    let q = supabase.from("customers").select("*").order("name");
     if (search) {
       q = q.or(`name.ilike.%${search}%,mobile.ilike.%${search}%`);
     }
+    if (filter === "due") q = q.gt("credit_balance", 0);
+    if (filter === "advance") q = q.lt("credit_balance", 0);
+    if (filter === "settled") q = q.eq("credit_balance", 0);
+    if (filter === "blocked") q = q.eq("account_status", "blocked");
     const { data, error } = await q;
     if (error) throw error;
     return (data ?? []) as Customer[];

@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import { orderService } from "@/services/order.service";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { CustomerDeliveryOtp } from "@/components/orders/customer-delivery-otp";
 import { formatPrice, formatDate } from "@/utils/format";
 import { APP_NAME, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
@@ -116,6 +117,9 @@ export default function TrackOrderPage() {
           </div>
 
           <h3 className="mb-4 font-semibold">Order Progress</h3>
+          <div className="mb-6">
+            <CustomerDeliveryOtp order={order} />
+          </div>
           <OrderTimeline
             currentStatus={order.order_status}
             history={order.tracking_history}

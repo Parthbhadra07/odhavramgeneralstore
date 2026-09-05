@@ -6,6 +6,7 @@ import { ProductImage } from "@/components/product-image";
 import { orderService } from "@/services/order.service";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { CustomerDeliveryOtp } from "@/components/orders/customer-delivery-otp";
 import { formatPrice, formatDate } from "@/utils/format";
 import { orderItemsSubtotal, resolveDeliveryCharge } from "@/utils/order-pricing";
 import { PAYMENT_METHOD_LABELS, STORE_PHONE, STORE_PHONE_TEL } from "@/lib/constants";
@@ -48,6 +49,10 @@ function OrderDetailContent() {
         <p className="mt-1 text-sm">
           Payment: {PAYMENT_METHOD_LABELS[order.payment_method ?? "cod"]}
         </p>
+
+        <div className="my-6">
+          <CustomerDeliveryOtp order={order} />
+        </div>
 
         <div className="my-6">
           <h2 className="mb-3 font-semibold">Order Progress</h2>

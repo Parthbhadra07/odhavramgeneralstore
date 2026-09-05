@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isStaleAuthError } from "@/lib/supabase/auth-errors";
 import type { User } from "@/types/database";
 import type { User as AuthUser } from "@supabase/supabase-js";
-import { isErpAdmin, isErpStaff } from "@/utils/roles";
+import { isErpAdmin, isErpStaff, isSuperAdmin } from "@/utils/roles";
 
 export function useAuth() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -26,6 +26,7 @@ export function useAuth() {
         .eq("id", userId)
         .single();
       setProfile(data as User | null);
+      setLoading(false);
     };
 
     const clearStaleSession = async () => {
@@ -50,7 +51,7 @@ export function useAuth() {
 
       setAuthUser(user ?? null);
       if (user) void loadProfile(user.id);
-      setLoading(false);
+      else setLoading(false);
     });
 
     const {
@@ -63,8 +64,10 @@ export function useAuth() {
 
       setAuthUser(session?.user ?? null);
       if (session?.user) void loadProfile(session.user.id);
-      else setProfile(null);
-      setLoading(false);
+      else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -75,6 +78,7 @@ export function useAuth() {
     profile,
     loading,
     isAdmin: isErpAdmin(profile?.role),
+    isSuperAdmin: isSuperAdmin(profile?.role),
     isStaff: isErpStaff(profile?.role),
   };
 }

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle } from "lucide-react";
-import { useCartStore } from "@/store/cart-store";
+import { emptyCartAfterOrder } from "@/store/cart-store";
 import { useAuth } from "@/hooks/use-auth";
 import { cartService } from "@/services/cart.service";
 import { orderService } from "@/services/order.service";
@@ -16,6 +16,7 @@ import {
   PAYMENT_METHOD_LABELS,
 } from "@/lib/constants";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { CustomerDeliveryOtp } from "@/components/orders/customer-delivery-otp";
 import { CallStoreButton } from "@/components/call-store-button";
 import { Button } from "@/components/ui/button";
 import type { Order } from "@/types/database";
@@ -24,18 +25,15 @@ export default function OrderSuccessPage() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order");
   const { user } = useAuth();
-  const clearCart = useCartStore((s) => s.clearCart);
-  const setOpen = useCartStore((s) => s.setOpen);
   const [order, setOrder] = useState<Order | null>(null);
 
   useEffect(() => {
     if (!orderId) return;
-    clearCart();
-    setOpen(false);
+    emptyCartAfterOrder();
     if (user?.id) {
       cartService.clearCart(user.id).catch(() => {});
     }
-  }, [orderId, user?.id, clearCart, setOpen]);
+  }, [orderId, user?.id]);
 
   useEffect(() => {
     if (orderId) orderService.getById(orderId).then(setOrder);
@@ -84,6 +82,10 @@ export default function OrderSuccessPage() {
             <span className="text-gray-600">Status</span>
             <OrderStatusBadge status={order.order_status} />
           </div>
+        </div>
+
+        <div className="mt-4 text-left">
+          <CustomerDeliveryOtp order={order} />
         </div>
 
         <p className="mt-4 text-sm text-gray-600">

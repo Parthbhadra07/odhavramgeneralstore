@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { orderService } from "@/services/order.service";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { useStoreSettings } from "@/hooks/use-store-settings";
+import { useAuth } from "@/hooks/use-auth";
 import { receiptFromOrder } from "@/utils/receipt";
 import { CallStoreButton } from "@/components/call-store-button";
 import { STORE_PHONE, APP_NAME } from "@/lib/constants";
@@ -15,6 +16,7 @@ function InvoiceContent() {
   const id = searchParams.get("id") ?? "";
   const [order, setOrder] = useState<Order | null>(null);
   const { settings } = useStoreSettings();
+  const { isStaff, isSuperAdmin, loading: authLoading } = useAuth();
 
   useEffect(() => {
     if (id) orderService.getById(id).then(setOrder);
@@ -28,7 +30,9 @@ function InvoiceContent() {
       <div className="mb-6 print:hidden">
         <h1 className="mb-4 text-2xl font-bold">Invoice / Bill</h1>
         <ReceiptActions
-          data={receiptFromOrder(order)}
+          data={receiptFromOrder(order, {
+            showDeliveryOtp: !authLoading && (!isStaff || isSuperAdmin),
+          })}
           settings={settings}
           defaultWidth={settings?.receipt_width ?? "80mm"}
           receiptId="thermal-receipt"

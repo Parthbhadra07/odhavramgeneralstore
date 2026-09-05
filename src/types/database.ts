@@ -89,6 +89,8 @@ export interface Order {
   delivered_at: string | null;
   delivery_person?: string | null;
   delivery_assigned_at?: string | null;
+  delivery_otp?: string | null;
+  delivery_otp_verified?: boolean | null;
   customer_name: string | null;
   customer_phone: string | null;
   is_new?: boolean;

@@ -194,6 +194,72 @@ export const customerService = {
     });
   },
 
+  async updateById(
+    id: string,
+    updates: Partial<
+      Pick<
+        Customer,
+        | "name"
+        | "mobile"
+        | "email"
+        | "address"
+        | "gst_number"
+        | "credit_limit"
+        | "account_status"
+        | "notes"
+      >
+    >
+  ): Promise<Customer> {
+    const supabase = requireClient();
+    const payload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (updates.name != null) payload.name = updates.name.trim();
+    if (updates.mobile != null) payload.mobile = normalizeMobile(updates.mobile);
+    if (updates.email !== undefined) payload.email = updates.email?.trim() || null;
+    if (updates.address !== undefined) payload.address = updates.address?.trim() || null;
+    if (updates.gst_number !== undefined) {
+      payload.gst_number = updates.gst_number?.trim() || null;
+    }
+    if (updates.credit_limit !== undefined) payload.credit_limit = updates.credit_limit;
+    if (updates.account_status !== undefined) payload.account_status = updates.account_status;
+    if (updates.notes !== undefined) payload.notes = updates.notes?.trim() || null;
+
+    const { data, error } = await supabase
+      .from("customers")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error("Another party already uses this mobile number.");
+      }
+      throw error;
+    }
+    return data as Customer;
+  },
+
+  async createParty(params: {
+    name: string;
+    mobile: string;
+    email?: string | null;
+    address?: string | null;
+    gst_number?: string | null;
+    credit_limit?: number;
+    notes?: string | null;
+  }): Promise<Customer> {
+    return this.upsert({
+      name: params.name,
+      mobile: params.mobile,
+      email: params.email ?? null,
+      address: params.address ?? null,
+      gst_number: params.gst_number ?? null,
+      credit_limit: params.credit_limit ?? 0,
+      notes: params.notes ?? null,
+    });
+  },
+
   async upsert(
     customer: Partial<Customer> & { name: string; mobile: string }
   ): Promise<Customer> {

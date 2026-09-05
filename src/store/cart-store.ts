@@ -2,6 +2,51 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { LocalCartItem, Product } from "@/types/database";
 
+const CART_STORAGE_KEY = "freshmart-cart";
+const CART_CLEARED_AFTER_ORDER_KEY = "freshmart-cart-order-cleared";
+
+export function wasCartClearedAfterOrder(): boolean {
+  try {
+    return localStorage.getItem(CART_CLEARED_AFTER_ORDER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markCartClearedAfterOrder() {
+  try {
+    localStorage.setItem(CART_CLEARED_AFTER_ORDER_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
+export function clearCartClearedAfterOrderFlag() {
+  try {
+    localStorage.removeItem(CART_CLEARED_AFTER_ORDER_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function persistEmptyCartToStorage() {
+  try {
+    localStorage.setItem(
+      CART_STORAGE_KEY,
+      JSON.stringify({ state: { items: [], isOpen: false }, version: 0 })
+    );
+  } catch {
+    // ignore
+  }
+}
+
+/** Empty the cart in memory, localStorage, and mark it so login sync cannot restore it. */
+export function emptyCartAfterOrder() {
+  useCartStore.setState({ items: [], isOpen: false });
+  persistEmptyCartToStorage();
+  markCartClearedAfterOrder();
+}
+
 interface CartState {
   items: LocalCartItem[];
   isOpen: boolean;
@@ -23,6 +68,7 @@ export const useCartStore = create<CartState>()(
       setOpen: (open) => set({ isOpen: open }),
 
       addItem: (product, quantity = 1) => {
+        clearCartClearedAfterOrderFlag();
         const items = get().items;
         const existing = items.find((i) => i.productId === product.id);
         if (existing) {
@@ -70,6 +116,15 @@ export const useCartStore = create<CartState>()(
       getItemCount: () =>
         get().items.reduce((sum, i) => sum + i.quantity, 0),
     }),
-    { name: "freshmart-cart" }
+    {
+      name: CART_STORAGE_KEY,
+      merge: (persisted, current) => {
+        const persistedState = persisted as Partial<CartState> | undefined;
+        if (wasCartClearedAfterOrder()) {
+          return { ...current, ...persistedState, items: [], isOpen: false };
+        }
+        return { ...current, ...persistedState };
+      },
+    }
   )
 );

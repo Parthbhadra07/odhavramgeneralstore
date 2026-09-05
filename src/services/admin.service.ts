@@ -1,6 +1,21 @@
 import { requireClient } from "@/lib/supabase/client";
 import type { User, UserRole } from "@/types/database";
 
+function roleUpdateError(message: string, code?: string) {
+  if (
+    message.includes("policy") ||
+    message.includes("row-level") ||
+    message.includes("permission") ||
+    code === "42501" ||
+    code === "PGRST202"
+  ) {
+    return new Error(
+      "Could not update role. Open Supabase → SQL Editor and run supabase/migrations/016_admin_role_updates.sql, then try again."
+    );
+  }
+  return new Error(message);
+}
+
 export const adminService = {
   async getDashboardStats() {
     const supabase = requireClient();
@@ -46,13 +61,27 @@ export const adminService = {
 
   async updateUserRole(userId: string, role: UserRole) {
     const supabase = requireClient();
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      "admin_set_user_role",
+      { target_id: userId, new_role: role }
+    );
+
+    if (!rpcError && rpcData) {
+      return (Array.isArray(rpcData) ? rpcData[0] : rpcData) as User;
+    }
+
     const { data, error } = await supabase
       .from("users")
       .update({ role })
       .eq("id", userId)
       .select()
       .single();
-    if (error) throw error;
-    return data as User;
+
+    if (!error && data) return data as User;
+
+    throw roleUpdateError(
+      rpcError?.message || error?.message || "Could not update role.",
+      rpcError?.code || error?.code
+    );
   },
 };

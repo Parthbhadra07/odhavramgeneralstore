@@ -9,6 +9,11 @@ import { orderItemsSubtotal, resolveDeliveryCharge } from "@/utils/order-pricing
 import { getOrderAddress } from "@/utils/order-address";
 import type { Order } from "@/types/database";
 import type { PosSale, ReceiptData } from "@/types/erp";
+import {
+  getOrderDeliveryOtp,
+  shouldShowCustomerDeliveryOtp,
+  stripOtpFromNotes,
+} from "@/utils/delivery-otp";
 
 export function receiptFromPosSale(sale: PosSale): ReceiptData {
   const created = new Date(sale.created_at);
@@ -40,7 +45,10 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
   };
 }
 
-export function receiptFromOrder(order: Order): ReceiptData {
+export function receiptFromOrder(
+  order: Order,
+  options?: { showDeliveryOtp?: boolean }
+): ReceiptData {
   const created = new Date(order.created_at);
   const items = (order.order_items ?? []).map((i) => ({
     name: i.products?.name ?? "Item",
@@ -79,6 +87,10 @@ export function receiptFromOrder(order: Order): ReceiptData {
     deliveryCharge: delivery,
     gstIncluded: true,
     grandTotal: Number(order.total_amount),
-    notes: order.tracking_notes,
+    notes: stripOtpFromNotes(order.tracking_notes),
+    deliveryOtp:
+      options?.showDeliveryOtp !== false && shouldShowCustomerDeliveryOtp(order)
+        ? getOrderDeliveryOtp(order)
+        : null,
   };
 }
