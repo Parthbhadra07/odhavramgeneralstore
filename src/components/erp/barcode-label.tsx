@@ -4,13 +4,7 @@ import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import type { BarcodeFormat, BarcodeLabelConfig } from "@/types/erp";
-import {
-  buildLabelStyle,
-  FONT_FAMILY_CSS,
-  getBarcodeBarWidth,
-  resolveJsBarcodeFormat,
-  type BarcodeLabelData,
-} from "./barcode-label-utils";
+import { buildLabelStyle, getJsBarcodeOptions, type BarcodeLabelData } from "./barcode-label-utils";
 import { mergeBarcodeConfig } from "@/utils/barcode-printer-prefs";
 
 interface BarcodeLabelProps extends BarcodeLabelData {
@@ -61,7 +55,7 @@ export function BarcodeLabel({
     ...configOverride,
     ...(format ? { format } : {}),
   };
-  const svgRef = useRef<SVGSVGElement>(null);
+  const barcodeCanvasRef = useRef<HTMLCanvasElement>(null);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const isQr = config.format === "QR";
 
@@ -69,32 +63,23 @@ export function BarcodeLabel({
     if (isQr) {
       if (!qrCanvasRef.current || !value) return;
       QRCode.toCanvas(qrCanvasRef.current, value, {
-        width: config.barcodeHeight,
+        width: Math.max(80, config.barcodeHeight * 2),
         margin: 1,
+        color: { dark: "#000000", light: "#ffffff" },
       }).catch(() => {});
       return;
     }
 
-    if (!svgRef.current || !value) return;
-    const jsFormat = resolveJsBarcodeFormat(config.format, value);
-    const barWidth = getBarcodeBarWidth(config);
+    if (!barcodeCanvasRef.current || !value) return;
+    const options = getJsBarcodeOptions(config, value);
     try {
-      JsBarcode(svgRef.current, value, {
-        format: jsFormat,
-        width: barWidth,
-        height: config.barcodeHeight,
-        displayValue: config.showBarcodeNumber,
-        fontSize: config.fontSize,
-        font: FONT_FAMILY_CSS[config.fontFamily].split(",")[0].replace(/"/g, ""),
-        margin: 2,
-      });
+      JsBarcode(barcodeCanvasRef.current, value, options);
     } catch {
-      JsBarcode(svgRef.current, value, {
+      JsBarcode(barcodeCanvasRef.current, value, {
+        ...options,
         format: "CODE128",
-        width: barWidth,
-        height: config.barcodeHeight,
+        width: 1,
         displayValue: true,
-        fontSize: config.fontSize,
         font: "Courier New",
       });
     }
@@ -105,9 +90,15 @@ export function BarcodeLabel({
   return (
     <div
       className={`thermal-label inline-block rounded border border-gray-200 bg-white text-center print:break-inside-avoid ${className ?? ""}`}
+      data-barcode-value={value}
+      data-product-name={productName}
+      data-shop-name={shopName ?? ""}
+      data-mrp={mrp ?? ""}
+      data-selling-price={resolvedSelling ?? ""}
       style={{
         ...labelStyle,
-        fontWeight: config.printDensity === "dark" ? 700 : 400,
+        fontWeight: 400,
+        background: "#ffffff",
       }}
     >
       {config.showStoreName && shopName && (
@@ -124,9 +115,14 @@ export function BarcodeLabel({
         </p>
       )}
       {isQr ? (
-        <canvas ref={qrCanvasRef} className="mx-auto" />
+        <canvas ref={qrCanvasRef} data-barcode-value={value} className="mx-auto bg-white" />
       ) : (
-        <svg ref={svgRef} className="mx-auto max-w-full" />
+        <canvas
+          ref={barcodeCanvasRef}
+          data-barcode-value={value}
+          className="mx-auto max-w-full bg-white"
+          style={{ imageRendering: "pixelated" }}
+        />
       )}
       <div className="mt-0.5 flex flex-wrap justify-center gap-2 font-bold">
         {config.showMrp && mrp != null && <span>MRP ₹{mrp.toFixed(2)}</span>}
@@ -154,11 +150,28 @@ export function printBarcodeLabels(
 ) {
   const el = document.getElementById("barcode-labels-print");
   if (!el) return;
-  import("./barcode-label-utils").then(({ printBarcodeLabelsFromElement }) =>
-    printBarcodeLabelsFromElement(
-      "barcode-labels-print",
-      title,
-      mergeBarcodeConfig(config)
-    )
+  import("@/utils/bluetooth-printer").then(
+    ({ isBluetoothPrinterConnected, printBarcodeLabelsFromPrintRoot }) => {
+      if (isBluetoothPrinterConnected()) {
+        void printBarcodeLabelsFromPrintRoot("barcode-labels-print").catch((err) => {
+          console.warn("Bluetooth barcode print failed", err);
+          import("./barcode-label-utils").then(({ printBarcodeLabelsFromElement }) =>
+            printBarcodeLabelsFromElement(
+              "barcode-labels-print",
+              title,
+              mergeBarcodeConfig(config)
+            )
+          );
+        });
+        return;
+      }
+      import("./barcode-label-utils").then(({ printBarcodeLabelsFromElement }) =>
+        printBarcodeLabelsFromElement(
+          "barcode-labels-print",
+          title,
+          mergeBarcodeConfig(config)
+        )
+      );
+    }
   );
 }

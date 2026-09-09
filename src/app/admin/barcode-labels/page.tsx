@@ -38,6 +38,10 @@ import {
   mergeBarcodeConfig,
   setBarcodePrinterPrefs,
 } from "@/utils/barcode-printer-prefs";
+import {
+  isBluetoothPrinterConnected,
+  printBarcodeLabelsBluetooth,
+} from "@/utils/bluetooth-printer";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { StatCard } from "@/components/admin/stat-card";
 import { FormField, SelectField } from "@/components/admin/form-field";
@@ -45,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { slugify } from "@/utils/format";
+import { BluetoothPrinterPanel } from "@/components/admin/bluetooth-printer-panel";
 
 const BARCODE_FORMATS: { value: BarcodeFormat; label: string }[] = [
   { value: "CODE128", label: "CODE128" },
@@ -239,11 +244,30 @@ export default function BarcodeLabelsPage() {
       toast.error("Enter or generate a barcode first");
       return;
     }
-    printBarcodeLabelsFromElement(
-      "barcode-labels-print",
-      `${shopName} — Barcodes`,
-      mergeBarcodeConfig(config)
-    );
+    try {
+      if (isBluetoothPrinterConnected()) {
+        await printBarcodeLabelsBluetooth(
+          {
+            value: form.barcode,
+            productName: form.productName || "Product",
+            shopName,
+            sellingPrice: form.sellingPrice ? Number(form.sellingPrice) : undefined,
+            mrp: form.mrp ? Number(form.mrp) : undefined,
+            showBarcodeNumber: config.showBarcodeNumber,
+          },
+          qty
+        );
+      } else {
+        await printBarcodeLabelsFromElement(
+          "barcode-labels-print",
+          `${shopName} — Barcodes`,
+          mergeBarcodeConfig(config)
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Print failed");
+      return;
+    }
     if (selectedProductId) {
       try {
         await barcodeLabelService.recordPrint({
@@ -459,11 +483,28 @@ export default function BarcodeLabelsPage() {
               </Button>
               <Button
                 variant="outline"
+                onClick={() =>
+                  void printBarcodeLabelsFromElement(
+                    "barcode-labels-print",
+                    `${shopName} — Barcodes`,
+                    mergeBarcodeConfig(config)
+                  )
+                }
+              >
+                System print
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => {
-                  const svg = document.querySelector("#barcode-labels-print svg");
-                  if (svg) {
+                  const canvas = document.querySelector(
+                    "#barcode-labels-print canvas[data-barcode-value]"
+                  );
+                  if (canvas) {
                     import("@/components/erp/barcode-label-utils").then(({ downloadBarcodePng }) =>
-                      downloadBarcodePng(svg as SVGSVGElement, `barcode-${form.barcode || "label"}.png`)
+                      downloadBarcodePng(
+                        canvas as HTMLCanvasElement,
+                        `barcode-${form.barcode || "label"}.png`
+                      )
                     );
                   }
                 }}
@@ -631,7 +672,11 @@ export default function BarcodeLabelsPage() {
               {" · "}
               {PRINTER_PROFILES[config.printerType].label} at{" "}
               {PRINTER_PROFILES[config.printerType].dpi} DPI — not A4.
+              Connected Bluetooth printers are used automatically.
             </p>
+            <div className="mt-3">
+              <BluetoothPrinterPanel />
+            </div>
           </div>
         </div>
       </div>

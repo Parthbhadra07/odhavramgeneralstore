@@ -106,16 +106,18 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  INSERT INTO public.users (id, name, email, role)
+  INSERT INTO public.users (id, name, email, phone, role)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'name', ''),
     COALESCE(NEW.email, NEW.raw_user_meta_data->>'email', ''),
+    NULLIF(NEW.raw_user_meta_data->>'phone', ''),
     'customer'
   )
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
-    email = EXCLUDED.email;
+    email = EXCLUDED.email,
+    phone = COALESCE(EXCLUDED.phone, public.users.phone);
   RETURN NEW;
 END;
 $$;

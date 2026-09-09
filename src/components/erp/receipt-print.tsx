@@ -12,6 +12,10 @@ import {
   type ReceiptWidth,
 } from "@/utils/receipt-styles";
 import { PRINT_FONT_CSS, PRINT_DENSITY_WEIGHT } from "@/utils/print-style-shared";
+import {
+  isBluetoothPrinterConnected,
+  printElementToBluetooth,
+} from "@/utils/bluetooth-printer";
 
 interface ReceiptPrintProps {
   data: ReceiptData;
@@ -343,10 +347,24 @@ function buildPrintDocument(receiptHtml: string, width: ReceiptWidth, title = "R
 </html>`;
 }
 
-/** Direct thermal print — opens browser print dialog (not PDF). Uses hidden iframe. */
+/** Direct thermal print — Bluetooth ESC/POS when connected, otherwise browser dialog. */
 export function printReceipt(
   elementId = "thermal-receipt",
   width: ReceiptWidth = "80mm"
+) {
+  if (isBluetoothPrinterConnected()) {
+    void printElementToBluetooth(elementId).catch((err) => {
+      console.warn("Bluetooth print failed, using system print", err);
+      printReceiptBrowser(elementId, width);
+    });
+    return true;
+  }
+  return printReceiptBrowser(elementId, width);
+}
+
+function printReceiptBrowser(
+  elementId: string,
+  width: ReceiptWidth
 ) {
   const receipt = document.getElementById(elementId);
   if (!receipt) return false;

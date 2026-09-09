@@ -25,7 +25,7 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupInput) => {
     setLoading(true);
     try {
-      await authService.signUp(data.email, data.password, data.name);
+      await authService.signUp(data.email, data.password, data.name, data.phone);
       toast.success("Account created! Check your email to verify.");
       router.push("/auth/login");
     } catch (err: unknown) {
@@ -50,8 +50,19 @@ export default function SignupPage() {
           <Input
             label="Email"
             type="email"
+            autoComplete="email"
             error={errors.email?.message}
             {...register("email")}
+          />
+          <Input
+            label="Mobile number"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            placeholder="10-digit mobile"
+            maxLength={10}
+            error={errors.phone?.message}
+            {...register("phone")}
           />
           <Input
             label="Password"

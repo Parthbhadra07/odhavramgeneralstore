@@ -22,6 +22,7 @@ import { settingsService } from "@/services/erp";
 import type { StoreSettings } from "@/types/erp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BluetoothPrinterPanel } from "@/components/admin/bluetooth-printer-panel";
 
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -270,6 +271,9 @@ export default function AdminSettingsPage() {
               <p className="mt-1 text-xs text-gray-500">
                 Select this printer in the browser print dialog when printing receipts.
               </p>
+            </div>
+            <div className="sm:col-span-2">
+              <BluetoothPrinterPanel />
             </div>
             <div className="sm:col-span-2">
               <label className="flex items-center gap-2 text-sm">

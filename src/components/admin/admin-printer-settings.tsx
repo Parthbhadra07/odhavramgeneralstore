@@ -22,6 +22,7 @@ import {
   PRINT_DENSITY_OPTIONS,
   setBarcodePrinterPrefs,
 } from "@/utils/barcode-printer-prefs";
+import { BluetoothPrinterPanel } from "@/components/admin/bluetooth-printer-panel";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { Button } from "@/components/ui/button";
 
@@ -217,6 +218,8 @@ export function AdminPrinterSettings({ className }: AdminPrinterSettingsProps) {
                   className="w-full rounded-lg border px-3 py-2"
                 />
               </div>
+
+              <BluetoothPrinterPanel />
 
               <label className="flex items-center gap-2">
                 <input

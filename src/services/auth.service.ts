@@ -4,12 +4,12 @@ import type { User } from "@/types/database";
 import { customerService } from "@/services/erp/customer.service";
 
 export const authService = {
-  async signUp(email: string, password: string, name: string) {
+  async signUp(email: string, password: string, name: string, phone: string) {
     const supabase = requireClient();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } },
+      options: { data: { name, phone } },
     });
     if (error) throw error;
 
@@ -20,6 +20,7 @@ export const authService = {
           id: data.user.id,
           email: data.user.email ?? email,
           name,
+          phone,
           role: "customer",
         },
         { onConflict: "id" }
@@ -33,6 +34,7 @@ export const authService = {
           id: data.user.id,
           name,
           email: data.user.email ?? email,
+          phone,
         });
       } catch (err) {
         console.warn("Customer sync on signup:", err);
