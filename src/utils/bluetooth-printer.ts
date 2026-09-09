@@ -1,3 +1,5 @@
+/// <reference types="web-bluetooth" />
+
 import {
   canvasToEscPosRaster,
   concatBytes,
