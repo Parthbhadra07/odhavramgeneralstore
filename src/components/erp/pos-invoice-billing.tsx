@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pause, Play, Printer, ScanBarcode, Trash2 } from "lucide-react";
+import { Pause, Play, Printer, ScanBarcode, Trash2, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
+import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
 import { normalizeScannedBarcode } from "@/lib/barcode-scan-formats";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
@@ -98,6 +99,7 @@ export function PosInvoiceBilling() {
   const [showSuggest, setShowSuggest] = useState(false);
   const [scanCode, setScanCode] = useState("");
   const [showCameraScan, setShowCameraScan] = useState(false);
+  const [showProductLookup, setShowProductLookup] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<"idle" | "payment" | "save">("idle");
   const [payOptionIndex, setPayOptionIndex] = useState(0);
   const [saveBillHighlight, setSaveBillHighlight] = useState(false);
@@ -186,6 +188,10 @@ export function PosInvoiceBilling() {
         e.preventDefault();
         scanInputRef.current?.focus();
         scanInputRef.current?.select();
+      }
+      if (e.key === "F3") {
+        e.preventDefault();
+        setShowProductLookup((s) => !s);
       }
       if (e.key === "F4") {
         e.preventDefault();
@@ -574,10 +580,20 @@ export function PosInvoiceBilling() {
         <div>
           <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
           <p className="text-[11px] text-slate-300">
-            Enter: Qty → Price → Cash/Online/Credit → Save &amp; Print
+            F2 Scan · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowProductLookup(true)}
+            className="border-amber-400 bg-amber-400/20 text-amber-200 hover:bg-amber-400/30 hover:text-white font-semibold text-xs gap-1"
+          >
+            <Tag className="h-3.5 w-3.5 text-amber-300" />
+            Check Details (F3)
+          </Button>
           <div className="flex items-center gap-1.5 rounded bg-slate-800/90 px-2 py-1 border border-slate-600">
             <span className="text-[11px] font-medium text-slate-300">Roll:</span>
             <select
@@ -1050,6 +1066,21 @@ export function PosInvoiceBilling() {
           </div>
         </div>
       )}
+
+      <ProductDetailsLookupModal
+        open={showProductLookup}
+        onClose={() => setShowProductLookup(false)}
+        onAddToCart={(p) => {
+          const emptyTarget = rows.find((r) => !r.productId)?.id;
+          if (emptyTarget) {
+            applyProduct(emptyTarget, p);
+          } else {
+            const nextR = newRow();
+            setRows((prev) => [...prev, nextR]);
+            applyProduct(nextR.id, p);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -36,6 +36,7 @@ import {
   Sparkles,
   Database,
   Printer,
+  Tag,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -74,6 +75,7 @@ const navGroups = [
     label: "Inventory",
     links: [
       { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
+      { href: "/admin/inventory/price-checker", label: "Price & Stock Check", icon: Tag },
       { href: "/admin/stock-history", label: "Stock History", icon: History },
       { href: "/admin/stock-adjustment", label: "Stock Adjustment", icon: SlidersHorizontal },
       { href: "/admin/dead-stock", label: "Dead Stock", icon: Archive },

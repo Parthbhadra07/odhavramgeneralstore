@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Search,
   Printer,
+  Tag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
+import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import { useAuth } from "@/hooks/use-auth";
@@ -74,6 +76,7 @@ export function PosQuickBilling() {
   const [processing, setProcessing] = useState(false);
   const [printWidth, setPrintWidth] = useState<ReceiptWidth>("80mm");
   const [showScanner, setShowScanner] = useState(false);
+  const [showProductLookup, setShowProductLookup] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
   const [searchSelectIndex, setSearchSelectIndex] = useState(0);
@@ -115,6 +118,10 @@ export function PosQuickBilling() {
       if (e.key === "F2") {
         e.preventDefault();
         focusField("pos-quick-search");
+      }
+      if (e.key === "F3") {
+        e.preventDefault();
+        setShowProductLookup((prev) => !prev);
       }
       if (e.key === "F4") {
         e.preventDefault();
@@ -665,9 +672,19 @@ export function PosQuickBilling() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
             <p className="text-xs text-gray-500">
-              F2 Search · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
+              F2 Search · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowProductLookup(true)}
+                className="border-blue-300 bg-blue-50/80 text-blue-900 hover:bg-blue-100 font-semibold text-xs gap-1 shrink-0"
+              >
+                <Tag className="h-3.5 w-3.5 text-blue-600" />
+                Check Details (F3)
+              </Button>
               <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
                 <Printer className="h-3.5 w-3.5 text-gray-500" />
                 <select
@@ -1360,6 +1377,12 @@ export function PosQuickBilling() {
           </div>
         )}
       </div>
+
+      <ProductDetailsLookupModal
+        open={showProductLookup}
+        onClose={() => setShowProductLookup(false)}
+        onAddToCart={addLineToCart}
+      />
     </div>
   );
 }
