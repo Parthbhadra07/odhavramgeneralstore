@@ -23,27 +23,60 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
   let subtotal = 0;
   let cgst = 0;
   let sgst = 0;
+  let totalItemDiscounts = 0;
+
   const items = lines.map((line) => {
-    const lineTotal = line.rate * line.quantity;
-    const gst = lineItemInclusiveGst(line.rate, line.quantity, line.gstPercentage);
-    subtotal += lineTotal;
+    const baseRate = Number(line.rate);
+    const discPercent = Number(line.discountPercent || 0);
+    const unitDiscount =
+      line.discountAmount !== undefined
+        ? Number(line.discountAmount)
+        : Math.round(baseRate * (discPercent / 100) * 100) / 100;
+
+    const effectiveRate = Math.max(0, Math.round((baseRate - unitDiscount) * 100) / 100);
+    const grossLineTotal = Math.round(baseRate * line.quantity * 100) / 100;
+    const netLineTotal = Math.round(effectiveRate * line.quantity * 100) / 100;
+    const lineDiscount = Math.max(0, Math.round((grossLineTotal - netLineTotal) * 100) / 100);
+
+    subtotal += grossLineTotal;
+    totalItemDiscounts += lineDiscount;
+
+    const gst = lineItemInclusiveGst(effectiveRate, line.quantity, line.gstPercentage);
     cgst += gst.cgst;
     sgst += gst.sgst;
+
+    const itemName =
+      discPercent > 0 ? `${line.name} (${discPercent}% off)` : line.name;
+
     return {
       product_id: line.productId,
-      product_name: line.name,
+      product_name: itemName,
       barcode: line.barcode,
       lot_id: line.lotId ?? null,
       quantity: line.quantity,
-      rate: line.rate,
+      rate: baseRate,
       gst_percentage: line.gstPercentage,
       gst_amount: gst.totalGst,
-      total_amount: lineTotal,
+      total_amount: netLineTotal,
     };
   });
-  const total =
-    Math.round((subtotal - discount - loyaltyDiscount) * 100) / 100;
-  return { subtotal, cgst, sgst, igst: 0, total, items };
+
+  const totalDiscount = Math.round((totalItemDiscounts + (discount || 0)) * 100) / 100;
+  const total = Math.max(
+    0,
+    Math.round((subtotal - totalDiscount - loyaltyDiscount) * 100) / 100
+  );
+
+  return {
+    subtotal: Math.round(subtotal * 100) / 100,
+    cgst,
+    sgst,
+    igst: 0,
+    discount: totalDiscount,
+    itemDiscounts: totalItemDiscounts,
+    total,
+    items,
+  };
 }
 
 export const posService = {
@@ -94,7 +127,15 @@ export const posService = {
     const isCreditSale =
       params.paymentMethod === "credit" && params.saleStatus !== "held";
 
-    const { subtotal, cgst, sgst, igst, total, items } = computeCartTotals(
+    const {
+      subtotal,
+      cgst,
+      sgst,
+      igst,
+      total,
+      discount: totalDiscount,
+      items,
+    } = computeCartTotals(
       params.lines,
       params.discount ?? 0,
       loyaltyDiscount
@@ -116,7 +157,7 @@ export const posService = {
         cgst,
         sgst,
         igst,
-        discount: params.discount ?? 0,
+        discount: totalDiscount,
         loyalty_points_redeemed: params.loyaltyPointsRedeemed ?? 0,
         loyalty_discount: loyaltyDiscount,
         total_amount: total,

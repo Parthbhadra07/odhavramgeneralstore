@@ -17,7 +17,12 @@ import { LOYALTY_POINTS_PER_100, POS_PAYMENT_LABELS } from "@/lib/erp/constants"
 import { isValidMobile } from "@/utils/phone";
 import { formatPrice } from "@/utils/format";
 import { receiptFromPosSale } from "@/utils/receipt";
-import { resolveReceiptWidth } from "@/utils/printer-prefs";
+import {
+  resolveReceiptWidth,
+  setLocalReceiptWidth,
+  RECEIPT_WIDTH_OPTIONS,
+  type ReceiptWidth,
+} from "@/utils/printer-prefs";
 import { lineItemInclusiveGst } from "@/utils/gst";
 
 type InvoiceRow = {
@@ -86,7 +91,7 @@ export function PosInvoiceBilling() {
   const [received, setReceived] = useState(0);
   const [billNotes, setBillNotes] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
+  const [printWidth, setPrintWidth] = useState<ReceiptWidth>("80mm");
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ErpProduct[]>([]);
   const [suggestIndex, setSuggestIndex] = useState(0);
@@ -108,13 +113,20 @@ export function PosInvoiceBilling() {
   const savePrintTimerRef = useRef<number | null>(null);
 
   const filledLines = rows.filter((r) => r.productId);
-  const subtotal = filledLines.reduce((s, r) => s + lineAmount(r), 0);
+  const grossSubtotal = filledLines.reduce((s, r) => s + r.rate * r.quantity, 0);
+  const itemDiscounts = filledLines.reduce((s, r) => {
+    const unitDiscount =
+      Math.round(r.rate * ((r.discountPercent || 0) / 100) * 100) / 100;
+    return s + unitDiscount * r.quantity;
+  }, 0);
+  const totalItemDiscount = Math.round(itemDiscounts * 100) / 100;
+  const totalAllDiscounts = Math.round((totalItemDiscount + discount) * 100) / 100;
   const gstTotal = filledLines.reduce((s, r) => {
     const unitRate = r.rate * (1 - (r.discountPercent || 0) / 100);
     const gst = lineItemInclusiveGst(unitRate, r.quantity, r.gstPercentage);
     return s + gst.totalGst;
   }, 0);
-  const total = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
+  const total = Math.max(0, Math.round((grossSubtotal - totalAllDiscounts) * 100) / 100);
   const balance = Math.round((received - total) * 100) / 100;
   const invoiceDate = useMemo(
     () =>
@@ -323,7 +335,7 @@ export function PosInvoiceBilling() {
           return next;
         });
 
-        toast.success(`Added: ${product.name}`);
+        toast.success(`Added: ${product.name}`, { id: "pos-scan-added" });
         setShowSuggest(false);
         setSuggestions([]);
         setScanCode("");
@@ -359,7 +371,8 @@ export function PosInvoiceBilling() {
       lotId: r.lotId,
       name: r.name,
       barcode: r.barcode,
-      rate: Math.round((r.rate * (1 - (r.discountPercent || 0) / 100)) * 100) / 100,
+      rate: r.rate,
+      discountPercent: r.discountPercent || 0,
       gstPercentage: r.gstPercentage,
       quantity: r.quantity,
     }));
@@ -564,7 +577,26 @@ export function PosInvoiceBilling() {
             Enter: Qty → Price → Cash/Online/Credit → Save &amp; Print
           </p>
         </div>
-        <div className="flex gap-6 text-sm">
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <div className="flex items-center gap-1.5 rounded bg-slate-800/90 px-2 py-1 border border-slate-600">
+            <span className="text-[11px] font-medium text-slate-300">Roll:</span>
+            <select
+              value={printWidth}
+              onChange={(e) => {
+                const next = e.target.value as ReceiptWidth;
+                setPrintWidth(next);
+                setLocalReceiptWidth(next);
+              }}
+              className="h-6 rounded border border-slate-500 bg-slate-900 px-1.5 text-xs font-semibold text-white focus:border-amber-400 focus:outline-none"
+              aria-label="Thermal roll paper width"
+            >
+              {RECEIPT_WIDTH_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.shortLabel}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <p className="text-[10px] uppercase text-slate-300">Invoice No.</p>
             <p className="font-mono font-semibold">{lastSale?.bill_number ?? "Auto"}</p>
@@ -588,14 +620,15 @@ export function PosInvoiceBilling() {
                 if (e.key !== "Enter") return;
                 e.preventDefault();
                 e.stopPropagation();
-                const code = scanCode.trim();
+                const code = scanCode.trim() || e.currentTarget.value.trim();
                 if (code) {
+                  setScanCode("");
                   void addProductFromScan(code, { keepScanFocus: true });
                   return;
                 }
                 if (filledLines.length) promptCheckoutRef.current();
               }}
-              placeholder="Scan item, or Enter on empty to save bill"
+              placeholder="Scan barcode or type & Enter (Enter on empty to save bill)"
               className="h-9 flex-1 rounded border border-slate-300 bg-white px-2 font-mono text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
             />
             <Button
@@ -923,22 +956,35 @@ export function PosInvoiceBilling() {
         <div className="rounded-lg border bg-white p-3 text-sm">
           <div className="flex justify-between py-0.5">
             <span className="text-slate-600">Taxable / Subtotal</span>
-            <span className="tabular-nums">{subtotal.toFixed(2)}</span>
+            <span className="tabular-nums">{grossSubtotal.toFixed(2)}</span>
           </div>
+          {totalItemDiscount > 0 && (
+            <div className="flex justify-between py-0.5 text-xs font-medium text-emerald-700">
+              <span>Item Discounts</span>
+              <span className="tabular-nums">- {formatPrice(totalItemDiscount)}</span>
+            </div>
+          )}
           <div className="flex justify-between py-0.5 text-slate-500">
             <span>GST (incl.)</span>
             <span className="tabular-nums">{gstTotal.toFixed(2)}</span>
           </div>
           <label className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-slate-600">Bill discount</span>
+            <span className="text-slate-600 font-medium">Bill discount</span>
             <input
               type="number"
               min={0}
+              placeholder="0"
               value={discount || ""}
               onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-              className="h-8 w-28 rounded border px-2 text-right text-sm focus:border-amber-400 focus:outline-none"
+              className="h-8 w-28 rounded border border-slate-300 px-2 text-right text-sm font-semibold text-green-700 focus:border-amber-400 focus:outline-none"
             />
           </label>
+          {totalAllDiscounts > 0 && (
+            <div className="flex justify-between py-0.5 text-xs font-semibold text-green-600">
+              <span>Total Savings</span>
+              <span className="tabular-nums">- {formatPrice(totalAllDiscounts)}</span>
+            </div>
+          )}
           <div className="mt-2 flex justify-between border-t pt-2 text-base font-bold text-[#1a365d]">
             <span>Grand Total</span>
             <span className="tabular-nums">{formatPrice(total)}</span>

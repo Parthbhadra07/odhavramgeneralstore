@@ -184,7 +184,9 @@ export const productService = {
   async remove(id: string) {
     const supabase = requireClient();
     const { error } = await supabase.from("products").delete().eq("id", id);
-    if (error) throw error;
+    if (error) {
+      throw new Error(error.message || "Failed to delete product");
+    }
   },
 };
 

@@ -3,11 +3,12 @@
 import { ReceiptPrint, printReceipt } from "@/components/erp/receipt-print";
 import { receiptFromPosSale } from "@/utils/receipt";
 import type { PosSale, StoreSettings } from "@/types/erp";
+import type { ReceiptWidth } from "@/utils/printer-prefs";
 
 interface PosThermalReceiptProps {
   sale: PosSale;
   settings?: StoreSettings | null;
-  width?: "58mm" | "80mm";
+  width?: ReceiptWidth;
 }
 
 export function PosThermalReceipt({
@@ -26,6 +27,6 @@ export function PosThermalReceipt({
   );
 }
 
-export function printPosThermalReceipt(width: "58mm" | "80mm" = "80mm") {
+export function printPosThermalReceipt(width: ReceiptWidth = "80mm") {
   printReceipt("pos-thermal-receipt", width);
 }

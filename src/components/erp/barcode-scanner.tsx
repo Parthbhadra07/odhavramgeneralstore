@@ -11,17 +11,19 @@ import {
 } from "@/lib/barcode-scan-formats";
 
 interface BarcodeScannerProps {
-  onScan: (barcode: string) => void;
+  onScan: (barcode: string) => void | Promise<void>;
   onClose?: () => void;
   className?: string;
   /** Prefer camera when opening (e.g. product form). POS often uses keyboard wedge. */
   defaultMode?: "camera" | "keyboard";
+  /** Keep the camera running so the next item can be scanned immediately. */
+  continuous?: boolean;
 }
 
 function retailScanBox(viewfinderWidth: number, viewfinderHeight: number) {
-  const width = Math.min(Math.floor(viewfinderWidth * 0.92), 420);
-  const height = Math.min(Math.floor(viewfinderHeight * 0.35), 140);
-  return { width: Math.max(width, 200), height: Math.max(height, 80) };
+  const width = Math.max(240, Math.floor(viewfinderWidth * 0.96));
+  const height = Math.max(120, Math.floor(viewfinderHeight * 0.4));
+  return { width, height };
 }
 
 export function BarcodeScanner({
@@ -29,6 +31,7 @@ export function BarcodeScanner({
   onClose,
   className,
   defaultMode = "keyboard",
+  continuous = true,
 }: BarcodeScannerProps) {
   const [mode, setMode] = useState<"camera" | "keyboard">(defaultMode);
   const [manualCode, setManualCode] = useState("");
@@ -36,15 +39,30 @@ export function BarcodeScanner({
   const [photoLoading, setPhotoLoading] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const lastScanRef = useRef({ code: "", at: 0 });
+  const scanningLockRef = useRef(false);
+  const onScanRef = useRef(onScan);
   const containerId = `erp-barcode-scanner-${useId().replace(/:/g, "")}`;
 
-  const emitScan = useCallback(
-    (raw: string) => {
-      const code = normalizeScannedBarcode(raw);
-      if (code) onScan(code);
-    },
-    [onScan]
-  );
+  onScanRef.current = onScan;
+
+  const emitScan = useCallback(async (raw: string) => {
+    const code = normalizeScannedBarcode(raw);
+    if (!code) return false;
+    const now = Date.now();
+    if (code === lastScanRef.current.code && now - lastScanRef.current.at < 1500) {
+      return false;
+    }
+    if (scanningLockRef.current) return false;
+    lastScanRef.current = { code, at: now };
+    scanningLockRef.current = true;
+    try {
+      await onScanRef.current(code);
+      return true;
+    } finally {
+      scanningLockRef.current = false;
+    }
+  }, []);
 
   const stopCamera = useCallback(async () => {
     if (scannerRef.current) {
@@ -74,18 +92,42 @@ export function BarcodeScanner({
           verbose: false,
         });
         scannerRef.current = scanner;
+
+        const videoConstraints: MediaTrackConstraints = {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        };
+
+        try {
+          const cameras = await Html5Qrcode.getCameras();
+          const back = [...cameras].reverse().find((c) =>
+            /back|rear|environment|world/i.test(c.label)
+          );
+          const chosen = back ?? cameras[cameras.length - 1];
+          if (chosen?.id) {
+            videoConstraints.deviceId = { exact: chosen.id };
+          } else {
+            videoConstraints.facingMode = { ideal: "environment" };
+          }
+        } catch {
+          videoConstraints.facingMode = { ideal: "environment" };
+        }
+
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 12,
+            fps: 15,
             qrbox: retailScanBox,
-            aspectRatio: 1.777,
             disableFlip: false,
+            videoConstraints,
           },
           (decoded) => {
-            emitScan(decoded);
-            void stopCamera();
-            setMode("keyboard");
+            void emitScan(decoded).then((accepted) => {
+              if (!accepted || continuous || cancelled) return;
+              void stopCamera();
+              setMode("keyboard");
+            });
           },
           () => {}
         );
@@ -102,21 +144,24 @@ export function BarcodeScanner({
       cancelled = true;
       void stopCamera();
     };
-  }, [mode, emitScan, stopCamera, containerId]);
+  }, [mode, emitScan, stopCamera, containerId, continuous]);
 
-  const commitManualCode = () => {
-    const code = manualCode.trim();
-    if (code) {
-      emitScan(code);
-      setManualCode("");
-    }
+  const commitManualCode = (raw: string) => {
+    const code = raw.trim();
+    if (!code) return;
+    void emitScan(code);
+    setManualCode("");
+  };
+
+  const handleManualChange = (value: string) => {
+    setManualCode(value);
   };
 
   const handleManualKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
     e.stopPropagation();
-    commitManualCode();
+    commitManualCode(e.currentTarget.value || manualCode);
   };
 
   const scanFromPhoto = async (file: File) => {
@@ -131,7 +176,7 @@ export function BarcodeScanner({
       });
       const result = await scanner.scanFile(file, false);
       scanner.clear();
-      emitScan(result);
+      await emitScan(result);
     } catch (e) {
       setError(
         e instanceof Error
@@ -205,8 +250,7 @@ export function BarcodeScanner({
             className="overflow-hidden rounded-lg border bg-black"
           />
           <p className="mt-2 text-xs text-gray-500">
-            Hold the product barcode horizontal in the box. Works with EAN-13 and
-            UPC on packaged goods.
+            Hold the barcode in the box. Camera stays on so you can scan the next item right away.
           </p>
         </>
       )}
@@ -217,7 +261,7 @@ export function BarcodeScanner({
             autoFocus
             placeholder="Scan barcode or type number..."
             value={manualCode}
-            onChange={(e) => setManualCode(e.target.value)}
+            onChange={(e) => handleManualChange(e.target.value)}
             onKeyDown={handleManualKeyDown}
             className="font-mono"
           />

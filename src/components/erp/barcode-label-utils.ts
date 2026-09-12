@@ -63,8 +63,8 @@ export function getBarcodePrintCss(config: BarcodeLabelConfig): string {
     config.paperType === "label"
       ? `${config.labelWidthMm}mm ${config.labelHeightMm}mm`
       : config.paperType === "roll80"
-        ? "80mm auto"
-        : "58mm auto";
+        ? "80mm 2000mm"
+        : "58mm 2000mm";
   const rollWidth = config.paperType === "roll80" ? "80mm" : "58mm";
   const pageWidth =
     config.paperType === "label" ? `${config.labelWidthMm}mm` : rollWidth;
@@ -320,10 +320,15 @@ export async function printBarcodeLabelsFromElement(
 
   const bodyHtml = await rasterizeLabelsForPrint(el, config);
   const html = buildPrintHtml(bodyHtml, config, title);
+  const frameWidth =
+    config.paperType === "label"
+      ? `${config.labelWidthMm}mm`
+      : config.paperType === "roll80"
+        ? "80mm"
+        : "58mm";
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
-  iframe.style.cssText =
-    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  iframe.style.cssText = `position:fixed;left:0;top:0;width:${frameWidth};height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1;`;
   document.body.appendChild(iframe);
 
   const frameWindow = iframe.contentWindow;

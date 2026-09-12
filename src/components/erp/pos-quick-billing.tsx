@@ -27,11 +27,29 @@ import { LOYALTY_POINTS_PER_100, POS_PAYMENT_LABELS } from "@/lib/erp/constants"
 import { isValidMobile } from "@/utils/phone";
 import { formatPrice } from "@/utils/format";
 import { receiptFromPosSale } from "@/utils/receipt";
-import { resolveReceiptWidth, getAutoPrintPreference } from "@/utils/printer-prefs";
+import {
+  resolveReceiptWidth,
+  setLocalReceiptWidth,
+  getAutoPrintPreference,
+  RECEIPT_WIDTH_OPTIONS,
+  type ReceiptWidth,
+} from "@/utils/printer-prefs";
 import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
 
 function cartLineKey(line: PosCartLine) {
   return `${line.productId}-${line.lotId ?? "default"}`;
+}
+
+function focusField(id: string, delay = 40) {
+  setTimeout(() => {
+    const el = document.getElementById(id) as HTMLInputElement | HTMLButtonElement | null;
+    if (el) {
+      el.focus();
+      if ("select" in el && typeof el.select === "function") {
+        el.select();
+      }
+    }
+  }, delay);
 }
 
 export function PosQuickBilling() {
@@ -54,10 +72,11 @@ export function PosQuickBilling() {
   const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
   const [billNotes, setBillNotes] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
+  const [printWidth, setPrintWidth] = useState<ReceiptWidth>("80mm");
   const [showScanner, setShowScanner] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
+  const [searchSelectIndex, setSearchSelectIndex] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [splitPayment, setSplitPayment] = useState(false);
@@ -83,6 +102,11 @@ export function PosQuickBilling() {
     return () => window.removeEventListener("ogs-printer-settings-changed", onPrinterChange);
   }, [loadHeld]);
 
+  // Autofocus search on initial mount
+  useEffect(() => {
+    focusField("pos-quick-search", 150);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -90,7 +114,7 @@ export function PosQuickBilling() {
 
       if (e.key === "F2") {
         e.preventDefault();
-        setShowProductPicker(true);
+        focusField("pos-quick-search");
       }
       if (e.key === "F4") {
         e.preventDefault();
@@ -99,20 +123,21 @@ export function PosQuickBilling() {
         setDiscount(0);
         setLoyaltyRedeem(0);
         toast.message("New sale — cart cleared");
+        focusField("pos-quick-search", 60);
       }
       if (e.key === "Enter" && cart.length && !typing) {
         e.preventDefault();
         void completeSaleRef.current(false);
       }
-      if (e.key === "F6" && cart.length && !typing) {
+      if (e.key === "F6" && cart.length) {
         e.preventDefault();
         void holdBillRef.current();
       }
-      if (e.key === "F8" && cart.length && !typing) {
+      if (e.key === "F8" && cart.length) {
         e.preventDefault();
         void completeSaleRef.current(false);
       }
-      if (e.key === "F9" && cart.length && !typing) {
+      if (e.key === "F9" && cart.length) {
         e.preventDefault();
         void completeSaleRef.current(true);
       }
@@ -124,17 +149,73 @@ export function PosQuickBilling() {
   useEffect(() => {
     if (!productSearch.trim()) {
       setSearchResults([]);
+      setSearchSelectIndex(0);
       return;
     }
     const t = setTimeout(() => {
       setSearchLoading(true);
       inventoryService
         .listProducts({ search: productSearch.trim() })
-        .then(setSearchResults)
+        .then((res) => {
+          setSearchResults(res);
+          setSearchSelectIndex(0);
+        })
         .finally(() => setSearchLoading(false));
-    }, 300);
+    }, 250);
     return () => clearTimeout(t);
   }, [productSearch]);
+
+  const setLineQty = (key: string, nextQty: number) => {
+    setCart((prev) =>
+      prev.map((l) =>
+        cartLineKey(l) === key
+          ? { ...l, quantity: Math.max(1, nextQty) }
+          : l
+      )
+    );
+  };
+
+  const setLineRate = (key: string, nextRate: number) => {
+    setCart((prev) =>
+      prev.map((l) =>
+        cartLineKey(l) === key
+          ? { ...l, rate: Math.max(0, Math.round(nextRate * 100) / 100) }
+          : l
+      )
+    );
+  };
+
+  const updateLineDiscount = (key: string, nextPercent: number) => {
+    setCart((prev) =>
+      prev.map((l) =>
+        cartLineKey(l) === key
+          ? {
+              ...l,
+              discountPercent: Math.max(0, Math.min(100, nextPercent)),
+            }
+          : l
+      )
+    );
+  };
+
+  const updateLineAmount = (key: string, targetAmount: number) => {
+    setCart((prev) =>
+      prev.map((l) => {
+        if (cartLineKey(l) !== key) return l;
+        const amt = Math.max(0, Math.round(targetAmount * 100) / 100);
+        const qty = Math.max(1, l.quantity);
+        const gross = l.rate * qty;
+        if (gross > 0 && amt <= gross) {
+          const discAmount = gross - amt;
+          const discPercent = Math.round((discAmount / gross) * 100 * 100) / 100;
+          return { ...l, discountPercent: discPercent };
+        } else {
+          const newRate = Math.round((amt / qty) * 100) / 100;
+          return { ...l, rate: newRate, discountPercent: 0 };
+        }
+      })
+    );
+  };
 
   const addLineToCart = useCallback(
     (
@@ -151,17 +232,22 @@ export function PosQuickBilling() {
       );
       const lotId = lot?.id ?? null;
       const barcode = lot?.barcode ?? product.barcode;
+      const discountPercent = Number(product.discount_percent ?? 0);
+      const key = `${product.id}-${lotId ?? "default"}`;
 
       setCart((prev) => {
-        const key = `${product.id}-${lotId ?? "default"}`;
-        const existing = prev.find((l) => cartLineKey(l) === key);
-        if (existing) {
+        const existingIdx = prev.findIndex((l) => cartLineKey(l) === key);
+        const targetIdx = existingIdx >= 0 ? existingIdx : prev.length;
+        focusField(`quick-qty-${targetIdx}`, 60);
+
+        if (existingIdx >= 0) {
+          const existing = prev[existingIdx];
           if (existing.quantity >= stock) {
             toast.error("Not enough stock");
             return prev;
           }
-          return prev.map((l) =>
-            cartLineKey(l) === key ? { ...l, quantity: l.quantity + 1 } : l
+          return prev.map((l, i) =>
+            i === existingIdx ? { ...l, quantity: l.quantity + 1 } : l
           );
         }
         return [
@@ -172,14 +258,16 @@ export function PosQuickBilling() {
             name: product.name,
             barcode,
             rate,
+            discountPercent,
             gstPercentage: Number(product.gst_percentage ?? 0),
             quantity: 1,
           },
         ];
       });
-      toast.success(`Added: ${product.name}`);
+      toast.success(`Added: ${product.name}`, { id: "pos-scan-added" });
       setShowProductPicker(false);
       setProductSearch("");
+      setSearchResults([]);
     },
     []
   );
@@ -211,12 +299,137 @@ export function PosQuickBilling() {
     [addLineToCart]
   );
 
-  const subtotal = cart.reduce((s, l) => s + l.rate * l.quantity, 0);
-  const computedDiscount =
+  const handleQtyKeyDown = (
+    idx: number,
+    key: string,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (idx > 0) {
+          focusField(`quick-amt-${idx - 1}`);
+        } else {
+          focusField("pos-quick-search");
+        }
+        return;
+      }
+      const val = (e.currentTarget.value || "").trim();
+      if (/^[0-9A-Za-z._-]{6,}$/.test(val)) {
+        setLineQty(key, 1);
+        void addProductToCart(val);
+        return;
+      }
+      focusField(`quick-rate-${idx}`);
+    }
+  };
+
+  const handleRateKeyDown = (
+    idx: number,
+    key: string,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        focusField(`quick-qty-${idx}`);
+        return;
+      }
+      const val = (e.currentTarget.value || "").trim();
+      if (/^[0-9A-Za-z._-]{6,}$/.test(val)) {
+        void addProductToCart(val);
+        return;
+      }
+      focusField(`quick-disc-${idx}`);
+    }
+  };
+
+  const handleDiscKeyDown = (
+    idx: number,
+    key: string,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        focusField(`quick-rate-${idx}`);
+        return;
+      }
+      focusField(`quick-amt-${idx}`);
+    }
+  };
+
+  const handleAmtKeyDown = (
+    idx: number,
+    key: string,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        focusField(`quick-disc-${idx}`);
+        return;
+      }
+      if (idx + 1 < cart.length) {
+        focusField(`quick-qty-${idx + 1}`);
+      } else {
+        focusField("pos-quick-search");
+      }
+    }
+  };
+
+  const handleSearchKeyDown = async (
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSearchSelectIndex((i) => Math.min(searchResults.length - 1, i + 1));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSearchSelectIndex((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setSearchResults([]);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const query = productSearch.trim();
+      if (!query) {
+        if (cart.length > 0) {
+          focusField("quick-cust-mobile");
+        } else {
+          toast.message("Scan or type an item to start billing");
+        }
+        return;
+      }
+
+      if (searchResults.length > 0 && searchResults[searchSelectIndex]) {
+        addLineToCart(searchResults[searchSelectIndex]);
+        return;
+      }
+
+      await addProductToCart(query);
+    }
+  };
+
+  const grossSubtotal = cart.reduce((s, l) => s + l.rate * l.quantity, 0);
+  const itemDiscounts = cart.reduce((s, l) => {
+    const discPercent = l.discountPercent ?? 0;
+    const unitDiscount = Math.round(l.rate * (discPercent / 100) * 100) / 100;
+    return s + unitDiscount * l.quantity;
+  }, 0);
+  const netItemsSubtotal = grossSubtotal - itemDiscounts;
+  const computedBillDiscount =
     discountMode === "percent"
-      ? Math.round((subtotal * discountPercent) / 100)
+      ? Math.round((netItemsSubtotal * discountPercent) / 100)
       : discount;
-  const total = Math.max(0, subtotal - computedDiscount - loyaltyRedeem);
+  const totalDiscount = itemDiscounts + computedBillDiscount;
+  const total = Math.max(0, grossSubtotal - totalDiscount - loyaltyRedeem);
   const pointsToEarn =
     selectedCustomer && total > 0
       ? Math.floor(total / 100) * LOYALTY_POINTS_PER_100
@@ -332,7 +545,7 @@ export function PosQuickBilling() {
         paymentMethod: splits?.[0]?.method ?? paymentMethod,
         splitPayments: splits,
         ...saleCustomerParams(),
-        discount: computedDiscount,
+        discount: computedBillDiscount,
         loyaltyPointsRedeemed: loyaltyRedeem,
         notes: billNotes.trim() || undefined,
       });
@@ -372,7 +585,7 @@ export function PosQuickBilling() {
           paymentMethod,
           customerName: customerName.trim() || undefined,
           customerMobile: customerMobile.trim() || undefined,
-          discount: computedDiscount,
+          discount: totalDiscount,
         });
         toast.message("Offline — sale queued for sync");
       } else {
@@ -454,7 +667,26 @@ export function PosQuickBilling() {
             <p className="text-xs text-gray-500">
               F2 Search · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                <Printer className="h-3.5 w-3.5 text-gray-500" />
+                <select
+                  value={printWidth}
+                  onChange={(e) => {
+                    const next = e.target.value as ReceiptWidth;
+                    setPrintWidth(next);
+                    setLocalReceiptWidth(next);
+                  }}
+                  className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none"
+                  aria-label="Thermal print size"
+                >
+                  {RECEIPT_WIDTH_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.shortLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <Button
                 type="button"
                 size="sm"
@@ -476,55 +708,61 @@ export function PosQuickBilling() {
             </div>
           </div>
 
-          {showProductPicker && (
-            <div className="mt-3 rounded-lg border bg-gray-50 p-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  autoFocus
-                  placeholder="Search product name, SKU, barcode..."
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              {searchLoading && (
-                <p className="mt-2 text-xs text-gray-500">Searching...</p>
-              )}
-              {searchResults.length > 0 && (
-                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-                  {searchResults.map((p) => (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => addLineToCart(p)}
-                        className="flex w-full items-center justify-between rounded-lg border bg-white px-3 py-2 text-left text-sm hover:bg-green-50"
-                      >
-                        <span className="min-w-0 truncate font-medium">{p.name}</span>
-                        <span className="ml-2 shrink-0 text-gray-600">
-                          {formatPrice(p.selling_price ?? p.price)} · {p.stock} left
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {productSearch && !searchLoading && searchResults.length === 0 && (
-                <p className="mt-2 text-xs text-gray-500">No products found</p>
-              )}
-              <Button
+          {/* Always-visible Barcode & Product Search Bar */}
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input
+              id="pos-quick-search"
+              placeholder="Scan barcode or type name & hit Enter... (Enter on empty moves to Customer)"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="h-10 pl-9 pr-9 text-sm font-medium border-gray-300 bg-gray-50/60 focus:bg-white focus:border-green-600 focus:ring-1 focus:ring-green-600"
+            />
+            {productSearch && (
+              <button
                 type="button"
-                size="sm"
-                variant="ghost"
-                className="mt-2 w-full"
+                tabIndex={-1}
                 onClick={() => {
-                  setShowProductPicker(false);
                   setProductSearch("");
+                  setSearchResults([]);
+                  focusField("pos-quick-search");
                 }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
               >
-                Close
-              </Button>
-            </div>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {searchLoading && (
+            <p className="mt-1 text-xs text-gray-500">Searching products...</p>
+          )}
+
+          {searchResults.length > 0 && (
+            <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-lg border bg-white p-1 shadow-lg z-20 relative">
+              {searchResults.map((p, idx) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => addLineToCart(p)}
+                    className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors ${
+                      idx === searchSelectIndex ? "bg-green-100 font-semibold text-green-900" : "hover:bg-green-50"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate">{p.name}</span>
+                    <span className="ml-2 shrink-0 text-gray-600 font-medium">
+                      {formatPrice(p.selling_price ?? p.price)} · {p.stock} in stock
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {productSearch && !searchLoading && searchResults.length === 0 && (
+            <p className="mt-1 text-xs text-gray-500">No matching products found. Hit Enter to try exact barcode.</p>
           )}
 
           {showScanner && (
@@ -536,56 +774,180 @@ export function PosQuickBilling() {
 
         <div className="min-h-[12rem] flex-1 overflow-y-auto p-3 sm:p-4">
           {cart.length === 0 ? (
-            <p className="py-8 text-center text-gray-500">
-              Scan barcode or tap Add Product to start billing
-            </p>
+            <div className="py-12 text-center text-gray-400">
+              <ShoppingCart className="mx-auto mb-2 h-10 w-10 opacity-40" />
+              <p className="font-medium text-gray-600">Cart is empty</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Scan barcode or search above to add items. Hit Enter to navigate Qty → Rate → Disc → Amount.
+              </p>
+            </div>
           ) : (
-            <ul className="space-y-2">
-              {cart.map((line) => {
+            <ul className="space-y-2.5">
+              {cart.map((line, idx) => {
                 const key = cartLineKey(line);
+                const discPercent = line.discountPercent ?? 0;
+                const unitDiscount =
+                  Math.round(line.rate * (discPercent / 100) * 100) / 100;
+                const effectiveRate = Math.max(0, line.rate - unitDiscount);
+                const lineTotal = effectiveRate * line.quantity;
+
                 return (
                   <li
                     key={key}
-                    className="flex items-center gap-2 rounded-lg border p-3"
+                    className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-sm hover:border-gray-300 transition-colors"
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{line.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {formatPrice(line.rate)} × {line.quantity} ={" "}
-                        {formatPrice(line.rate * line.quantity)}
-                      </p>
-                      {line.lotId && (
-                        <p className="text-xs text-gray-400">Lot barcode: {line.barcode}</p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    {/* Item header line */}
+                    <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-gray-100">
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-[11px] font-bold text-green-800">
+                          {idx + 1}
+                        </span>
+                        <p className="truncate font-semibold text-gray-900 text-sm">
+                          {line.name}
+                        </p>
+                        {discPercent > 0 && (
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 shrink-0">
+                            {discPercent}% OFF
+                          </span>
+                        )}
+                        {line.barcode && (
+                          <span className="hidden sm:inline text-[11px] text-gray-400 font-mono shrink-0">
+                            ({line.barcode})
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
-                        onClick={() => updateQty(key, -1)}
-                        className="rounded p-1.5 hover:bg-gray-100"
-                        aria-label="Decrease quantity"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
-                      <span className="w-8 text-center text-sm">{line.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => updateQty(key, 1)}
-                        className="rounded p-1.5 hover:bg-gray-100"
-                        aria-label="Increase quantity"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
+                        tabIndex={-1}
                         onClick={() =>
                           setCart((c) => c.filter((l) => cartLineKey(l) !== key))
                         }
-                        className="rounded p-1.5 text-red-600 hover:bg-red-50"
-                        aria-label="Remove item"
+                        className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Remove item"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+                    </div>
+
+                    {/* 4 Keyboard-navigable inputs: Qty, Rate, Disc %, Amount */}
+                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 items-center text-xs">
+                      {/* Qty field */}
+                      <div>
+                        <label
+                          htmlFor={`quick-qty-${idx}`}
+                          className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5"
+                        >
+                          Qty
+                        </label>
+                        <div className="flex items-center rounded border border-gray-300 bg-white focus-within:border-green-600 focus-within:ring-1 focus-within:ring-green-600">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => updateQty(key, -1)}
+                            className="px-1.5 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                            title="Decrease quantity"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </button>
+                          <input
+                            id={`quick-qty-${idx}`}
+                            type="number"
+                            min={1}
+                            value={line.quantity}
+                            onChange={(e) =>
+                              setLineQty(key, Number(e.target.value) || 1)
+                            }
+                            onKeyDown={(e) => handleQtyKeyDown(idx, key, e)}
+                            className="w-full bg-transparent text-center font-bold text-gray-900 text-sm focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => updateQty(key, 1)}
+                            className="px-1.5 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                            title="Increase quantity"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Rate field */}
+                      <div>
+                        <label
+                          htmlFor={`quick-rate-${idx}`}
+                          className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5"
+                        >
+                          Rate (₹)
+                        </label>
+                        <div className="flex items-center rounded border border-gray-300 bg-white px-1.5 py-1 focus-within:border-green-600 focus-within:ring-1 focus-within:ring-green-600">
+                          <span className="text-gray-400 mr-0.5">₹</span>
+                          <input
+                            id={`quick-rate-${idx}`}
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={line.rate}
+                            onChange={(e) =>
+                              setLineRate(key, Number(e.target.value) || 0)
+                            }
+                            onKeyDown={(e) => handleRateKeyDown(idx, key, e)}
+                            className="w-full bg-transparent text-right font-semibold text-gray-900 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Disc % field */}
+                      <div>
+                        <label
+                          htmlFor={`quick-disc-${idx}`}
+                          className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5"
+                        >
+                          Disc (%)
+                        </label>
+                        <div className="flex items-center rounded border border-gray-300 bg-white px-1.5 py-1 focus-within:border-green-600 focus-within:ring-1 focus-within:ring-green-600">
+                          <input
+                            id={`quick-disc-${idx}`}
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            placeholder="0"
+                            value={discPercent || ""}
+                            onChange={(e) =>
+                              updateLineDiscount(key, Number(e.target.value) || 0)
+                            }
+                            onKeyDown={(e) => handleDiscKeyDown(idx, key, e)}
+                            className="w-full bg-transparent text-right font-semibold text-emerald-700 text-sm focus:outline-none"
+                          />
+                          <span className="text-gray-400 ml-0.5">%</span>
+                        </div>
+                      </div>
+
+                      {/* Amount field */}
+                      <div>
+                        <label
+                          htmlFor={`quick-amt-${idx}`}
+                          className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5"
+                        >
+                          Amount (₹)
+                        </label>
+                        <div className="flex items-center rounded border border-green-200 bg-green-50/50 px-1.5 py-1 focus-within:border-green-600 focus-within:ring-1 focus-within:ring-green-600">
+                          <span className="text-gray-400 mr-0.5">₹</span>
+                          <input
+                            id={`quick-amt-${idx}`}
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={lineTotal ? lineTotal.toFixed(2) : ""}
+                            onChange={(e) =>
+                              updateLineAmount(key, Number(e.target.value) || 0)
+                            }
+                            onKeyDown={(e) => handleAmtKeyDown(idx, key, e)}
+                            className="w-full bg-transparent text-right font-bold text-green-900 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </li>
                 );
@@ -600,22 +962,54 @@ export function PosQuickBilling() {
         <div className="mb-4 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <Input
-              placeholder="Customer mobile"
+              id="quick-cust-mobile"
+              placeholder="Customer mobile [Enter]"
               value={customerMobile}
               onChange={(e) => {
                 setCustomerMobile(e.target.value);
                 setSelectedCustomer(null);
               }}
               onBlur={() => void lookupCustomer()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    if (cart.length > 0) {
+                      focusField(`quick-amt-${cart.length - 1}`);
+                    } else {
+                      focusField("pos-quick-search");
+                    }
+                    return;
+                  }
+                  void lookupCustomer();
+                  focusField("quick-cust-name");
+                }
+              }}
             />
             <Input
-              placeholder="Customer name"
+              id="quick-cust-name"
+              placeholder="Customer name [Enter]"
               value={customerName}
               onChange={(e) => {
                 setCustomerName(e.target.value);
                 setSelectedCustomer(null);
               }}
               onBlur={() => void lookupCustomer()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    focusField("quick-cust-mobile");
+                    return;
+                  }
+                  void lookupCustomer();
+                  if (splitPayment) {
+                    focusField("quick-split-cash");
+                  } else {
+                    focusField("quick-bill-discount");
+                  }
+                }
+              }}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -665,9 +1059,45 @@ export function PosQuickBilling() {
           </label>
           {splitPayment ? (
             <div className="grid grid-cols-3 gap-2">
-              <Input type="number" placeholder="Cash ₹" value={splitCash || ""} onChange={(e) => setSplitCash(Number(e.target.value) || 0)} />
-              <Input type="number" placeholder="UPI ₹" value={splitUpi || ""} onChange={(e) => setSplitUpi(Number(e.target.value) || 0)} />
-              <Input type="number" placeholder="Card ₹" value={splitCard || ""} onChange={(e) => setSplitCard(Number(e.target.value) || 0)} />
+              <Input
+                id="quick-split-cash"
+                type="number"
+                placeholder="Cash ₹ [Enter]"
+                value={splitCash || ""}
+                onChange={(e) => setSplitCash(Number(e.target.value) || 0)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    focusField("quick-split-upi");
+                  }
+                }}
+              />
+              <Input
+                id="quick-split-upi"
+                type="number"
+                placeholder="UPI ₹ [Enter]"
+                value={splitUpi || ""}
+                onChange={(e) => setSplitUpi(Number(e.target.value) || 0)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    focusField("quick-split-card");
+                  }
+                }}
+              />
+              <Input
+                id="quick-split-card"
+                type="number"
+                placeholder="Card ₹ [Enter]"
+                value={splitCard || ""}
+                onChange={(e) => setSplitCard(Number(e.target.value) || 0)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    focusField("quick-bill-discount");
+                  }
+                }}
+              />
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -712,44 +1142,120 @@ export function PosQuickBilling() {
           </div>
           {discountMode === "amount" ? (
             <Input
+              id="quick-bill-discount"
               type="number"
-              placeholder="Discount ₹"
+              placeholder="Discount ₹ [Enter]"
               value={discount || ""}
               onChange={(e) => setDiscount(Number(e.target.value) || 0)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    focusField("quick-cust-name");
+                    return;
+                  }
+                  if (selectedCustomer && selectedCustomer.loyalty_points > 0) {
+                    focusField("quick-loyalty-redeem");
+                  } else {
+                    focusField("quick-bill-notes");
+                  }
+                }
+              }}
             />
           ) : (
             <Input
+              id="quick-bill-discount"
               type="number"
               min={0}
               max={100}
-              placeholder="Discount %"
+              placeholder="Discount % [Enter]"
               value={discountPercent || ""}
               onChange={(e) => setDiscountPercent(Number(e.target.value) || 0)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    focusField("quick-cust-name");
+                    return;
+                  }
+                  if (selectedCustomer && selectedCustomer.loyalty_points > 0) {
+                    focusField("quick-loyalty-redeem");
+                  } else {
+                    focusField("quick-bill-notes");
+                  }
+                }
+              }}
             />
           )}
           <Input
+            id="quick-loyalty-redeem"
             type="number"
             min={0}
-            placeholder="Redeem points"
+            placeholder="Redeem points [Enter]"
             value={loyaltyRedeem || ""}
             onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
             disabled={!selectedCustomer}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) {
+                  focusField("quick-bill-discount");
+                  return;
+                }
+                focusField("quick-bill-notes");
+              }
+            }}
           />
         </div>
         <Input
-          placeholder="Bill notes (optional)"
+          id="quick-bill-notes"
+          placeholder="Bill notes (optional) [Enter to Pay]"
           value={billNotes}
           onChange={(e) => setBillNotes(e.target.value)}
           className="mb-4"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (e.shiftKey) {
+                focusField("quick-bill-discount");
+                return;
+              }
+              focusField("quick-btn-pay-print");
+            }
+          }}
         />
 
         <div className="mb-4 rounded-lg bg-green-50 p-4">
           <div className="flex justify-between text-sm">
-            <span>Subtotal</span>
-            <span>{formatPrice(subtotal)}</span>
+            <span>Gross Subtotal</span>
+            <span>{formatPrice(grossSubtotal)}</span>
           </div>
+          {itemDiscounts > 0 && (
+            <div className="mt-1 flex justify-between text-sm font-semibold text-emerald-700">
+              <span>Item Discounts</span>
+              <span>- {formatPrice(itemDiscounts)}</span>
+            </div>
+          )}
+          {computedBillDiscount > 0 && (
+            <div className="mt-1 flex justify-between text-sm font-semibold text-emerald-700">
+              <span>Bill Discount</span>
+              <span>- {formatPrice(computedBillDiscount)}</span>
+            </div>
+          )}
+          {totalDiscount > 0 && itemDiscounts > 0 && computedBillDiscount > 0 && (
+            <div className="mt-1 flex justify-between text-sm font-bold text-emerald-800 border-t border-emerald-200 pt-1">
+              <span>Total Savings</span>
+              <span>- {formatPrice(totalDiscount)}</span>
+            </div>
+          )}
+          {loyaltyRedeem > 0 && (
+            <div className="mt-1 flex justify-between text-sm text-emerald-700">
+              <span>Loyalty Points</span>
+              <span>- {formatPrice(loyaltyRedeem)}</span>
+            </div>
+          )}
           <p className="mt-1 text-xs italic text-gray-600">(Inclusive of GST)</p>
-          <div className="mt-2 flex justify-between text-xl font-bold text-green-900">
+          <div className="mt-2 flex justify-between text-xl font-bold text-green-900 border-t border-green-200 pt-2">
             <span>Total</span>
             <span>{formatPrice(total)}</span>
           </div>
@@ -766,18 +1272,36 @@ export function PosQuickBilling() {
             <span className="ml-1 text-[10px] opacity-60">F6</span>
           </Button>
           <Button
+            id="quick-btn-pay"
             variant="outline"
             onClick={() => void completeSale(false)}
             disabled={processing || !cart.length}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void completeSale(false);
+              } else if (e.key === "ArrowRight") {
+                focusField("quick-btn-pay-print");
+              }
+            }}
           >
             <ShoppingCart className="mr-1 h-4 w-4" />
             Pay
             <span className="ml-1 text-[10px] opacity-60">F8</span>
           </Button>
           <Button
-            className="col-span-2"
+            id="quick-btn-pay-print"
+            className="col-span-2 focus:ring-2 focus:ring-green-600 focus:ring-offset-2"
             onClick={() => void completeSale(true)}
             disabled={processing || !cart.length}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void completeSale(true);
+              } else if (e.key === "ArrowLeft") {
+                focusField("quick-btn-pay");
+              }
+            }}
           >
             <Printer className="mr-1 h-4 w-4" />
             Pay &amp; Print

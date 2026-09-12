@@ -15,3 +15,9 @@ export const RETAIL_BARCODE_FORMATS: Html5QrcodeSupportedFormats[] = [
 export function normalizeScannedBarcode(raw: string): string {
   return raw.trim().replace(/\s/g, "");
 }
+
+/** Typical packaged-goods / lot barcodes — skip slow fuzzy name search. */
+export function isLikelyExactBarcode(code: string): boolean {
+  const c = normalizeScannedBarcode(code);
+  return c.length >= 8 && c.length <= 32 && /^[0-9A-Za-z._-]+$/.test(c);
+}

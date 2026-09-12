@@ -43,9 +43,23 @@ export function getReceiptDimensions(
 ): ReceiptDimensions {
   const options = opts ?? getReceiptPrintOptions(width);
   const base80 = options.baseFontSize;
-  const base58 = Math.max(7, Math.round(base80 * 0.82));
+
+  if (width === "52mm") {
+    const base52 = Math.max(7, Math.round(base80 * 0.75));
+    const fontSize = scaleReceiptFontSize(base52, options.printDensity);
+    return {
+      width: "52mm",
+      fontSize,
+      storeTitleSize: scaleReceiptFontSize(base52 + 2, options.printDensity),
+      grandTotalSize: scaleReceiptFontSize(base52 + 3, options.printDensity),
+      qrSize: 85,
+      nameMaxLen: 12,
+      padding: "4px",
+    };
+  }
 
   if (width === "58mm") {
+    const base58 = Math.max(7, Math.round(base80 * 0.82));
     const fontSize = scaleReceiptFontSize(base58, options.printDensity);
     return {
       width: "58mm",
@@ -57,6 +71,36 @@ export function getReceiptDimensions(
       padding: "6px",
     };
   }
+
+  if (width === "64mm") {
+    const base64 = Math.max(8, Math.round(base80 * 0.88));
+    const fontSize = scaleReceiptFontSize(base64, options.printDensity);
+    return {
+      width: "64mm",
+      fontSize,
+      storeTitleSize: scaleReceiptFontSize(base64 + 3, options.printDensity),
+      grandTotalSize: scaleReceiptFontSize(base64 + 4, options.printDensity),
+      qrSize: 110,
+      nameMaxLen: 16,
+      padding: "6px",
+    };
+  }
+
+  if (width === "88mm") {
+    const base88 = Math.round(base80 * 1.05);
+    const fontSize = scaleReceiptFontSize(base88, options.printDensity);
+    return {
+      width: "88mm",
+      fontSize,
+      storeTitleSize: scaleReceiptFontSize(base88 + 4, options.printDensity),
+      grandTotalSize: scaleReceiptFontSize(base88 + 6, options.printDensity),
+      qrSize: 145,
+      nameMaxLen: 24,
+      padding: "10px",
+    };
+  }
+
+  // Default: 80mm
   const fontSize = scaleReceiptFontSize(base80, options.printDensity);
   return {
     width: "80mm",
@@ -179,7 +223,19 @@ export function getReceiptPrintStyles(
   const borderWidth = PRINT_DENSITY_BORDER[options.printDensity];
   const lineSolid = options.printDensity === "dark" ? "3px" : "2px";
   return `
-    @page { margin: 0; size: ${width} auto; }
+    @page {
+      size: ${width} auto;
+      margin: 0mm;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: ${width} !important;
+      max-width: ${width} !important;
+      min-width: ${width} !important;
+      background: #fff !important;
+      color: #000 !important;
+    }
     * {
       box-sizing: border-box;
       margin: 0;
@@ -205,7 +261,7 @@ export function getReceiptPrintStyles(
       font-family: ${fontFamily};
       font-weight: ${fontWeight};
       font-size: ${dim.fontSize};
-      line-height: 1.4;
+      line-height: 1.38;
       box-sizing: border-box;
       background: #fff;
       color: #000;
@@ -280,18 +336,37 @@ export function getReceiptPrintStyles(
       height: ${dim.qrSize}px;
     }
     @media print {
-      body { margin: 0; padding: 0; width: ${width}; max-width: ${width}; }
+      @page {
+        size: ${width} auto;
+        margin: 0mm;
+      }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: ${width} !important;
+        max-width: ${width} !important;
+        min-width: ${width} !important;
+        background: #fff !important;
+      }
       .receipt-container {
-        width: ${width};
-        max-width: ${width};
-        min-width: ${width};
+        width: ${width} !important;
+        max-width: ${width} !important;
+        min-width: ${width} !important;
         font-family: ${fontFamily};
         font-weight: ${fontWeight};
         box-sizing: border-box;
+        border: none !important;
+        padding: ${dim.padding} !important;
+        margin: 0 auto !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .receipt-container-border {
+        border: none !important;
       }
       * {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
     }
   `;

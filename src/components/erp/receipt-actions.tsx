@@ -9,12 +9,17 @@ import {
   downloadReceiptPdf,
 } from "@/components/erp/receipt-print";
 import { getReceiptPreviewStyles, getReceiptPrintOptions } from "@/utils/receipt-styles";
+import {
+  type ReceiptWidth,
+  RECEIPT_WIDTH_OPTIONS,
+  setLocalReceiptWidth,
+} from "@/utils/printer-prefs";
 import type { ReceiptData, StoreSettings } from "@/types/erp";
 
 interface ReceiptActionsProps {
   data: ReceiptData;
   settings?: StoreSettings | null;
-  defaultWidth?: "58mm" | "80mm";
+  defaultWidth?: ReceiptWidth;
   receiptId?: string;
 }
 
@@ -24,9 +29,13 @@ export function ReceiptActions({
   defaultWidth = "80mm",
   receiptId = "thermal-receipt",
 }: ReceiptActionsProps) {
-  const [width, setWidth] = useState<"58mm" | "80mm">(defaultWidth);
+  const [width, setWidth] = useState<ReceiptWidth>(defaultWidth);
   const [showPreview, setShowPreview] = useState(false);
   const [styleKey, setStyleKey] = useState(0);
+
+  useEffect(() => {
+    setWidth(defaultWidth);
+  }, [defaultWidth]);
 
   useEffect(() => {
     const refresh = () => setStyleKey((k) => k + 1);
@@ -59,12 +68,19 @@ export function ReceiptActions({
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={width}
-          onChange={(e) => setWidth(e.target.value as "58mm" | "80mm")}
-          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+          onChange={(e) => {
+            const next = e.target.value as ReceiptWidth;
+            setWidth(next);
+            setLocalReceiptWidth(next);
+          }}
+          className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm font-medium text-gray-800 focus:border-green-500 focus:outline-none"
           aria-label="Receipt width"
         >
-          <option value="58mm">58mm</option>
-          <option value="80mm">80mm</option>
+          {RECEIPT_WIDTH_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
         </select>
         <Button size="sm" variant="outline" onClick={() => setShowPreview(true)}>
           <Eye className="mr-1 h-4 w-4" />

@@ -13,6 +13,7 @@ import {
   setAutoPrintPreference,
   setLocalReceiptWidth,
   setPrinterName,
+  RECEIPT_WIDTH_OPTIONS,
   type ReceiptWidth,
 } from "@/utils/printer-prefs";
 import {
@@ -146,8 +147,11 @@ export function AdminPrinterSettings({ className }: AdminPrinterSettingsProps) {
                   onChange={(e) => void saveWidth(e.target.value as ReceiptWidth)}
                   className="w-full rounded-lg border px-3 py-2"
                 >
-                  <option value="58mm">58mm thermal</option>
-                  <option value="80mm">80mm thermal</option>
+                  {RECEIPT_WIDTH_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

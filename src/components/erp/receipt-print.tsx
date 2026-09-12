@@ -218,13 +218,21 @@ export function ReceiptPrint({
             <span>{formatPrice(data.deliveryCharge)}</span>
           </div>
         )}
-        <div className="receipt-row">
-          <span>
-            Discount
-            {data.discountPercent ? ` (${data.discountPercent}%)` : ""}
-          </span>
-          <span>{formatPrice(data.discount ?? 0)}</span>
-        </div>
+        {data.discount !== undefined && data.discount > 0 && (
+          <div
+            className="receipt-row"
+            style={{
+              fontWeight: 700,
+              padding: "2px 0",
+            }}
+          >
+            <span>
+              DISCOUNT
+              {data.discountPercent ? ` (${data.discountPercent}%)` : ""}
+            </span>
+            <span>- {formatPrice(data.discount)}</span>
+          </div>
+        )}
         {showGstNote && (
           <p style={{ margin: "4px 0 0", fontSize: "0.85em", fontStyle: "italic" }}>
             (Inclusive of GST)
@@ -259,6 +267,25 @@ export function ReceiptPrint({
         <span>GRAND TOTAL</span>
         <span>{formatPrice(data.grandTotal)}</span>
       </div>
+
+      {data.discount !== undefined && data.discount > 0 && (
+        <>
+          <div
+            style={{
+              margin: "5px 0",
+              padding: "4px 6px",
+              textAlign: "center",
+              fontWeight: 800,
+              fontSize: "0.95em",
+              border: "1.5px dashed #000",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            ★ TOTAL SAVINGS: {formatPrice(data.discount)} ★
+          </div>
+        </>
+      )}
 
       <div className="receipt-line-solid" />
 
@@ -340,6 +367,8 @@ function buildPrintDocument(receiptHtml: string, width: ReceiptWidth, title = "R
   return `<!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${title}</title>
     <style>${getReceiptPrintStyles(width, opts)}</style>
   </head>
@@ -374,8 +403,7 @@ function printReceiptBrowser(
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
-  iframe.style.cssText =
-    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  iframe.style.cssText = `position:fixed;left:0;top:0;width:${width};height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1;`;
   document.body.appendChild(iframe);
 
   const frameWindow = iframe.contentWindow;
@@ -413,7 +441,7 @@ function printReceiptPopup(elementId: string, width: ReceiptWidth) {
   const receipt = document.getElementById(elementId);
   if (!receipt) return false;
 
-  const printWindow = window.open("", "_blank", "width=400,height=700");
+  const printWindow = window.open("", "_blank", "width=320,height=800");
   if (!printWindow) return false;
 
   printWindow.document.write(buildPrintDocument(cloneReceiptHtml(receipt), width));
@@ -442,7 +470,7 @@ export function downloadReceiptPdf(
   const receipt = document.getElementById(elementId);
   if (!receipt) return;
 
-  const printWindow = window.open("", "_blank", "width=400,height=700");
+  const printWindow = window.open("", "_blank", "width=320,height=800");
   if (!printWindow) return;
 
   printWindow.document.write(

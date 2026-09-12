@@ -152,9 +152,15 @@ export default function AdminProductsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this product?")) return;
-    await productService.remove(id);
-    toast.success("Product deleted");
-    load();
+    try {
+      await productService.remove(id);
+      toast.success("Product deleted");
+      load();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete product";
+      toast.error(msg);
+      console.error("Product delete error:", err);
+    }
   };
 
   return (

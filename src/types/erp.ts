@@ -378,6 +378,8 @@ export interface PosCartLine {
   name: string;
   barcode: string | null;
   rate: number;
+  discountPercent?: number;
+  discountAmount?: number;
   gstPercentage: number;
   quantity: number;
 }
@@ -396,7 +398,7 @@ export interface StoreSettings {
   enable_upi_qr: boolean;
   receipt_header_text: string | null;
   receipt_footer_text: string | null;
-  receipt_width: "58mm" | "80mm";
+  receipt_width: "52mm" | "58mm" | "64mm" | "80mm" | "88mm";
   created_at: string;
   updated_at: string;
 }

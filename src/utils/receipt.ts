@@ -21,7 +21,7 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
     name: i.product_name,
     quantity: i.quantity,
     rate: Number(i.rate),
-    amount: Number(i.rate) * i.quantity,
+    amount: Number(i.total_amount ?? Number(i.rate) * i.quantity),
   }));
 
   return {

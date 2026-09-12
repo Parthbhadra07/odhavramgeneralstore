@@ -1,8 +1,13 @@
 import { requireClient } from "@/lib/supabase/client";
-import { lotService } from "./lot.service";
 import type { ErpProduct, LowStockProduct, ProductLot, StockMovement } from "@/types/erp";
 
 const productSelect = `*, categories(id, name, slug)`;
+
+const BARCODE_CACHE_MS = 15_000;
+const barcodeResolveCache = new Map<
+  string,
+  { at: number; result: { product: ErpProduct; lot: ProductLot | null } | null }
+>();
 
 export const inventoryService = {
   async listProducts(filters?: {
@@ -46,21 +51,47 @@ export const inventoryService = {
     const trimmed = barcode.trim();
     if (!trimmed) return null;
 
-    const lot = await lotService.getByBarcode(trimmed);
-    if (lot?.products) {
-      const product = await this.getById(lot.product_id);
-      if (product) return { product, lot };
+    const cached = barcodeResolveCache.get(trimmed);
+    if (cached && Date.now() - cached.at < BARCODE_CACHE_MS) {
+      return cached.result;
     }
 
     const supabase = requireClient();
-    const { data, error } = await supabase
-      .from("products")
-      .select(productSelect)
-      .eq("barcode", trimmed)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return null;
-    return { product: data as ErpProduct, lot: null };
+    const [lotRes, productRes] = await Promise.all([
+      supabase
+        .from("product_lots")
+        .select("*, products(*)")
+        .eq("barcode", trimmed)
+        .eq("is_active", true)
+        .gt("current_stock", 0)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("products")
+        .select(productSelect)
+        .eq("barcode", trimmed)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    if (lotRes.error) throw lotRes.error;
+    if (productRes.error) throw productRes.error;
+
+    let result: { product: ErpProduct; lot: ProductLot | null } | null = null;
+    const lot = (lotRes.data as (ProductLot & { products?: ErpProduct | null }) | null) ?? null;
+    if (lot) {
+      const nested = lot.products;
+      const product =
+        nested && "id" in nested ? (nested as ErpProduct) : await this.getById(lot.product_id);
+      if (product) result = { product, lot };
+    }
+    if (!result && productRes.data) {
+      result = { product: productRes.data as ErpProduct, lot: null };
+    }
+
+    barcodeResolveCache.set(trimmed, { at: Date.now(), result });
+    return result;
   },
 
   async getById(id: string): Promise<ErpProduct | null> {

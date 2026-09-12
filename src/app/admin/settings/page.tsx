@@ -8,6 +8,8 @@ import {
   setAutoPrintPreference,
   setLocalReceiptWidth,
   setPrinterName,
+  RECEIPT_WIDTH_OPTIONS,
+  type ReceiptWidth,
 } from "@/utils/printer-prefs";
 import {
   BARCODE_FONT_OPTIONS,
@@ -40,7 +42,7 @@ export default function AdminSettingsPage() {
     enable_upi_qr: false,
     receipt_header_text: "",
     receipt_footer_text: "",
-    receipt_width: "80mm" as "58mm" | "80mm",
+    receipt_width: "80mm" as ReceiptWidth,
     printer_name: "",
     auto_print: true,
     barcode_paper: "roll58" as BarcodePaperType,
@@ -249,13 +251,16 @@ export default function AdminSettingsPage() {
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    receipt_width: e.target.value as "58mm" | "80mm",
+                    receipt_width: e.target.value as ReceiptWidth,
                   })
                 }
                 className="w-full rounded-lg border px-3 py-2 text-sm"
               >
-                <option value="58mm">58mm (small thermal)</option>
-                <option value="80mm">80mm (standard thermal)</option>
+                {RECEIPT_WIDTH_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <p className="mt-1 text-xs text-gray-500">
                 Used for POS receipts, order bills, and sales history reprints.

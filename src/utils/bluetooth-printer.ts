@@ -1,5 +1,6 @@
 /// <reference types="web-bluetooth" />
 
+import { Capacitor } from "@capacitor/core";
 import {
   canvasToEscPosRaster,
   concatBytes,
@@ -9,11 +10,14 @@ import {
   escFeed,
   escInit,
   escText,
+  scaleCanvasForPrinter,
 } from "@/utils/escpos";
 import { isCapacitorNative } from "@/lib/capacitor";
 import { getBarcodePrinterPrefs } from "@/utils/barcode-printer-prefs";
+import { getLocalReceiptWidth } from "@/utils/printer-prefs";
 import { renderBarcodeToCanvas } from "@/components/erp/barcode-label-utils";
 import { DEFAULT_LABEL_CONFIG } from "@/services/erp/barcode-label.service";
+import type { BondedBluetoothDevice } from "@/plugins/thermal-printer";
 
 const NAME_KEY = "ogs_bt_printer_name";
 const ID_KEY = "ogs_bt_printer_id";
@@ -27,11 +31,39 @@ const OPTIONAL_SERVICES: BluetoothServiceUUID[] = [
   "49535343-fe7d-4ae5-8fa9-9fafd205e455",
 ];
 
+const BLE_NAME_PREFIXES = [
+  "POS",
+  "Printer",
+  "MTP",
+  "RPP",
+  "RP",
+  "TM-",
+  "EPSON",
+  "TVS",
+  "Inner",
+  "BlueTooth",
+  "Bluetooth",
+  "BT-",
+  "BT_",
+  "Thermal",
+  "XP-",
+  "GP-",
+  "Gprinter",
+  "MPT",
+  "HOIN",
+  "PeriPage",
+  "Phomemo",
+  "MUNBYN",
+  "Cashino",
+  "Rongta",
+];
+
 type WriteFn = (chunk: Uint8Array) => Promise<void>;
 
 let writeChunk: WriteFn | null = null;
 let connectedName = "";
 let gattServer: BluetoothRemoteGATTServer | null = null;
+let nativeAddress: string | null = null;
 
 function notify() {
   if (typeof window === "undefined") return;
@@ -43,9 +75,24 @@ function persist(name: string, id: string) {
   localStorage.setItem(ID_KEY, id);
 }
 
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + step));
+  }
+  return btoa(binary);
+}
+
 export function isWebBluetoothSupported(): boolean {
   if (typeof navigator === "undefined") return false;
   return Boolean(navigator.bluetooth);
+}
+
+export function isBluetoothPrintingAvailable(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isCapacitorNative() && Capacitor.getPlatform() === "android") return true;
+  return isWebBluetoothSupported();
 }
 
 export function getBluetoothPrinterName(): string {
@@ -58,8 +105,27 @@ export function isBluetoothPrinterConnected(): boolean {
 }
 
 export function getBluetoothPrinterDots(): number {
+  const receiptWidth = getLocalReceiptWidth();
+  if (receiptWidth === "88mm") return 640;
+  if (receiptWidth === "80mm") return 576;
+  if (receiptWidth === "64mm") return 448;
+  if (receiptWidth === "58mm" || receiptWidth === "52mm") return 384;
   const paper = getBarcodePrinterPrefs().paperType;
   return paper === "roll80" ? 576 : 384;
+}
+
+export async function listPairedBluetoothPrinters(): Promise<BondedBluetoothDevice[]> {
+  if (!isCapacitorNative() || Capacitor.getPlatform() !== "android") return [];
+  const { ThermalPrinter } = await import("@/plugins/thermal-printer");
+  const { devices } = await ThermalPrinter.listBondedDevices();
+  const lastId = localStorage.getItem(ID_KEY);
+  return [...devices].sort((a, b) => {
+    if (a.address === lastId) return -1;
+    if (b.address === lastId) return 1;
+    const score = (name: string) =>
+      /print|pos|thermal|epson|tvs|rongta|mtp|xp-|gp-/i.test(name) ? 0 : 1;
+    return score(a.name) - score(b.name) || a.name.localeCompare(b.name);
+  });
 }
 
 async function findWritableCharacteristic(
@@ -85,17 +151,46 @@ async function writeInChunks(write: WriteFn, data: Uint8Array, size = 180) {
   }
 }
 
-export async function connectBluetoothPrinter(): Promise<string> {
+async function attachNativeWriter(name: string, address: string) {
+  const { ThermalPrinter } = await import("@/plugins/thermal-printer");
+  nativeAddress = address;
+  gattServer = null;
+  connectedName = name;
+  persist(name, address);
+  writeChunk = async (chunk: Uint8Array) => {
+    await ThermalPrinter.write({ data: uint8ToBase64(chunk) });
+  };
+  notify();
+}
+
+export async function connectNativeBluetoothPrinter(address: string): Promise<string> {
+  const { ThermalPrinter } = await import("@/plugins/thermal-printer");
+  const result = await ThermalPrinter.connect({ address });
+  await attachNativeWriter(result.name || "Bluetooth printer", result.address);
+  return connectedName;
+}
+
+async function connectWebBluetooth(): Promise<string> {
   if (!navigator.bluetooth) {
     throw new Error(
-      "Bluetooth printing needs Chrome or Edge on a phone/PC. Pair a BLE thermal printer, then try again."
+      "Bluetooth printing needs Chrome or Edge, or the Android app with a paired thermal printer."
     );
   }
 
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: OPTIONAL_SERVICES,
-  });
+  let device: BluetoothDevice;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: OPTIONAL_SERVICES,
+    });
+  } catch (err) {
+    const cancelled = err instanceof Error && /cancel/i.test(err.message);
+    if (cancelled) throw err;
+    device = await navigator.bluetooth.requestDevice({
+      filters: BLE_NAME_PREFIXES.map((namePrefix) => ({ namePrefix })),
+      optionalServices: OPTIONAL_SERVICES,
+    });
+  }
 
   if (!device.gatt) {
     throw new Error("Printer does not support Bluetooth GATT");
@@ -105,12 +200,16 @@ export async function connectBluetoothPrinter(): Promise<string> {
   const characteristic = await findWritableCharacteristic(server);
   const useWithoutResponse = characteristic.properties.writeWithoutResponse;
 
+  nativeAddress = null;
   gattServer = server;
   connectedName = device.name || "Bluetooth printer";
   persist(connectedName, device.id);
 
   writeChunk = async (chunk: Uint8Array) => {
-    const buffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer;
+    const buffer = chunk.buffer.slice(
+      chunk.byteOffset,
+      chunk.byteOffset + chunk.byteLength
+    ) as ArrayBuffer;
     if (useWithoutResponse) {
       await characteristic.writeValueWithoutResponse(buffer);
     } else {
@@ -128,8 +227,44 @@ export async function connectBluetoothPrinter(): Promise<string> {
   return connectedName;
 }
 
+export async function connectBluetoothPrinter(): Promise<string> {
+  if (isCapacitorNative() && Capacitor.getPlatform() === "ios") {
+    throw new Error(
+      "iPhone cannot talk to most Bluetooth thermal printers. Use an Android phone, or AirPrint if the printer supports it."
+    );
+  }
+
+  if (isCapacitorNative() && Capacitor.getPlatform() === "android") {
+    const devices = await listPairedBluetoothPrinters();
+    if (devices.length === 0) {
+      throw new Error(
+        "No paired printers found. In Android settings, pair your thermal printer, then tap Connect again."
+      );
+    }
+    const lastId = localStorage.getItem(ID_KEY);
+    const match = devices.find((d) => d.address === lastId) ?? (devices.length === 1 ? devices[0] : null);
+    if (!match) {
+      const error = new Error("PICK_DEVICE") as Error & { devices: BondedBluetoothDevice[] };
+      error.devices = devices;
+      throw error;
+    }
+    return connectNativeBluetoothPrinter(match.address);
+  }
+
+  return connectWebBluetooth();
+}
+
 export async function disconnectBluetoothPrinter() {
   writeChunk = null;
+  try {
+    if (nativeAddress) {
+      const { ThermalPrinter } = await import("@/plugins/thermal-printer");
+      await ThermalPrinter.disconnect();
+    }
+  } catch {
+    /* ignore */
+  }
+  nativeAddress = null;
   try {
     gattServer?.disconnect();
   } catch {
@@ -148,6 +283,43 @@ export async function printRawToBluetooth(data: Uint8Array) {
 
 export async function printEscPosDocument(parts: Uint8Array[]) {
   await printRawToBluetooth(concatBytes(escInit(), ...parts, escFeed(3), escCut()));
+}
+
+function wrapEscPosLine(line: string, cols: number): string[] {
+  if (line.length <= cols) return [line];
+  const out: string[] = [];
+  for (let i = 0; i < line.length; i += cols) {
+    out.push(line.slice(i, i + cols));
+  }
+  return out;
+}
+
+async function rasterizeElement(el: HTMLElement, dots: number): Promise<Uint8Array | null> {
+  try {
+    const { toCanvas } = await import("html-to-image");
+    const holder = document.createElement("div");
+    holder.style.cssText =
+      "position:fixed;left:0;top:0;opacity:0.01;pointer-events:none;z-index:-1;background:#fff;";
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.style.position = "static";
+    clone.style.left = "auto";
+    clone.style.top = "auto";
+    holder.appendChild(clone);
+    document.body.appendChild(holder);
+    try {
+      const canvas = await toCanvas(clone, {
+        backgroundColor: "#ffffff",
+        pixelRatio: 2,
+        cacheBust: true,
+      });
+      const scaled = scaleCanvasForPrinter(canvas, dots);
+      return canvasToEscPosRaster(scaled, 90);
+    } finally {
+      holder.remove();
+    }
+  } catch {
+    return null;
+  }
 }
 
 export interface BluetoothBarcodeLabel {
@@ -221,6 +393,7 @@ export async function printBarcodeLabelsFromPrintRoot(elementId: string) {
 }
 
 export async function printTextToBluetooth(text: string) {
+  const cols = getBluetoothPrinterDots() >= 576 ? 48 : 32;
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+$/g, ""))
@@ -228,7 +401,9 @@ export async function printTextToBluetooth(text: string) {
 
   const chunks: Uint8Array[] = [escAlign("center")];
   for (const line of lines) {
-    chunks.push(escText(line.slice(0, 48)));
+    for (const wrapped of wrapEscPosLine(line, cols)) {
+      chunks.push(escText(wrapped));
+    }
   }
   await printEscPosDocument(chunks);
 }
@@ -236,15 +411,41 @@ export async function printTextToBluetooth(text: string) {
 export async function printElementToBluetooth(elementId: string) {
   const el = document.getElementById(elementId);
   if (!el) throw new Error("Nothing to print");
-  await printTextToBluetooth(el.innerText);
+
+  const raster = await rasterizeElement(el, getBluetoothPrinterDots());
+  if (raster && raster.length > 8) {
+    await printEscPosDocument([escAlign("center"), raster]);
+    return;
+  }
+
+  const canvases = Array.from(el.querySelectorAll("canvas"));
+  const chunks: Uint8Array[] = [escAlign("center")];
+  const cols = getBluetoothPrinterDots() >= 576 ? 48 : 32;
+  for (const line of el.innerText.split(/\r?\n/)) {
+    const trimmed = line.replace(/\s+$/g, "");
+    if (!trimmed) {
+      chunks.push(escFeed(1));
+      continue;
+    }
+    for (const wrapped of wrapEscPosLine(trimmed, cols)) {
+      chunks.push(escText(wrapped));
+    }
+  }
+  for (const canvas of canvases) {
+    chunks.push(canvasToEscPosRaster(scaleCanvasForPrinter(canvas, getBluetoothPrinterDots()), 90));
+  }
+  await printEscPosDocument(chunks);
 }
 
 export function bluetoothPrinterHint(): string {
+  if (isCapacitorNative() && Capacitor.getPlatform() === "android") {
+    return "Pair the thermal printer in Android Bluetooth settings, then connect it here. Bills print on 58/80mm roll — not A4.";
+  }
   if (isCapacitorNative() && !isWebBluetoothSupported()) {
-    return "Open this admin page in Chrome to pair a BLE thermal printer, or use the system print dialog after pairing in Android settings.";
+    return "Open this admin page in Chrome on Android to pair a BLE printer, or use a paired classic Bluetooth printer in the Android app.";
   }
   if (!isWebBluetoothSupported()) {
-    return "Use Google Chrome or Microsoft Edge to connect a Bluetooth thermal printer.";
+    return "Use Google Chrome or Microsoft Edge, or the Android app, to connect a Bluetooth thermal printer.";
   }
-  return "Pair a BLE ESC/POS printer (TVS, Epson, Rongta, and most 58/80mm printers). Classic Bluetooth-only models still use the system print dialog.";
+  return "Pair a BLE ESC/POS printer in Chrome, or a classic Bluetooth printer in the Android app. Thermal roll only — not A4.";
 }
