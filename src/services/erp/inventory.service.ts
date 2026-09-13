@@ -1,5 +1,10 @@
 import { requireClient } from "@/lib/supabase/client";
 import type { ErpProduct, LowStockProduct, ProductLot, StockMovement } from "@/types/erp";
+import {
+  saveProductCatalog,
+  searchProductsOffline,
+  findProductByBarcodeOffline,
+} from "@/lib/offline/product-cache";
 
 const productSelect = `*, categories(id, name, slug)`;
 
@@ -15,29 +20,44 @@ export const inventoryService = {
     categoryId?: string;
     lowStockOnly?: boolean;
   }): Promise<ErpProduct[]> {
-    const supabase = requireClient();
-    let q = supabase
-      .from("products")
-      .select(productSelect)
-      .eq("is_active", true)
-      .order("name");
-
-    if (filters?.categoryId) q = q.eq("category_id", filters.categoryId);
-    if (filters?.search) {
-      const s = `%${filters.search}%`;
-      q = q.or(`name.ilike.${s},sku.ilike.${s},barcode.ilike.${s}`);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return searchProductsOffline(filters?.search ?? "");
     }
 
-    const { data, error } = await q;
-    if (error) throw error;
+    try {
+      const supabase = requireClient();
+      let q = supabase
+        .from("products")
+        .select(productSelect)
+        .eq("is_active", true)
+        .order("name");
 
-    let rows = (data ?? []) as ErpProduct[];
-    if (filters?.lowStockOnly) {
-      rows = rows.filter(
-        (p) => p.stock <= (p.min_stock_level ?? p.reorder_level ?? 10)
-      );
+      if (filters?.categoryId) q = q.eq("category_id", filters.categoryId);
+      if (filters?.search) {
+        const s = `%${filters.search}%`;
+        q = q.or(`name.ilike.${s},sku.ilike.${s},barcode.ilike.${s}`);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      let rows = (data ?? []) as ErpProduct[];
+      if (filters?.lowStockOnly) {
+        rows = rows.filter(
+          (p) => p.stock <= (p.min_stock_level ?? p.reorder_level ?? 10)
+        );
+      }
+      // Cache products in background for offline use
+      if (!filters?.search && !filters?.categoryId) {
+        saveProductCatalog(rows);
+      }
+      return rows;
+    } catch (e) {
+      // Fall back to offline search if network fails
+      const offline = await searchProductsOffline(filters?.search ?? "");
+      if (offline.length) return offline;
+      throw e;
     }
-    return rows;
   },
 
   async getByBarcode(barcode: string): Promise<ErpProduct | null> {
@@ -56,42 +76,55 @@ export const inventoryService = {
       return cached.result;
     }
 
-    const supabase = requireClient();
-    const [lotRes, productRes] = await Promise.all([
-      supabase
-        .from("product_lots")
-        .select("*, products(*)")
-        .eq("barcode", trimmed)
-        .eq("is_active", true)
-        .gt("current_stock", 0)
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("products")
-        .select(productSelect)
-        .eq("barcode", trimmed)
-        .eq("is_active", true)
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-    if (lotRes.error) throw lotRes.error;
-    if (productRes.error) throw productRes.error;
-
-    let result: { product: ErpProduct; lot: ProductLot | null } | null = null;
-    const lot = (lotRes.data as (ProductLot & { products?: ErpProduct | null }) | null) ?? null;
-    if (lot) {
-      const nested = lot.products;
-      const product =
-        nested && "id" in nested ? (nested as ErpProduct) : await this.getById(lot.product_id);
-      if (product) result = { product, lot };
-    }
-    if (!result && productRes.data) {
-      result = { product: productRes.data as ErpProduct, lot: null };
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const offlineProduct = await findProductByBarcodeOffline(trimmed);
+      if (offlineProduct) return { product: offlineProduct, lot: null };
+      return null;
     }
 
-    barcodeResolveCache.set(trimmed, { at: Date.now(), result });
-    return result;
+    try {
+      const supabase = requireClient();
+      const [lotRes, productRes] = await Promise.all([
+        supabase
+          .from("product_lots")
+          .select("*, products(*)")
+          .eq("barcode", trimmed)
+          .eq("is_active", true)
+          .gt("current_stock", 0)
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("products")
+          .select(productSelect)
+          .eq("barcode", trimmed)
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (lotRes.error) throw lotRes.error;
+      if (productRes.error) throw productRes.error;
+
+      let result: { product: ErpProduct; lot: ProductLot | null } | null = null;
+      const lot = (lotRes.data as (ProductLot & { products?: ErpProduct | null }) | null) ?? null;
+      if (lot) {
+        const nested = lot.products;
+        const product =
+          nested && "id" in nested ? (nested as ErpProduct) : await this.getById(lot.product_id);
+        if (product) result = { product, lot };
+      }
+      if (!result && productRes.data) {
+        result = { product: productRes.data as ErpProduct, lot: null };
+      }
+
+      barcodeResolveCache.set(trimmed, { at: Date.now(), result });
+      return result;
+    } catch (e) {
+      // Fall back to offline barcode lookup
+      const offlineProduct = await findProductByBarcodeOffline(trimmed);
+      if (offlineProduct) return { product: offlineProduct, lot: null };
+      throw e;
+    }
   },
 
   async getById(id: string): Promise<ErpProduct | null> {

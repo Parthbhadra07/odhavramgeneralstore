@@ -1,11 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { loadProductCatalog } from "@/lib/offline/product-cache";
 
 export default function OfflinePage() {
-  const hasCache = typeof window !== "undefined" && loadProductCatalog()?.length;
+  const [hasCache, setHasCache] = useState(false);
+
+  useEffect(() => {
+    loadProductCatalog().then((items) => {
+      if (items && items.length > 0) {
+        setHasCache(true);
+      }
+    });
+  }, []);
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
@@ -13,12 +22,13 @@ export default function OfflinePage() {
       <h1 className="text-2xl font-bold">You&apos;re Offline</h1>
       <p className="mt-2 max-w-sm text-gray-600">
         {hasCache
-          ? "You can still browse products saved from your last visit."
+          ? "You can still browse products saved from your last visit, or continue POS billing."
           : "Please check your internet connection and try again."}
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
+        <Button href="/admin/pos">Open POS Billing (Offline Ready)</Button>
         {hasCache && (
-          <Button href="/products">Browse cached products</Button>
+          <Button variant="secondary" href="/products">Browse cached products</Button>
         )}
         <Button variant="outline" type="button" onClick={() => window.location.reload()}>
           Retry connection

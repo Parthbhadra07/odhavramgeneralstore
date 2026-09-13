@@ -145,4 +145,5 @@ export interface ProductFilters {
   search?: string;
   sort?: ProductSort;
   featured?: boolean;
+  includeInactive?: boolean;
 }

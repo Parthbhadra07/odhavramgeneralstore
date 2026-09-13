@@ -20,6 +20,7 @@ import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
+import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import { useAuth } from "@/hooks/use-auth";
@@ -36,7 +37,7 @@ import {
   RECEIPT_WIDTH_OPTIONS,
   type ReceiptWidth,
 } from "@/utils/printer-prefs";
-import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
+import { openWhatsAppShare, invoiceShareMessage, posBillWhatsAppMessage } from "@/utils/whatsapp";
 
 function cartLineKey(line: PosCartLine) {
   return `${line.productId}-${line.lotId ?? "default"}`;
@@ -579,10 +580,30 @@ export function PosQuickBilling() {
         sale.customer_id && sale.sale_status === "completed"
           ? Math.floor(Number(sale.total_amount) / 100) * LOYALTY_POINTS_PER_100
           : 0;
+      const custMobile = sale.customer_mobile;
       toast.success(
         earned > 0
           ? `Bill ${sale.bill_number} — +${earned} loyalty points`
-          : `Bill ${sale.bill_number} completed`
+          : `Bill ${sale.bill_number} completed`,
+        {
+          action: custMobile
+            ? {
+                label: "WhatsApp Bill",
+                onClick: () =>
+                  openWhatsAppShare(
+                    posBillWhatsAppMessage({
+                      billNumber: sale.bill_number,
+                      totalAmount: sale.total_amount,
+                      customerName: sale.customer_name,
+                      paymentMethod: sale.payment_method,
+                      itemsCount: sale.pos_sale_items?.length ?? 1,
+                      discount: sale.discount,
+                    }),
+                    custMobile
+                  ),
+              }
+            : undefined,
+        }
       );
     } catch (e) {
       if (!navigator.onLine) {
@@ -670,7 +691,10 @@ export function PosQuickBilling() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white lg:max-w-[55%]">
         <div className="border-b p-3 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
+              <OfflineStatusBanner compact />
+            </div>
             <p className="text-xs text-gray-500">
               F2 Search · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
@@ -1361,18 +1385,23 @@ export function PosQuickBilling() {
             <Button
               size="sm"
               variant="outline"
-              className="mt-2"
+              className="mt-2 text-green-700 hover:bg-green-50 border-green-200"
               onClick={() =>
                 openWhatsAppShare(
-                  invoiceShareMessage(
-                    lastSale.bill_number,
-                    formatPrice(lastSale.total_amount)
-                  )
+                  posBillWhatsAppMessage({
+                    billNumber: lastSale.bill_number,
+                    totalAmount: lastSale.total_amount,
+                    customerName: lastSale.customer_name,
+                    paymentMethod: lastSale.payment_method,
+                    itemsCount: lastSale.pos_sale_items?.length,
+                    discount: lastSale.discount,
+                  }),
+                  lastSale.customer_mobile ?? undefined
                 )
               }
             >
-              <MessageCircle className="mr-1 h-4 w-4" />
-              WhatsApp
+              <MessageCircle className="mr-1 h-4 w-4 text-green-600" />
+              WhatsApp Bill to Customer
             </Button>
           </div>
         )}

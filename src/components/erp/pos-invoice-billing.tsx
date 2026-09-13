@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pause, Play, Printer, ScanBarcode, Trash2, Tag } from "lucide-react";
+import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import { openWhatsAppShare, posBillWhatsAppMessage } from "@/utils/whatsapp";
 import { Button } from "@/components/ui/button";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
+import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { normalizeScannedBarcode } from "@/lib/barcode-scan-formats";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
@@ -409,7 +411,26 @@ export function PosInvoiceBilling() {
       });
       setLastSale(sale);
       if (autoPrint) autoPrintSaleIdRef.current = sale.id;
-      toast.success(`Invoice ${sale.bill_number} saved`);
+      const custMobile = customerMobile.trim() || selectedCustomer?.mobile;
+      toast.success(`Invoice ${sale.bill_number} saved`, {
+        action: custMobile
+          ? {
+              label: "WhatsApp Bill",
+              onClick: () =>
+                openWhatsAppShare(
+                  posBillWhatsAppMessage({
+                    billNumber: sale.bill_number,
+                    totalAmount: sale.total_amount,
+                    customerName: sale.customer_name,
+                    paymentMethod: sale.payment_method,
+                    itemsCount: sale.pos_sale_items?.length ?? lines.length,
+                    discount: sale.discount,
+                  }),
+                  custMobile
+                ),
+            }
+          : undefined,
+      });
       resetInvoice();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sale failed");
@@ -577,11 +598,14 @@ export function PosInvoiceBilling() {
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-700 bg-white shadow-sm lg:min-h-[calc(100vh-8rem)]">
       <header className="flex flex-wrap items-center justify-between gap-2 bg-[#1a365d] px-4 py-2.5 text-white">
-        <div>
-          <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
-          <p className="text-[11px] text-slate-300">
-            F2 Scan · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
+            <p className="text-[11px] text-slate-300">
+              F2 Scan · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
+            </p>
+          </div>
+          <OfflineStatusBanner compact />
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <Button
@@ -615,7 +639,31 @@ export function PosInvoiceBilling() {
           </div>
           <div>
             <p className="text-[10px] uppercase text-slate-300">Invoice No.</p>
-            <p className="font-mono font-semibold">{lastSale?.bill_number ?? "Auto"}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-mono font-semibold">{lastSale?.bill_number ?? "Auto"}</p>
+              {lastSale && (
+                <button
+                  type="button"
+                  title="WhatsApp Bill to Customer"
+                  onClick={() =>
+                    openWhatsAppShare(
+                      posBillWhatsAppMessage({
+                        billNumber: lastSale.bill_number,
+                        totalAmount: lastSale.total_amount,
+                        customerName: lastSale.customer_name,
+                        paymentMethod: lastSale.payment_method,
+                        itemsCount: lastSale.pos_sale_items?.length,
+                        discount: lastSale.discount,
+                      }),
+                      lastSale.customer_mobile ?? undefined
+                    )
+                  }
+                  className="rounded p-1 text-green-300 hover:bg-green-800/50 hover:text-white transition"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
           <div>
             <p className="text-[10px] uppercase text-slate-300">Date</p>

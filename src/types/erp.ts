@@ -399,6 +399,7 @@ export interface StoreSettings {
   receipt_header_text: string | null;
   receipt_footer_text: string | null;
   receipt_width: "52mm" | "58mm" | "64mm" | "80mm" | "88mm";
+  active_financial_year?: string | null;
   created_at: string;
   updated_at: string;
 }

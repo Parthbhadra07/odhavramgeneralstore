@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 export default function ProfilePage() {
+  const router = useRouter();
   const { user, profile, loading } = useAuth();
   const [saving, setSaving] = useState(false);
 
@@ -24,10 +26,28 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    if (profile) {
-      reset({ name: profile.name, email: profile.email, phone: profile.phone ?? "" });
+    if (!loading && !user) {
+      router.push("/auth/login?redirect=/dashboard");
     }
-  }, [profile, reset]);
+  }, [loading, user, router]);
+
+  useEffect(() => {
+    if (profile) {
+      reset({
+        name: profile.name ?? "",
+        email: profile.email ?? user?.email ?? "",
+        phone: profile.phone ?? "",
+      });
+    } else if (user) {
+      reset({
+        name: user.user_metadata?.name ?? "",
+        email: user.email ?? "",
+        phone: user.user_metadata?.phone ?? "",
+      });
+    } else {
+      reset({ name: "", email: "", phone: "" });
+    }
+  }, [profile, user, reset]);
 
   const onSubmit = async (data: { name: string; email: string; phone?: string }) => {
     if (!user) return;
@@ -42,7 +62,21 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <p>Loading...</p>;
+  if (loading) {
+    return (
+      <div className="rounded-xl border bg-white p-6 shadow-sm">
+        <p className="text-gray-500">Loading profile...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="rounded-xl border bg-white p-6 shadow-sm">
+        <p className="text-gray-500">Redirecting to sign in...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border bg-white p-6 shadow-sm">
@@ -58,7 +92,7 @@ export default function ProfilePage() {
         <Input
           label="Mobile (10 digits)"
           type="tel"
-          placeholder="8160373047"
+          placeholder="Enter 10-digit mobile number"
           error={errors.phone?.message}
           {...register("phone")}
         />

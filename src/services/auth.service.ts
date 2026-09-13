@@ -45,16 +45,36 @@ export const authService = {
   },
 
   async signIn(email: string, password: string) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error(
+        "No internet connection. Please connect to the internet to sign in, or click 'Open POS Offline Mode' below."
+      );
+    }
     const supabase = requireClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      return data;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        throw new Error(
+          "Unable to connect to the login server. Please check your internet connection or use POS Offline Mode."
+        );
+      }
+      throw err;
+    }
   },
 
   async signOut() {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("ogs-offline-auth-profile");
+      } catch {}
+    }
     const supabase = requireClient();
     const { error } = await supabase.auth.signOut();
     if (error) throw error;

@@ -13,10 +13,13 @@ import { loyaltyService } from "./loyalty.service";
 import { creditService } from "./credit.service";
 import { customerService } from "./customer.service";
 import { lotService } from "./lot.service";
+import { syncManager } from "@/lib/offline/sync-manager";
+import { idbDeleteOfflineSale, idbClearAllOfflineSales } from "@/lib/offline/indexed-db";
+import { getActiveFinancialYearCode } from "@/utils/financial-year";
 
-function clientBillNumber(): string {
-  const year = new Date().getFullYear();
-  return `POS-${year}-${Date.now().toString().slice(-6)}`;
+function clientBillNumber(fyCode?: string): string {
+  const code = fyCode || getActiveFinancialYearCode();
+  return `POS/${code}/${Date.now().toString().slice(-6)}`;
 }
 
 function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount = 0) {
@@ -80,11 +83,22 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
 }
 
 export const posService = {
-  async generateBillNumber(): Promise<string> {
+  async generateBillNumber(fyCode?: string): Promise<string> {
     const supabase = requireClient();
-    const { data, error } = await supabase.rpc("generate_pos_bill_number");
-    if (error) return clientBillNumber();
-    return data as string;
+    const code = fyCode || getActiveFinancialYearCode();
+    try {
+      const { data, error } = await supabase.rpc("generate_pos_bill_number", {
+        p_fy_code: code,
+      });
+      if (error) {
+        const { data: fallbackData, error: fbError } = await supabase.rpc("generate_pos_bill_number");
+        if (fbError) return clientBillNumber(code);
+        return fallbackData as string;
+      }
+      return data as string;
+    } catch {
+      return clientBillNumber(code);
+    }
   },
 
   async createSale(params: {
@@ -98,134 +112,177 @@ export const posService = {
     saleStatus?: PosSaleStatus;
     notes?: string;
     splitPayments?: { method: PosPaymentMethod; amount: number }[];
+    isSyncUpload?: boolean;
   }): Promise<PosSale> {
-    const supabase = requireClient();
-    const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
-
-    const customer = await customerService.resolveForPos({
-      customerId: params.customerId,
-      mobile: params.customerMobile,
-      name: params.customerName,
-    });
-    const customerId = customer?.id ?? params.customerId;
-
-    if (customer && loyaltyDiscount > 0) {
-      const available = customer.loyalty_points ?? 0;
-      if (loyaltyDiscount > available) {
-        throw new Error(
-          `Only ${available} loyalty points available (₹${available} discount)`
-        );
-      }
+    // 1. If currently offline and not an internal sync attempt, queue directly in IndexedDB
+    if (typeof navigator !== "undefined" && !navigator.onLine && !params.isSyncUpload) {
+      return syncManager.queueOfflineSale(params);
     }
 
-    if (params.paymentMethod === "credit" && params.saleStatus !== "held") {
-      if (!customerId) {
-        throw new Error("Customer mobile is required for credit sales");
+    try {
+      const supabase = requireClient();
+      const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
+
+      const customer = await customerService
+        .resolveForPos({
+          customerId: params.customerId,
+          mobile: params.customerMobile,
+          name: params.customerName,
+        })
+        .catch((e) => {
+          console.warn("[POS] Customer resolution error:", e);
+          return null;
+        });
+      const customerId = customer?.id ?? params.customerId;
+
+      if (customer && loyaltyDiscount > 0) {
+        const available = customer.loyalty_points ?? 0;
+        if (loyaltyDiscount > available) {
+          throw new Error(
+            `Only ${available} loyalty points available (₹${available} discount)`
+          );
+        }
       }
-    }
 
-    const isCreditSale =
-      params.paymentMethod === "credit" && params.saleStatus !== "held";
+      if (params.paymentMethod === "credit" && params.saleStatus !== "held") {
+        if (!customerId) {
+          throw new Error("Customer mobile is required for credit sales");
+        }
+      }
 
-    const {
-      subtotal,
-      cgst,
-      sgst,
-      igst,
-      total,
-      discount: totalDiscount,
-      items,
-    } = computeCartTotals(
-      params.lines,
-      params.discount ?? 0,
-      loyaltyDiscount
-    );
+      const isCreditSale =
+        params.paymentMethod === "credit" && params.saleStatus !== "held";
 
-    const billNumber = await this.generateBillNumber();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: sale, error: saleErr } = await supabase
-      .from("pos_sales")
-      .insert({
-        bill_number: billNumber,
-        customer_id: customerId ?? null,
-        customer_name: customer?.name ?? params.customerName ?? null,
-        customer_mobile: customer?.mobile ?? params.customerMobile ?? null,
+      const {
         subtotal,
         cgst,
         sgst,
         igst,
+        total,
         discount: totalDiscount,
-        loyalty_points_redeemed: params.loyaltyPointsRedeemed ?? 0,
-        loyalty_discount: loyaltyDiscount,
-        total_amount: total,
-        payment_method: params.paymentMethod,
-        sale_status: params.saleStatus ?? "completed",
-        payment_status: isCreditSale ? "pending" : "paid",
-        cashier_id: user?.id ?? null,
-        notes: params.notes ?? null,
-      })
-      .select("*")
-      .single();
-    if (saleErr) throw saleErr;
-
-    const saleId = (sale as PosSale).id;
-    const { error: itemsErr } = await supabase.from("pos_sale_items").insert(
-      items.map((i) => ({ ...i, pos_sale_id: saleId }))
-    );
-    if (itemsErr) throw itemsErr;
-
-    if (params.splitPayments?.length && params.saleStatus !== "held") {
-      await supabase.from("pos_payment_splits").insert(
-        params.splitPayments.map((sp) => ({
-          pos_sale_id: saleId,
-          payment_method: sp.method,
-          amount: sp.amount,
-        }))
+        items,
+      } = computeCartTotals(
+        params.lines,
+        params.discount ?? 0,
+        loyaltyDiscount
       );
-    }
 
-    if (params.saleStatus !== "held") {
-      for (const line of params.lines) {
-        if (line.lotId) {
-          await lotService.deductStock(
-            line.lotId,
-            line.quantity,
+      const billNumber = await this.generateBillNumber();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const { data: sale, error: saleErr } = await supabase
+        .from("pos_sales")
+        .insert({
+          bill_number: billNumber,
+          customer_id: customerId ?? null,
+          customer_name: customer?.name ?? params.customerName ?? null,
+          customer_mobile: customer?.mobile ?? params.customerMobile ?? null,
+          subtotal,
+          cgst,
+          sgst,
+          igst,
+          discount: totalDiscount,
+          loyalty_points_redeemed: params.loyaltyPointsRedeemed ?? 0,
+          loyalty_discount: loyaltyDiscount,
+          total_amount: total,
+          payment_method: params.paymentMethod,
+          sale_status: params.saleStatus ?? "completed",
+          payment_status: isCreditSale ? "pending" : "paid",
+          cashier_id: user?.id ?? null,
+          notes: params.notes ?? null,
+        })
+        .select("*")
+        .single();
+      if (saleErr) throw saleErr;
+
+      const saleId = (sale as PosSale).id;
+      const { error: itemsErr } = await supabase.from("pos_sale_items").insert(
+        items.map((i) => ({ ...i, pos_sale_id: saleId }))
+      );
+      if (itemsErr) throw itemsErr;
+
+      if (params.splitPayments?.length && params.saleStatus !== "held") {
+        await supabase.from("pos_payment_splits").insert(
+          params.splitPayments.map((sp) => ({
+            pos_sale_id: saleId,
+            payment_method: sp.method,
+            amount: sp.amount,
+          }))
+        );
+      }
+
+      if (params.saleStatus !== "held") {
+        for (const line of params.lines) {
+          if (line.lotId) {
+            await lotService.deductStock(
+              line.lotId,
+              line.quantity,
+              "pos_sale",
+              saleId,
+              `POS ${billNumber}`
+            );
+          }
+        }
+      }
+
+      if (customerId && params.saleStatus !== "held") {
+        const points = Math.floor(total / 100) * LOYALTY_POINTS_PER_100;
+        if (points > 0) {
+          await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
+        }
+        if (params.loyaltyPointsRedeemed) {
+          await loyaltyService.redeemPoints(
+            customerId,
+            params.loyaltyPointsRedeemed,
+            "pos_sale",
+            saleId
+          );
+        }
+        if (isCreditSale) {
+          await creditService.addCredit(
+            customerId,
+            total,
             "pos_sale",
             saleId,
-            `POS ${billNumber}`
+            `POS bill ${billNumber}`
           );
         }
       }
-    }
 
-    if (customerId && params.saleStatus !== "held") {
-      const points = Math.floor(total / 100) * LOYALTY_POINTS_PER_100;
-      if (points > 0) {
-        await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
+      const created = (await this.getById(saleId)) as PosSale;
+      if (created) {
+        try {
+          await supabase.from("notifications").insert({
+            type: "pos_sale",
+            title: `Bill ${created.bill_number} generated`,
+            message: `POS Bill #${created.bill_number} generated for ${created.customer_name || "Walk-in"}. Total: ₹${Number(created.total_amount).toFixed(2)} (${created.payment_method.toUpperCase()})`,
+            reference_type: "pos_sale",
+            reference_id: created.id,
+            is_read: false,
+          });
+        } catch {}
       }
-      if (params.loyaltyPointsRedeemed) {
-        await loyaltyService.redeemPoints(
-          customerId,
-          params.loyaltyPointsRedeemed,
-          "pos_sale",
-          saleId
-        );
-      }
-      if (isCreditSale) {
-        await creditService.addCredit(
-          customerId,
-          total,
-          "pos_sale",
-          saleId,
-          `POS bill ${billNumber}`
-        );
-      }
-    }
 
-    return this.getById(saleId) as Promise<PosSale>;
+      return created;
+    } catch (err: unknown) {
+      // If network failure occurs, seamlessly queue offline sale for background sync
+      const isNetworkError =
+        !params.isSyncUpload &&
+        ((typeof navigator !== "undefined" && !navigator.onLine) ||
+          (err instanceof Error &&
+            (err.message.includes("Failed to fetch") ||
+              err.message.includes("NetworkError") ||
+              err.message.toLowerCase().includes("network") ||
+              err.name === "AbortError")));
+
+      if (isNetworkError) {
+        console.warn("[POS] Network error during sale creation, queuing offline:", err);
+        return syncManager.queueOfflineSale(params);
+      }
+      throw err;
+    }
   },
 
   async holdBill(params: {
@@ -286,6 +343,137 @@ export const posService = {
       .from("pos_sales")
       .update({ sale_status: "cancelled" })
       .eq("id", saleId);
+  },
+
+  async deleteSale(
+    saleId: string,
+    options: { restoreStock?: boolean } = { restoreStock: true }
+  ): Promise<void> {
+    const supabase = requireClient();
+
+    // 1. Try atomic database RPC first
+    try {
+      const { data, error } = await supabase.rpc("delete_pos_sale", {
+        p_sale_id: saleId,
+        p_restore_stock: options.restoreStock ?? true,
+      });
+      if (!error && (data as { success?: boolean })?.success) {
+        try {
+          await idbDeleteOfflineSale(saleId);
+        } catch {}
+        return;
+      }
+    } catch {
+      // Fall through to client-side fallback
+    }
+
+    // 2. Client fallback
+    const sale = await this.getById(saleId);
+    if (!sale) throw new Error("Sale not found");
+
+    // Revert stock if requested and sale was completed
+    if ((options.restoreStock ?? true) && sale.sale_status === "completed") {
+      for (const item of sale.pos_sale_items ?? []) {
+        await supabase.rpc("apply_stock_movement", {
+          p_product_id: item.product_id,
+          p_quantity: item.quantity,
+          p_movement_type: "cancel",
+          p_reference_type: "pos_sale",
+          p_reference_id: saleId,
+          p_notes: `POS bill ${sale.bill_number} deleted`,
+        });
+
+        if (item.lot_id) {
+          try {
+            await supabase.rpc("apply_lot_stock_movement", {
+              p_lot_id: item.lot_id,
+              p_quantity: item.quantity,
+              p_movement_type: "cancel",
+              p_reference_type: "pos_sale",
+              p_reference_id: saleId,
+              p_notes: `POS bill ${sale.bill_number} deleted`,
+            });
+          } catch {}
+        }
+      }
+    }
+
+    // Remove customer credit linked to this sale
+    await supabase
+      .from("customer_credit")
+      .delete()
+      .eq("reference_type", "pos_sale")
+      .eq("reference_id", saleId);
+
+    // Remove loyalty linked to this sale
+    await supabase
+      .from("customer_loyalty")
+      .delete()
+      .eq("reference_type", "pos_sale")
+      .eq("reference_id", saleId);
+
+    // Disconnect returns/refunds
+    await supabase
+      .from("sales_returns")
+      .update({ pos_sale_id: null })
+      .eq("pos_sale_id", saleId);
+    await supabase
+      .from("refunds")
+      .update({ pos_sale_id: null })
+      .eq("pos_sale_id", saleId);
+
+    // Delete sale items & payment splits
+    await supabase.from("pos_sale_items").delete().eq("pos_sale_id", saleId);
+    await supabase.from("pos_payment_splits").delete().eq("pos_sale_id", saleId);
+
+    // Delete POS sale
+    const { error } = await supabase.from("pos_sales").delete().eq("id", saleId);
+    if (error) throw error;
+
+    try {
+      await idbDeleteOfflineSale(saleId);
+    } catch {}
+  },
+
+  async clearAllSalesAndStock(): Promise<void> {
+    const supabase = requireClient();
+
+    // 1. Try RPC first
+    try {
+      const { data, error } = await supabase.rpc("clear_all_sales_and_stock");
+      if (!error && (data as { success?: boolean })?.success) {
+        try {
+          await idbClearAllOfflineSales();
+        } catch {}
+        return;
+      }
+    } catch {}
+
+    // 2. Client-side fallback
+    await supabase.from("sales_returns").update({ pos_sale_id: null }).not("pos_sale_id", "is", null);
+    await supabase.from("refunds").update({ pos_sale_id: null }).not("pos_sale_id", "is", null);
+
+    await supabase.from("sales_return_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("sales_returns").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("refunds").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    await supabase.from("pos_payment_splits").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("pos_sale_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("pos_sales").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    await supabase.from("customer_credit").delete().in("reference_type", ["pos_sale", "sales_return", "order"]);
+    await supabase.from("customer_loyalty").delete().in("reference_type", ["pos_sale", "sales_return", "order"]);
+
+    await supabase.from("pos_number_seq").update({ last_num: 0 }).neq("year", 0);
+    await supabase.from("lot_stock_movements").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("stock_movements").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+    await supabase.from("products").update({ stock: 0 }).neq("id", "00000000-0000-0000-0000-000000000000");
+    await supabase.from("product_lots").update({ current_stock: 0 }).neq("id", "00000000-0000-0000-0000-000000000000");
+
+    try {
+      await idbClearAllOfflineSales();
+    } catch {}
   },
 
   async getById(id: string): Promise<PosSale | null> {

@@ -1,0 +1,33 @@
+{
+  "appId": "com.odhavram.pos",
+  "productName": "Odhavram POS",
+  "electronVersion": "33.2.0",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "electron/**/*",
+    "out/**/*",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "src/app/favicon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Odhavram POS"
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -11,13 +11,14 @@ import { authService } from "@/services/auth.service";
 import { requestNotificationPermission } from "@/utils/browser-notifications";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Leaf } from "lucide-react";
+import { Leaf, WifiOff } from "lucide-react";
 
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") ?? "/dashboard";
   const [loading, setLoading] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
   const {
     register,
@@ -25,7 +26,25 @@ export default function LoginForm() {
     formState: { errors },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
 
+  useEffect(() => {
+    const update = () => setIsOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
   const onSubmit = async (data: LoginInput) => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      toast.error("No internet connection.", {
+        description: "You can click 'Open POS Billing (Offline Mode)' to start billing offline.",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       await authService.signIn(data.email, data.password);
@@ -52,6 +71,24 @@ export default function LoginForm() {
           <h1 className="text-2xl font-bold">Sign In</h1>
           <p className="text-sm text-gray-600">Welcome to Odhavram General Store</p>
         </div>
+
+        {isOffline && (
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 text-xs">
+            <div className="flex items-center gap-2 font-bold text-amber-900">
+              <WifiOff className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>You are currently Offline</span>
+            </div>
+            <p className="mt-1 text-amber-800 leading-relaxed">
+              Online login requires an internet connection. However, POS Billing works fully offline without logging in again.
+            </p>
+            <Button
+              href="/admin/pos"
+              className="mt-2.5 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-8"
+            >
+              Open POS Billing (Offline Mode)
+            </Button>
+          </div>
+        )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input
             label="Email"

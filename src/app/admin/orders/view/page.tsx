@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Save, ShieldCheck, MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { orderService } from "@/services/order.service";
 import { productService } from "@/services/product.service";
@@ -12,7 +12,7 @@ import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import { receiptFromOrder } from "@/utils/receipt";
 import { deliveryOtpMessage } from "@/utils/delivery-otp";
-import { openWhatsAppShare } from "@/utils/whatsapp";
+import { openWhatsAppShare, orderStatusWhatsAppMessage } from "@/utils/whatsapp";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import {
@@ -141,17 +141,22 @@ function AdminOrderDetailContent() {
       }
 
       await orderService.updateStatus(id, status, note);
+      let otpToShare: string | undefined = undefined;
       if (status === "out_for_delivery" || status === "packed") {
         const otp = await orderService.issueDeliveryOtp(id);
         setIssuedOtp(otp);
-        toast.success(
-          isSuperAdmin
-            ? `Order updated. Delivery OTP ${otp} is on the customer receipt.`
-            : "Order updated. Ask the customer for the OTP on their receipt at delivery."
-        );
-      } else {
-        toast.success("Order updated");
+        otpToShare = otp;
       }
+      const custPhone = order?.customer_phone ?? order?.users?.phone;
+      toast.success(`Order updated to "${ORDER_STATUS_LABELS[status]}"`, {
+        description: "Customer notification logged",
+        action: custPhone
+          ? {
+              label: "WhatsApp Customer",
+              onClick: () => sendWhatsAppUpdate(status, otpToShare),
+            }
+          : undefined,
+      });
       load();
     } catch (err: unknown) {
       toast.error(orderErrorMessage(err), { duration: 6000 });
@@ -166,10 +171,33 @@ function AdminOrderDetailContent() {
     try {
       await orderService.updateStatus(id, "cancelled", "Cancelled by admin");
       toast.success("Order cancelled");
+      const custPhone = order?.customer_phone ?? order?.users?.phone;
+      if (custPhone) {
+        sendWhatsAppUpdate("cancelled");
+      }
       load();
     } catch (err: unknown) {
       toast.error(orderErrorMessage(err), { duration: 6000 });
     }
+  };
+
+  const sendWhatsAppUpdate = (targetStatus?: string, customOtp?: string) => {
+    if (!order) return;
+    const phone = order.customer_phone ?? order.users?.phone ?? undefined;
+    if (!phone) {
+      toast.error("No customer phone number found for this order");
+      return;
+    }
+    const currentOtp = customOtp || issuedOtp || orderService.getDeliveryOtp(order);
+    const msg = orderStatusWhatsAppMessage({
+      orderNumber: order.order_number ?? order.id,
+      status: targetStatus || status || order.order_status,
+      customerName: order.customer_name ?? order.users?.name,
+      totalAmount: order.total_amount,
+      deliveryOtp: currentOtp,
+      trackingNotes: note || order.tracking_notes,
+    });
+    openWhatsAppShare(msg, phone);
   };
 
   const saveItems = async () => {
@@ -398,6 +426,17 @@ function AdminOrderDetailContent() {
             <Button onClick={updateStatus} loading={saving} className="w-full sm:w-auto">
               Update Status
             </Button>
+            {(order.customer_phone || order.users?.phone) && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => sendWhatsAppUpdate(status)}
+                className="w-full sm:w-auto border-green-300 text-green-800 hover:bg-green-50"
+              >
+                <MessageCircle className="mr-1.5 h-4 w-4 text-green-600" />
+                WhatsApp Customer
+              </Button>
+            )}
             <Button variant="danger" onClick={cancelOrder} className="w-full sm:w-auto">
               Cancel Order
             </Button>

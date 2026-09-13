@@ -2,6 +2,7 @@ import { requireClient } from "@/lib/supabase/client";
 import {
   loadProductCatalog,
   saveProductCatalog,
+  removeProductFromCatalog,
 } from "@/lib/offline/product-cache";
 import type { Product, ProductFilters } from "@/types/database";
 
@@ -52,6 +53,10 @@ export const productService = {
       .from("products")
       .select("*, categories(id, name, slug, image)");
 
+    if (!filters.includeInactive) {
+      query = query.neq("is_active", false);
+    }
+
     if (filters.category) {
       query = query.eq("category_id", filters.category);
     }
@@ -90,9 +95,9 @@ export const productService = {
       return products;
     } catch (err) {
       if (isOfflineError(err)) {
-        const cached = loadProductCatalog();
+        const cached = await loadProductCatalog();
         if (cached?.length) {
-          return applyProductFilters(cached, filters);
+          return applyProductFilters(cached as Product[], filters);
         }
       }
       throw err;
@@ -110,20 +115,25 @@ export const productService = {
       if (error) return null;
       return data as Product;
     } catch {
-      const cached = loadProductCatalog();
-      return cached?.find((p) => p.slug === slug) ?? null;
+      const cached = await loadProductCatalog();
+      return (cached as Product[])?.find((p) => p.slug === slug) ?? null;
     }
   },
 
   async getById(id: string): Promise<Product | null> {
-    const supabase = requireClient();
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("id", id)
-      .single();
-    if (error) return null;
-    return data as Product;
+    try {
+      const supabase = requireClient();
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("id", id)
+        .single();
+      if (error) return null;
+      return data as Product;
+    } catch {
+      const cached = await loadProductCatalog();
+      return (cached as Product[])?.find((p) => p.id === id) ?? null;
+    }
   },
 
   async create(
@@ -181,12 +191,88 @@ export const productService = {
     return data as Product;
   },
 
-  async remove(id: string) {
+  async remove(
+    id: string,
+    options?: { force?: boolean }
+  ): Promise<{ success: boolean; action: string; message: string }> {
+    // 1. Try server API route first (which has admin service role privileges)
+    try {
+      const res = await fetch(
+        `/api/admin/products/${id}${options?.force ? "?force=true" : ""}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        removeProductFromCatalog(id);
+        return data;
+      }
+      const errJson = await res.json().catch(() => null);
+      if (errJson?.error) {
+        throw new Error(errJson.error);
+      }
+    } catch (apiErr: unknown) {
+      const msg = apiErr instanceof Error ? apiErr.message : String(apiErr);
+      if (!msg.includes("fetch") && !msg.includes("network") && !msg.includes("Failed to fetch")) {
+        throw apiErr;
+      }
+    }
+
+    // 2. Client fallback (e.g. offline or static export)
     const supabase = requireClient();
+
+    // Check if it has sales history
+    const { count: posCount } = await supabase
+      .from("pos_sale_items")
+      .select("*", { count: "exact", head: true })
+      .eq("product_id", id);
+    const { count: orderCount } = await supabase
+      .from("order_items")
+      .select("*", { count: "exact", head: true })
+      .eq("product_id", id);
+
+    if (((posCount ?? 0) > 0 || (orderCount ?? 0) > 0) && !options?.force) {
+      await supabase.from("products").update({ is_active: false }).eq("id", id);
+      removeProductFromCatalog(id);
+      return {
+        success: true,
+        action: "deactivated",
+        message: "Product has sales history and was archived to preserve records.",
+      };
+    }
+
+    // Attempt cascade deletion of accessible related records
+    await supabase.from("cart_items").delete().eq("product_id", id);
+    await supabase.from("wishlist").delete().eq("product_id", id);
+    await supabase.from("barcode_labels").delete().eq("product_id", id);
+    await supabase.from("lot_stock_movements").delete().eq("product_id", id);
+    await supabase.from("stock_movements").delete().eq("product_id", id);
+    await supabase.from("product_lots").delete().eq("product_id", id);
+    await supabase.from("product_variants").delete().eq("product_id", id);
+
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) {
+      // If foreign key constraint still blocks it, soft-deactivate
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({ is_active: false })
+        .eq("id", id);
+      if (!updateError) {
+        removeProductFromCatalog(id);
+        return {
+          success: true,
+          action: "deactivated",
+          message: "Product has linked records and was archived.",
+        };
+      }
       throw new Error(error.message || "Failed to delete product");
     }
+
+    removeProductFromCatalog(id);
+    return {
+      success: true,
+      action: "deleted",
+      message: "Product deleted successfully",
+    };
   },
 };
 

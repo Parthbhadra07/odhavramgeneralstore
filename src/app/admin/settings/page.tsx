@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Save, Settings, Printer } from "lucide-react";
+import { Save, Settings, Printer, Calendar } from "lucide-react";
+import {
+  getFinancialYearList,
+  getFinancialYear,
+  setActiveFinancialYearCode,
+  formatFiscalBillNumber,
+} from "@/utils/financial-year";
 import {
   getAutoPrintPreference,
   getPrinterName,
@@ -50,6 +56,7 @@ export default function AdminSettingsPage() {
     barcode_font: "courier" as BarcodeFontFamily,
     barcode_font_size: 10,
     receipt_font_size: 11,
+    active_financial_year: "auto",
   });
 
   useEffect(() => {
@@ -75,6 +82,7 @@ export default function AdminSettingsPage() {
         barcode_font: getBarcodePrinterPrefs().fontFamily,
         barcode_font_size: getBarcodePrinterPrefs().fontSize,
         receipt_font_size: getBarcodePrinterPrefs().receiptFontSize,
+        active_financial_year: s.active_financial_year ?? "auto",
       });
       setLoading(false);
     });
@@ -98,7 +106,9 @@ export default function AdminSettingsPage() {
         receipt_header_text: form.receipt_header_text.trim() || null,
         receipt_footer_text: form.receipt_footer_text.trim() || null,
         receipt_width: form.receipt_width,
+        active_financial_year: form.active_financial_year,
       });
+      setActiveFinancialYearCode(form.active_financial_year);
       setLocalReceiptWidth(form.receipt_width);
       setPrinterName(form.printer_name);
       setAutoPrintPreference(form.auto_print);
@@ -194,6 +204,57 @@ export default function AdminSettingsPage() {
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 rows={3}
               />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Calendar className="h-5 w-5 text-green-700" />
+            <div>
+              <h2 className="font-semibold text-gray-900">Financial Year & Billing Configuration</h2>
+              <p className="text-xs text-gray-500">
+                Indian Financial Year (April 1 to March 31) controls invoice numbering and sequence resets
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Active Financial Year</label>
+              <select
+                value={form.active_financial_year}
+                onChange={(e) => setForm({ ...form, active_financial_year: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-white"
+              >
+                <option value="auto">Auto / System (Current: FY {getFinancialYear().code})</option>
+                {getFinancialYearList(2, 1).map((fy) => (
+                  <option key={fy.code} value={fy.code}>
+                    {fy.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-gray-500">
+                Select a specific financial year or keep Auto to calculate automatically.
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-green-50/50 p-3.5 space-y-1.5 text-xs">
+              <p className="font-semibold text-green-900 flex items-center justify-between">
+                <span>Active Period: {getFinancialYear(form.active_financial_year !== "auto" ? form.active_financial_year : undefined).label}</span>
+                <span className="rounded bg-green-200 px-1.5 py-0.5 text-[10px] text-green-900 font-bold">
+                  {getFinancialYear(form.active_financial_year !== "auto" ? form.active_financial_year : undefined).quarterLabel}
+                </span>
+              </p>
+              <p className="text-gray-600">
+                Dates: <span className="font-medium text-gray-900">01-Apr-{getFinancialYear(form.active_financial_year !== "auto" ? form.active_financial_year : undefined).startYear}</span> to <span className="font-medium text-gray-900">31-Mar-{getFinancialYear(form.active_financial_year !== "auto" ? form.active_financial_year : undefined).endYear}</span>
+              </p>
+              <p className="text-gray-600">
+                Invoice Number Preview:{" "}
+                <span className="font-mono font-bold text-green-800">
+                  {formatFiscalBillNumber(1, form.active_financial_year !== "auto" ? form.active_financial_year : undefined)}
+                </span>
+              </p>
             </div>
           </div>
         </section>

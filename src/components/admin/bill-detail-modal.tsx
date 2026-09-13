@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, RotateCcw, XCircle } from "lucide-react";
+import { Copy, RotateCcw, XCircle, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/admin/modal";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
@@ -26,18 +26,45 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
   const { isAdmin } = useAuth();
   const [sale, setSale] = useState<PosSale | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [restoreStockOnDelete, setRestoreStockOnDelete] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!saleId) {
       setSale(null);
+      setShowDeleteConfirm(false);
       return;
     }
     setLoading(true);
     posService
       .getById(saleId)
-      .then(setSale)
+      .then((data) => {
+        setSale(data);
+        if (data) {
+          setRestoreStockOnDelete(data.sale_status === "completed");
+        }
+      })
       .finally(() => setLoading(false));
   }, [saleId]);
+
+  const handleDelete = async () => {
+    if (!sale) return;
+    setDeleting(true);
+    try {
+      await posService.deleteSale(sale.id, {
+        restoreStock: sale.sale_status === "completed" ? restoreStockOnDelete : false,
+      });
+      toast.success(`Bill ${sale.bill_number} deleted permanently`);
+      setShowDeleteConfirm(false);
+      onUpdated?.();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete bill");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleCancel = async () => {
     if (!sale || !confirm("Cancel this bill? Stock will be restored.")) return;
@@ -182,21 +209,88 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
             />
           )}
 
-          <div className="flex flex-wrap gap-2 border-t pt-4">
-            <Button size="sm" variant="outline" onClick={handleDuplicate}>
-              <Copy className="mr-1 h-4 w-4" />
-              Duplicate Invoice
-            </Button>
-            {sale.sale_status === "completed" && sale.payment_method !== "credit" && sale.customer_id && (
-              <Button size="sm" variant="outline" onClick={handleConvertCredit}>
-                <RotateCcw className="mr-1 h-4 w-4" />
-                Convert to Credit
+          {showDeleteConfirm && (
+            <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="font-semibold text-red-900">
+                    Permanently Delete Bill {sale.bill_number}?
+                  </p>
+                  <p className="text-red-700 mt-1">
+                    This will permanently remove this bill from the database. This action cannot be undone.
+                  </p>
+                  {sale.sale_status === "completed" ? (
+                    <label className="mt-3 flex items-center gap-2 font-medium text-gray-800 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={restoreStockOnDelete}
+                        onChange={(e) => setRestoreStockOnDelete(e.target.checked)}
+                        className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      />
+                      <span>Restore inventory stock for items in this bill</span>
+                    </label>
+                  ) : (
+                    <p className="mt-2 text-xs text-gray-600 italic">
+                      Stock was already restored when this bill was cancelled.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-red-200">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={deleting}
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  loading={deleting}
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  Confirm Permanent Delete
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={handleDuplicate}>
+                <Copy className="mr-1 h-4 w-4" />
+                Duplicate Invoice
               </Button>
-            )}
-            {isAdmin && sale.sale_status === "completed" && (
-              <Button size="sm" variant="danger" onClick={handleCancel}>
-                <XCircle className="mr-1 h-4 w-4" />
-                Cancel Bill
+              {sale.sale_status === "completed" && sale.payment_method !== "credit" && sale.customer_id && (
+                <Button size="sm" variant="outline" onClick={handleConvertCredit}>
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  Convert to Credit
+                </Button>
+              )}
+              {isAdmin && sale.sale_status === "completed" && (
+                <Button size="sm" variant="outline" className="text-amber-700 hover:bg-amber-50" onClick={handleCancel}>
+                  <XCircle className="mr-1 h-4 w-4" />
+                  Cancel Bill
+                </Button>
+              )}
+            </div>
+
+            {isAdmin && !showDeleteConfirm && (
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  setRestoreStockOnDelete(sale.sale_status === "completed");
+                  setShowDeleteConfirm(true);
+                }}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Delete Bill
               </Button>
             )}
           </div>

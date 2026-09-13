@@ -28,13 +28,34 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  let user = null;
+  let authError: unknown = null;
+  let isNetworkOffline = false;
 
-  if (authError && isStaleAuthError(authError)) {
-    await supabase.auth.signOut({ scope: "local" });
+  try {
+    const res = await supabase.auth.getUser();
+    user = res.data?.user ?? null;
+    authError = res.error;
+  } catch (err) {
+    authError = err;
+    isNetworkOffline = true;
+  }
+
+  if (authError) {
+    const errMsg = (authError as Error)?.message || "";
+    if (
+      errMsg.includes("Failed to fetch") ||
+      errMsg.includes("fetch failed") ||
+      errMsg.includes("ENOTFOUND") ||
+      errMsg.includes("EAI_AGAIN") ||
+      (authError as { name?: string })?.name === "AuthRetryableFetchError"
+    ) {
+      isNetworkOffline = true;
+    } else if (isStaleAuthError(authError)) {
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch {}
+    }
   }
 
   const userAfterCleanup =
@@ -50,6 +71,21 @@ export async function updateSession(request: NextRequest) {
   const isAdmin = adminRoutes.some((r) => pathname.startsWith(r));
   const isAuth = authRoutes.some((r) => pathname.startsWith(r));
 
+  // If server is offline, check if request has any auth cookies or is POS
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some(
+      (c) =>
+        c.name.includes("auth-token") ||
+        c.name.startsWith("sb-") ||
+        c.name.includes("supabase")
+    );
+
+  // When offline, do not lock out previously logged in users or POS billing
+  if (isNetworkOffline && (hasAuthCookie || pathname.startsWith("/admin/pos"))) {
+    return supabaseResponse;
+  }
+
   if (!userAfterCleanup && (isProtected || isAdmin)) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
@@ -58,17 +94,21 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (userAfterCleanup && isAdmin) {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", userAfterCleanup.id)
-      .single();
+    try {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", userAfterCleanup.id)
+        .single();
 
-    const staffRoles = ["super_admin", "admin", "staff", "cashier"];
-    if (!profile?.role || !staffRoles.includes(profile.role)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/";
-      return NextResponse.redirect(url);
+      const staffRoles = ["super_admin", "admin", "staff", "cashier"];
+      if (!profile?.role || !staffRoles.includes(profile.role)) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/";
+        return NextResponse.redirect(url);
+      }
+    } catch {
+      // Offline / network failure during role check — do not block
     }
   }
 

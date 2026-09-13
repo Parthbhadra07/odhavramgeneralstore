@@ -19,40 +19,99 @@ export function useAuth() {
       return;
     }
 
+    // In POS offline billing mode ONLY, allow cached offline profile
+    const isOfflinePos =
+      typeof window !== "undefined" &&
+      typeof navigator !== "undefined" &&
+      !navigator.onLine &&
+      window.location.pathname.startsWith("/admin/pos");
+
+    if (isOfflinePos) {
+      try {
+        const cached = localStorage.getItem("ogs-offline-auth-profile");
+        if (cached) {
+          const p = JSON.parse(cached) as User;
+          setProfile(p);
+          setLoading(false);
+        }
+      } catch {}
+    }
+
     const loadProfile = async (userId: string) => {
-      const { data } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", userId)
-        .single();
-      setProfile(data as User | null);
-      setLoading(false);
+      try {
+        const { data } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", userId)
+          .single();
+        if (data) {
+          const u = data as User;
+          setProfile(u);
+          // Only cache staff/admin profiles for offline POS support
+          if (isErpStaff(u.role)) {
+            try {
+              localStorage.setItem("ogs-offline-auth-profile", JSON.stringify(u));
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn("[Auth] loadProfile network error:", e);
+      } finally {
+        setLoading(false);
+      }
     };
 
     const clearStaleSession = async () => {
+      // Only clear if online; if offline, keep cached offline access
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setLoading(false);
+        return;
+      }
       setAuthUser(null);
       setProfile(null);
       setLoading(false);
       try {
+        localStorage.removeItem("ogs-offline-auth-profile");
         await supabase.auth.signOut({ scope: "local" });
       } catch {
-        // ignore — cookies may already be invalid
+        // ignore
       }
     };
 
-    void supabase.auth.getUser().then(({ data: { user }, error }) => {
-      if (error) {
-        if (isStaleAuthError(error)) {
-          void clearStaleSession();
-          return;
+    void supabase.auth
+      .getUser()
+      .then(({ data: { user }, error }) => {
+        if (error) {
+          if (isStaleAuthError(error)) {
+            void clearStaleSession();
+            return;
+          }
+          // Network failure or offline
+          if (typeof navigator !== "undefined" && !navigator.onLine) {
+            setLoading(false);
+            return;
+          }
         }
-        console.warn("[Auth] getUser failed:", error.message);
-      }
 
-      setAuthUser(user ?? null);
-      if (user) void loadProfile(user.id);
-      else setLoading(false);
-    });
+        if (user) {
+          setAuthUser(user);
+          void loadProfile(user.id);
+        } else {
+          // If definitely no active user, clear profile and cache
+          setAuthUser(null);
+          setProfile(null);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.removeItem("ogs-offline-auth-profile");
+            } catch {}
+          }
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn("[Auth] Network error checking user:", err);
+        setLoading(false);
+      });
 
     const {
       data: { subscription },
@@ -63,9 +122,15 @@ export function useAuth() {
       }
 
       setAuthUser(session?.user ?? null);
-      if (session?.user) void loadProfile(session.user.id);
-      else {
+      if (session?.user) {
+        void loadProfile(session.user.id);
+      } else {
         setProfile(null);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.removeItem("ogs-offline-auth-profile");
+          } catch {}
+        }
         setLoading(false);
       }
     });

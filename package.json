@@ -1,7 +1,10 @@
 {
   "name": "freshmart",
   "version": "0.1.0",
+  "description": "Odhavram General Store POS Desktop Application",
+  "author": "Odhavram General Store",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "cross-env CAPACITOR_BUILD=1 NEXT_PUBLIC_CAPACITOR=1 next build",
@@ -12,7 +15,10 @@
     "cap:add:ios": "npx cap add ios",
     "cap:sync": "npm run build && npx cap sync",
     "cap:open:android": "npx cap open android",
-    "cap:open:ios": "npx cap open ios"
+    "cap:open:ios": "npx cap open ios",
+    "electron": "electron .",
+    "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:3000/admin/pos electron .",
+    "desktop:build": "npm run build && npx electron-builder --config electron-builder.json"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

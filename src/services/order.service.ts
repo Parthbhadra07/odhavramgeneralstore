@@ -7,6 +7,7 @@ import {
 } from "@/utils/delivery-otp";
 import type { Order, OrderItem, OrderStatus, PaymentMethod } from "@/types/database";
 import { customerService } from "@/services/erp/customer.service";
+import { getActiveFinancialYearCode } from "@/utils/financial-year";
 
 const orderSelectBasic = `
   *,
@@ -23,9 +24,9 @@ const orderSelectFull = `
 `;
 
 function clientOrderNumber(): string {
-  const year = new Date().getFullYear();
+  const fyCode = getActiveFinancialYearCode();
   const seq = Date.now().toString().slice(-6);
-  return `OGS-${year}-${seq}`;
+  return `OGS/${fyCode}/${seq}`;
 }
 
 function parseDbError(error: { message?: string; code?: string; details?: string }) {
@@ -387,7 +388,23 @@ export const orderService = {
         .eq("id", orderId)
         .select()
         .single();
-      if (!error && data) return data as Order;
+      if (!error && data) {
+        try {
+          const statusLabel = orderStatus.replace(/_/g, " ").toUpperCase();
+          const ord = data as Order;
+          await supabase.from("notifications").insert({
+            type: `order_${orderStatus}`,
+            title: `Order ${ord.order_number} ${statusLabel}`,
+            message: `Order #${ord.order_number} is now ${statusLabel}. Customer: ${ord.customer_name || "Customer"}. Amount: ₹${Number(ord.total_amount).toFixed(2)}`,
+            reference_type: "order",
+            reference_id: orderId,
+            is_read: false,
+          });
+        } catch (notifErr) {
+          console.warn("Notification logging:", notifErr);
+        }
+        return data as Order;
+      }
       lastError = error;
       if (error?.code === "42501") break;
     }

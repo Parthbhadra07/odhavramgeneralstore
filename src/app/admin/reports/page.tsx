@@ -5,8 +5,20 @@ import { erpReportsService } from "@/services/erp";
 import { formatPrice } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import type { ProfitReport } from "@/types/erp";
+import {
+  getActiveFinancialYearCode,
+  getFinancialYearList,
+  getFYDateRange,
+  getQuarterDateRange,
+  type FinancialYearQuarter,
+} from "@/utils/financial-year";
+import { Calendar } from "lucide-react";
 
 export default function AdminReportsPage() {
+  const [selectedFY, setSelectedFY] = useState<string>(() => getActiveFinancialYearCode());
+  const [activePreset, setActivePreset] = useState<"custom" | "fy_full" | FinancialYearQuarter>("custom");
+  const fyList = getFinancialYearList(4, 2);
+
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
@@ -38,6 +50,21 @@ export default function AdminReportsPage() {
   >([]);
   const [gstSales, setGstSales] = useState<{ cgst: number; sgst: number; igst: number; total: number } | null>(null);
   const [gstPurchase, setGstPurchase] = useState<{ cgst: number; sgst: number; igst: number; total: number } | null>(null);
+
+  const applyFullFY = (fyCode: string) => {
+    setSelectedFY(fyCode);
+    setActivePreset("fy_full");
+    const range = getFYDateRange(fyCode);
+    setDateFrom(range.startDate);
+    setDateTo(range.endDate);
+  };
+
+  const applyQuarter = (q: FinancialYearQuarter) => {
+    setActivePreset(q);
+    const range = getQuarterDateRange(selectedFY, q);
+    setDateFrom(range.startDate);
+    setDateTo(range.endDate);
+  };
 
   const load = () => {
     const from = `${dateFrom}T00:00:00.000Z`;
@@ -84,27 +111,98 @@ export default function AdminReportsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">ERP Reports</h1>
+        <div>
+          <h1 className="text-2xl font-bold">ERP Reports</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Financial & inventory analytics with FY filtering</p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          />
-          <span className="text-gray-500">to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
-          />
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
           <Button variant="outline" onClick={exportProfitCsv}>
             Export CSV
           </Button>
+        </div>
+      </div>
+
+      {/* Financial Year & Date Range Toolbar */}
+      <div className="mb-6 rounded-xl border bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <Calendar className="h-4 w-4 text-emerald-600" />
+              <span>Financial Year:</span>
+            </div>
+            <select
+              value={selectedFY}
+              onChange={(e) => applyFullFY(e.target.value)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              {fyList.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label} {item.isCurrent ? "(Current)" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => applyFullFY(selectedFY)}
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                activePreset === "fy_full"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              Full FY
+            </button>
+            <div className="flex items-center gap-1">
+              {(["Q1", "Q2", "Q3", "Q4"] as FinancialYearQuarter[]).map((q) => {
+                const labels: Record<FinancialYearQuarter, string> = {
+                  Q1: "Q1 (Apr-Jun)",
+                  Q2: "Q2 (Jul-Sep)",
+                  Q3: "Q3 (Oct-Dec)",
+                  Q4: "Q4 (Jan-Mar)",
+                };
+                return (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => applyQuarter(q)}
+                    className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      activePreset === q
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {labels[q]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">Custom Date:</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setActivePreset("custom");
+              }}
+              className="rounded-lg border px-2.5 py-1.5 text-xs"
+            />
+            <span className="text-xs text-gray-400">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setActivePreset("custom");
+              }}
+              className="rounded-lg border px-2.5 py-1.5 text-xs"
+            />
+          </div>
         </div>
       </div>
 

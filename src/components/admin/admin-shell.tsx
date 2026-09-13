@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { Menu, X, Store } from "lucide-react";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminPrinterSettings } from "@/components/admin/admin-printer-settings";
+import { DesktopInstallPrompt } from "@/components/admin/desktop-install-prompt";
+import { FinancialYearSwitcher } from "@/components/admin/financial-year-switcher";
+import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { AdminOrderNotificationsProvider } from "@/components/admin/admin-order-notifications-provider";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -52,6 +55,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* Desktop admin header bar */}
+          <header className="hidden lg:flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6">
+            <div className="flex items-center gap-3">
+              <OfflineStatusBanner compact />
+            </div>
+            <div className="flex items-center gap-3">
+              <FinancialYearSwitcher />
+              <DesktopInstallPrompt />
+              <AdminPrinterSettings />
+            </div>
+          </header>
+
           {/* Mobile admin header — fixed at very top, left-aligned */}
           <header className="fixed inset-x-0 top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 shadow-sm lg:hidden">
             <button
@@ -76,12 +91,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="relative shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <FinancialYearSwitcher compact />
+              <OfflineStatusBanner compact />
+              <DesktopInstallPrompt />
               <AdminPrinterSettings />
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 overflow-x-hidden p-4 pt-[4.5rem] pb-28 sm:p-6 sm:pt-[4.5rem] lg:p-6 lg:pt-6 lg:pb-6">
+          <main className="min-w-0 flex-1 overflow-x-hidden p-4 pt-[4.5rem] pb-28 sm:p-6 sm:pt-[4.5rem] lg:p-6 lg:pb-6">
             {children}
           </main>
         </div>

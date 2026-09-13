@@ -153,8 +153,12 @@ export default function AdminProductsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this product?")) return;
     try {
-      await productService.remove(id);
-      toast.success("Product deleted");
+      const res = await productService.remove(id);
+      if (res?.action === "deactivated") {
+        toast.info(res.message || "Product archived to protect invoice history");
+      } else {
+        toast.success(res?.message || "Product deleted successfully");
+      }
       load();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to delete product";
@@ -297,7 +301,14 @@ export default function AdminProductsPage() {
           <tbody>
             {products.map((p) => (
               <tr key={p.id} className="border-b">
-                <td className="px-4 py-3">{p.name}</td>
+                <td className="px-4 py-3">
+                  <span>{p.name}</span>
+                  {p.is_active === false && (
+                    <span className="ml-2 inline-flex items-center rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                      Archived
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 font-mono text-xs">{p.sku ?? "—"}</td>
                 <td className="px-4 py-3">{formatPrice(p.price)}</td>
                 <td className="px-4 py-3">{p.stock}</td>

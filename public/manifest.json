@@ -1,12 +1,13 @@
 {
-  "name": "Odhavram General Store",
-  "short_name": "OGS",
-  "description": "Local grocery store — Odhav, Ahmedabad. Order online or call 8160373047",
-  "start_url": "/",
+  "name": "Odhavram General Store - POS & ERP",
+  "short_name": "OGS POS",
+  "description": "Offline-ready Desktop POS & Retail Billing software for Odhavram General Store",
+  "start_url": "/admin/pos/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",
-  "orientation": "portrait-primary",
+  "categories": ["business", "productivity", "shopping"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
