@@ -7,6 +7,7 @@ import { orderService } from "@/services/order.service";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { CustomerDeliveryOtp } from "@/components/orders/customer-delivery-otp";
+import { OnlinePaymentQr } from "@/components/checkout/online-payment-qr";
 import { formatPrice, formatDate } from "@/utils/format";
 import { APP_NAME, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
@@ -115,6 +116,17 @@ export default function TrackOrderPage() {
               {PAYMENT_METHOD_LABELS[order.payment_method ?? "cod"]}
             </p>
           </div>
+
+          {order.payment_method === "qr" &&
+            order.payment_status !== "paid" &&
+            order.order_status !== "cancelled" && (
+              <div className="mb-6">
+                <OnlinePaymentQr
+                  amount={order.total_amount}
+                  orderNumber={order.order_number ?? undefined}
+                />
+              </div>
+            )}
 
           <h3 className="mb-4 font-semibold">Order Progress</h3>
           <div className="mb-6">

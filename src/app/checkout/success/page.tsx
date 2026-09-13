@@ -17,6 +17,7 @@ import {
 } from "@/lib/constants";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { CustomerDeliveryOtp } from "@/components/orders/customer-delivery-otp";
+import { OnlinePaymentQr } from "@/components/checkout/online-payment-qr";
 import { CallStoreButton } from "@/components/call-store-button";
 import { Button } from "@/components/ui/button";
 import type { Order } from "@/types/database";
@@ -46,6 +47,9 @@ export default function OrderSuccessPage() {
       </div>
     );
   }
+
+  const isUpiOrder = order.payment_method === "qr";
+  const isUnpaid = order.payment_status !== "paid";
 
   return (
     <div className="container mx-auto max-w-lg px-4 py-12">
@@ -83,6 +87,15 @@ export default function OrderSuccessPage() {
             <OrderStatusBadge status={order.order_status} />
           </div>
         </div>
+
+        {isUpiOrder && isUnpaid && (
+          <div className="mt-6 text-left">
+            <OnlinePaymentQr
+              amount={order.total_amount}
+              orderNumber={order.order_number ?? undefined}
+            />
+          </div>
+        )}
 
         <div className="mt-4 text-left">
           <CustomerDeliveryOtp order={order} />

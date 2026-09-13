@@ -150,6 +150,7 @@ export const orderService = {
     customerName: string;
     customerPhone: string;
     items: { productId: string; quantity: number; price: number }[];
+    notes?: string;
   }): Promise<Order> {
     if (params.items.length === 0) {
       throw new Error("Your cart is empty.");
@@ -161,6 +162,7 @@ export const orderService = {
 
     // Try new schema first (received + extra columns), then legacy (pending)
     const deliveryCharge = params.deliveryCharge ?? 0;
+    const initialTrackingNotes = embedOtpInNotes(params.notes, deliveryOtp);
 
     const attempts: Record<string, unknown>[] = [
       {
@@ -177,6 +179,7 @@ export const orderService = {
         delivery_otp: deliveryOtp,
         delivery_otp_verified: false,
         is_new: true,
+        tracking_notes: initialTrackingNotes,
       },
       {
         user_id: params.userId,
@@ -191,6 +194,7 @@ export const orderService = {
         delivery_otp: deliveryOtp,
         delivery_otp_verified: false,
         is_new: true,
+        tracking_notes: initialTrackingNotes,
       },
       {
         user_id: params.userId,
@@ -202,7 +206,7 @@ export const orderService = {
         order_status: "pending",
         customer_name: params.customerName,
         customer_phone: params.customerPhone || null,
-        tracking_notes: embedOtpInNotes(null, deliveryOtp),
+        tracking_notes: initialTrackingNotes,
       },
       {
         user_id: params.userId,
@@ -210,6 +214,7 @@ export const orderService = {
         total_amount: params.totalAmount,
         payment_status: "pending",
         order_status: "pending",
+        tracking_notes: initialTrackingNotes,
       },
     ];
 

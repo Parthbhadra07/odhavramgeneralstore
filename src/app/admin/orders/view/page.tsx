@@ -11,7 +11,7 @@ import { productService } from "@/services/product.service";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import { receiptFromOrder } from "@/utils/receipt";
-import { deliveryOtpMessage } from "@/utils/delivery-otp";
+import { deliveryOtpMessage, stripOtpFromNotes } from "@/utils/delivery-otp";
 import { openWhatsAppShare, orderStatusWhatsAppMessage } from "@/utils/whatsapp";
 import { OrderTimeline } from "@/features/orders/order-timeline";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
@@ -274,6 +274,14 @@ function AdminOrderDetailContent() {
                 {PAYMENT_METHOD_LABELS[order.payment_method ?? "cod"]}
               </dd>
             </div>
+            {stripOtpFromNotes(order.tracking_notes) && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500">Payment Note / UTR</dt>
+                <dd className="font-mono text-emerald-800 font-medium">
+                  {stripOtpFromNotes(order.tracking_notes)}
+                </dd>
+              </div>
+            )}
           </dl>
           {deliveryAddress ? (
             <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">

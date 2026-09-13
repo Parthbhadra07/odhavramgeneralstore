@@ -7,6 +7,7 @@ export const STORE_PHONE = "8160373047";
 export const STORE_PHONE_DISPLAY = "+91 81603 73047";
 export const STORE_PHONE_TEL = `tel:${STORE_PHONE}`;
 export const STORE_EMAIL = "bhadraparth1@gmail.com";
+export const STORE_UPI_ID = "Bhadraparth1-2@okicici";
 export const STORE_ADDRESS = "Shop no 3 swastik residency opp to fellowship school, silvassa road vapi, Gujarat";
 
 /** Delivery: free above this subtotal (₹), else standard charge */
@@ -39,7 +40,7 @@ export const ORDER_STATUS_LABELS: Record<string, string> = {
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cod: "Cash on Delivery",
-  qr: "UPI / Bank QR",
+  qr: "Online Payment (UPI / QR)",
 };
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {

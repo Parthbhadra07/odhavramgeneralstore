@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import NextImage from "next/image";
 import { toast } from "sonner";
 import { emptyCartAfterOrder, useCartStore } from "@/store/cart-store";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,6 +10,7 @@ import { CheckoutForm } from "@/components/checkout-form";
 import { Button } from "@/components/ui/button";
 import { addressService } from "@/services/address.service";
 import { orderService } from "@/services/order.service";
+import { OnlinePaymentQr } from "@/components/checkout/online-payment-qr";
 import type { Address } from "@/types/database";
 import type { AddressInput } from "@/lib/validators";
 import { cn } from "@/utils/cn";
@@ -18,8 +18,6 @@ import { calculateDeliveryCharge } from "@/utils/order-pricing";
 import { useCartHydrated } from "@/hooks/use-cart-hydrated";
 
 type PaymentMethod = "cod" | "qr";
-
-const BANK_QR_IMAGE = "/images/bank-qr.svg";
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -31,6 +29,7 @@ export default function CheckoutPage() {
   const [showNewAddress, setShowNewAddress] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
+  const [utr, setUtr] = useState("");
 
   const subtotal = getTotal();
   const delivery = calculateDeliveryCharge(subtotal);
@@ -74,6 +73,9 @@ export default function CheckoutPage() {
 
     setPlacing(true);
     try {
+      const notes =
+        method === "qr" && utr.trim() ? `UPI UTR: ${utr.trim()}` : undefined;
+
       const dbOrder = await orderService.createOrder({
         userId: user.id,
         addressId: selectedAddress,
@@ -82,6 +84,7 @@ export default function CheckoutPage() {
         paymentMethod: method,
         customerName: profile?.name || user.email?.split("@")[0] || "Customer",
         customerPhone: profile?.phone || "",
+        notes,
         items: items.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -93,7 +96,7 @@ export default function CheckoutPage() {
       if (method === "cod") {
         toast.success("Order placed! Pay on delivery.");
       } else {
-        toast.success("Order placed! We’ll confirm after payment.");
+        toast.success("Order placed! We will confirm after payment verification.");
       }
 
       router.push(
@@ -176,7 +179,7 @@ export default function CheckoutPage() {
 
           <section className="rounded-xl border bg-white p-6 shadow-sm">
             <h2 className="mb-4 text-lg font-semibold">Payment Method</h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               <label
                 className={cn(
                   "flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors",
@@ -194,53 +197,50 @@ export default function CheckoutPage() {
                   className="mt-1"
                 />
                 <div>
-                  <p className="font-medium">Cash on Delivery</p>
+                  <p className="font-medium text-gray-900">Cash on Delivery</p>
                   <p className="text-sm text-gray-600">
-                    Pay in cash when your groceries arrive.
+                    Pay in cash when your groceries arrive at your doorstep.
                   </p>
                 </div>
               </label>
 
-              <label
+              <div
                 className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors",
+                  "rounded-lg border p-4 transition-colors",
                   paymentMethod === "qr"
-                    ? "border-green-600 bg-green-50"
+                    ? "border-emerald-600 bg-emerald-50/40"
                     : "hover:border-gray-300"
                 )}
               >
-                <input
-                  type="radio"
-                  name="payment"
-                  value="qr"
-                  checked={paymentMethod === "qr"}
-                  onChange={() => setPaymentMethod("qr")}
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <p className="font-medium">Bank / UPI QR (Manual)</p>
-                  <p className="text-sm text-gray-600">
-                    Scan and pay using any UPI app. Order will be confirmed
-                    manually.
-                  </p>
-                  {paymentMethod === "qr" && (
-                    <div className="mt-4 flex flex-col items-center gap-3 rounded-lg bg-white p-4">
-                      <div className="relative h-56 w-56 overflow-hidden rounded-lg border bg-white">
-                        <NextImage
-                          src={BANK_QR_IMAGE}
-                          alt="Bank / UPI QR"
-                          fill
-                          className="object-contain"
-                        />
-                      </div>
-                      <p className="text-center text-xs text-gray-600">
-                        Tip: add your UPI ID and note in the QR image before
-                        going live.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </label>
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value="qr"
+                    checked={paymentMethod === "qr"}
+                    onChange={() => setPaymentMethod("qr")}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">
+                      Online Payment (UPI QR / Google Pay / PhonePe / Paytm)
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Scan store QR code or pay directly with any UPI App.
+                    </p>
+                  </div>
+                </label>
+
+                {paymentMethod === "qr" && (
+                  <div className="mt-4 pt-2">
+                    <OnlinePaymentQr
+                      amount={total}
+                      utr={utr}
+                      onUtrChange={setUtr}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         </div>
@@ -279,7 +279,9 @@ export default function CheckoutPage() {
             onClick={() => placeOrder(paymentMethod)}
             disabled={!selectedAddress}
           >
-            {paymentMethod === "cod" ? "Place Order (COD)" : "Place Order (Paid)"}
+            {paymentMethod === "cod"
+              ? "Place Order (Cash on Delivery)"
+              : "Confirm & Place Order (Paid via UPI)"}
           </Button>
         </div>
       </div>

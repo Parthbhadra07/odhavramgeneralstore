@@ -3,6 +3,7 @@ import {
   APP_NAME,
   STORE_ADDRESS,
   STORE_PHONE,
+  STORE_UPI_ID,
 } from "@/lib/constants";
 import type { StoreSettings } from "@/types/erp";
 
@@ -14,9 +15,9 @@ const DEFAULT_SETTINGS: Omit<StoreSettings, "id" | "created_at" | "updated_at"> 
   gst_number: null,
   currency: "INR",
   default_gst_percentage: 5,
-  upi_id: null,
-  upi_merchant_name: null,
-  enable_upi_qr: false,
+  upi_id: STORE_UPI_ID,
+  upi_merchant_name: APP_NAME,
+  enable_upi_qr: true,
   receipt_header_text: "Thank You! Visit Again",
   receipt_footer_text: `${APP_NAME} — ${STORE_PHONE}`,
   receipt_width: "80mm",
@@ -96,14 +97,18 @@ export const settingsService = {
     cacheTime = 0;
   },
 
-  buildUpiUrl(settings: StoreSettings, amount: number): string | null {
-    if (!settings.upi_id?.trim()) return null;
+  buildUpiUrl(settings: StoreSettings, amount: number, note?: string): string | null {
+    const upiId = settings.upi_id?.trim() || STORE_UPI_ID;
+    if (!upiId) return null;
     const params = new URLSearchParams({
-      pa: settings.upi_id.trim(),
-      pn: (settings.upi_merchant_name ?? settings.store_name).trim(),
+      pa: upiId,
+      pn: (settings.upi_merchant_name ?? settings.store_name ?? APP_NAME).trim(),
       am: amount.toFixed(2),
       cu: "INR",
     });
+    if (note?.trim()) {
+      params.set("tn", note.trim());
+    }
     return `upi://pay?${params.toString()}`;
   },
 };
