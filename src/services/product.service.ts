@@ -195,32 +195,28 @@ export const productService = {
     id: string,
     options?: { force?: boolean }
   ): Promise<{ success: boolean; action: string; message: string }> {
-    // 1. Try server API route first (which has admin service role privileges)
-    try {
-      const res = await fetch(
-        `/api/admin/products/${id}${options?.force ? "?force=true" : ""}`,
-        { method: "DELETE" }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        removeProductFromCatalog(id);
-        return data;
-      }
-      const errJson = await res.json().catch(() => null);
-      if (errJson?.error) {
-        throw new Error(errJson.error);
-      }
-    } catch (apiErr: unknown) {
-      const msg = apiErr instanceof Error ? apiErr.message : String(apiErr);
-      if (!msg.includes("fetch") && !msg.includes("network") && !msg.includes("Failed to fetch")) {
-        throw apiErr;
-      }
-    }
-
-    // 2. Client fallback (e.g. offline or static export)
     const supabase = requireClient();
 
-    // Check if it has sales history
+    // 1. Try dedicated database RPC delete_product
+    try {
+      const { data, error } = await supabase.rpc("delete_product", {
+        p_product_id: id,
+        p_force: options?.force ?? false,
+      });
+      if (!error && data) {
+        removeProductFromCatalog(id);
+        const res = data as { success?: boolean; action?: string; message?: string };
+        return {
+          success: res.success ?? true,
+          action: res.action ?? "deleted",
+          message: res.message ?? "Product deleted successfully",
+        };
+      }
+    } catch {
+      // Fallback to client-side cleanup below
+    }
+
+    // 2. Client-side fallback
     const { count: posCount } = await supabase
       .from("pos_sale_items")
       .select("*", { count: "exact", head: true })
@@ -240,14 +236,14 @@ export const productService = {
       };
     }
 
-    // Attempt cascade deletion of accessible related records
+    // Clean up accessible dependent records
     await supabase.from("cart_items").delete().eq("product_id", id);
     await supabase.from("wishlist").delete().eq("product_id", id);
     await supabase.from("barcode_labels").delete().eq("product_id", id);
-    await supabase.from("lot_stock_movements").delete().eq("product_id", id);
-    await supabase.from("stock_movements").delete().eq("product_id", id);
     await supabase.from("product_lots").delete().eq("product_id", id);
     await supabase.from("product_variants").delete().eq("product_id", id);
+    await supabase.from("lot_stock_movements").delete().eq("product_id", id);
+    await supabase.from("stock_movements").delete().eq("product_id", id);
 
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) {
