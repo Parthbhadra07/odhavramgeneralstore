@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Save, Settings, Printer, Calendar } from "lucide-react";
+import {
+  Save,
+  Settings,
+  Printer,
+  Calendar,
+  Award,
+} from "lucide-react";
 import {
   getFinancialYearList,
   getFinancialYear,
@@ -24,10 +30,14 @@ import {
   PRINT_DENSITY_OPTIONS,
   setBarcodePrinterPrefs,
 } from "@/utils/barcode-printer-prefs";
-import type { BarcodeFontFamily, BarcodePaperType, PrintDensity } from "@/types/erp";
 import { toast } from "sonner";
 import { settingsService } from "@/services/erp";
-import type { StoreSettings } from "@/types/erp";
+import type {
+  BarcodeFontFamily,
+  BarcodePaperType,
+  PrintDensity,
+  StoreSettings,
+} from "@/types/erp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BluetoothPrinterPanel } from "@/components/admin/bluetooth-printer-panel";
@@ -57,6 +67,10 @@ export default function AdminSettingsPage() {
     barcode_font_size: 10,
     receipt_font_size: 11,
     active_financial_year: "auto",
+    enable_loyalty_points: true,
+    loyalty_point_value: 1,
+    loyalty_points_per_100: 1,
+    loyalty_min_points_redeem: 0,
   });
 
   useEffect(() => {
@@ -83,6 +97,10 @@ export default function AdminSettingsPage() {
         barcode_font_size: getBarcodePrinterPrefs().fontSize,
         receipt_font_size: getBarcodePrinterPrefs().receiptFontSize,
         active_financial_year: s.active_financial_year ?? "auto",
+        enable_loyalty_points: s.enable_loyalty_points ?? true,
+        loyalty_point_value: Number(s.loyalty_point_value ?? 1),
+        loyalty_points_per_100: Number(s.loyalty_points_per_100 ?? 1),
+        loyalty_min_points_redeem: Number(s.loyalty_min_points_redeem ?? 0),
       });
       setLoading(false);
     });
@@ -107,6 +125,10 @@ export default function AdminSettingsPage() {
         receipt_footer_text: form.receipt_footer_text.trim() || null,
         receipt_width: form.receipt_width,
         active_financial_year: form.active_financial_year,
+        enable_loyalty_points: form.enable_loyalty_points,
+        loyalty_point_value: form.loyalty_point_value,
+        loyalty_points_per_100: form.loyalty_points_per_100,
+        loyalty_min_points_redeem: form.loyalty_min_points_redeem,
       });
       setActiveFinancialYearCode(form.active_financial_year);
       setLocalReceiptWidth(form.receipt_width);
@@ -256,6 +278,99 @@ export default function AdminSettingsPage() {
                 </span>
               </p>
             </div>
+          </div>
+        </section>
+
+        {/* LOYALTY PROGRAM CONFIGURATION */}
+        <section className="rounded-xl border bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Award className="h-5 w-5 text-green-700" />
+            <div>
+              <h2 className="font-semibold text-gray-900">Loyalty Points & Rewards Program</h2>
+              <p className="text-xs text-gray-500">
+                Reward repeat customers on both in-store POS billing and online web purchases
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Enable Customer Loyalty Program</p>
+                <p className="text-xs text-gray-500">
+                  When enabled, customers accumulate points on purchases and can redeem them for bill discounts.
+                </p>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  checked={form.enable_loyalty_points}
+                  onChange={(e) => setForm({ ...form, enable_loyalty_points: e.target.checked })}
+                  className="peer sr-only"
+                />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-green-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none"></div>
+              </label>
+            </div>
+
+            {form.enable_loyalty_points && (
+              <div className="grid gap-4 sm:grid-cols-3 pt-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Point Value (₹ discount per 1 point)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    placeholder="1.00"
+                    value={form.loyalty_point_value}
+                    onChange={(e) =>
+                      setForm({ ...form, loyalty_point_value: Number(e.target.value) || 1 })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    e.g. 1 point = ₹{form.loyalty_point_value.toFixed(2)} off on the bill
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Points Earned per ₹100 spent
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    placeholder="1"
+                    value={form.loyalty_points_per_100}
+                    onChange={(e) =>
+                      setForm({ ...form, loyalty_points_per_100: Number(e.target.value) || 0 })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    A ₹1,000 bill awards {Math.floor(1000 / 100 * form.loyalty_points_per_100)} points
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Min Points to Redeem
+                  </label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={form.loyalty_min_points_redeem}
+                    onChange={(e) =>
+                      setForm({ ...form, loyalty_min_points_redeem: Number(e.target.value) || 0 })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Minimum points a customer must have before redeeming
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

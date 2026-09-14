@@ -37,15 +37,41 @@ export function useAuth() {
       } catch {}
     }
 
-    const loadProfile = async (userId: string) => {
+    const loadProfile = async (userId: string, currentAuthUser?: AuthUser | null) => {
       try {
         const { data } = await supabase
           .from("users")
           .select("*")
           .eq("id", userId)
           .single();
+
+        const rawPhone =
+          currentAuthUser?.user_metadata?.phone ||
+          currentAuthUser?.user_metadata?.mobile ||
+          currentAuthUser?.user_metadata?.phone_number ||
+          currentAuthUser?.phone;
+        const cleanPhone = rawPhone ? String(rawPhone).replace(/\D/g, "").slice(-10) : "";
+
         if (data) {
           const u = data as User;
+          // Auto-heal phone if missing from profile but present in auth metadata
+          if ((!u.phone || u.phone.trim() === "") && cleanPhone.length === 10) {
+            u.phone = cleanPhone;
+            void (async () => {
+              try {
+                await supabase.rpc("sync_user_signup_phone", {
+                  p_user_id: userId,
+                  p_phone: cleanPhone,
+                  p_name: u.name,
+                });
+              } catch {
+                await supabase
+                  .from("users")
+                  .update({ phone: cleanPhone })
+                  .eq("id", userId);
+              }
+            })();
+          }
           setProfile(u);
           // Only cache staff/admin profiles for offline POS support
           if (isErpStaff(u.role)) {
@@ -53,6 +79,33 @@ export function useAuth() {
               localStorage.setItem("ogs-offline-auth-profile", JSON.stringify(u));
             } catch {}
           }
+        } else if (currentAuthUser) {
+          // If public.users record was not created by trigger, create it now!
+          const fallbackUser: User = {
+            id: userId,
+            email: currentAuthUser.email ?? "",
+            name: currentAuthUser.user_metadata?.name ?? "Customer",
+            phone: cleanPhone.length === 10 ? cleanPhone : null,
+            role: "customer",
+            created_at: new Date().toISOString(),
+          };
+          try {
+            await supabase.from("users").upsert({
+              id: userId,
+              email: fallbackUser.email,
+              name: fallbackUser.name,
+              phone: fallbackUser.phone,
+              role: "customer",
+            });
+            if (cleanPhone.length === 10) {
+              void supabase.rpc("sync_user_signup_phone", {
+                p_user_id: userId,
+                p_phone: cleanPhone,
+                p_name: fallbackUser.name,
+              });
+            }
+          } catch {}
+          setProfile(fallbackUser);
         }
       } catch (e) {
         console.warn("[Auth] loadProfile network error:", e);
@@ -95,7 +148,7 @@ export function useAuth() {
 
         if (user) {
           setAuthUser(user);
-          void loadProfile(user.id);
+          void loadProfile(user.id, user);
         } else {
           // If definitely no active user, clear profile and cache
           setAuthUser(null);
@@ -123,7 +176,7 @@ export function useAuth() {
 
       setAuthUser(session?.user ?? null);
       if (session?.user) {
-        void loadProfile(session.user.id);
+        void loadProfile(session.user.id, session.user);
       } else {
         setProfile(null);
         if (typeof window !== "undefined") {

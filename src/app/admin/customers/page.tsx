@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Eye, Pencil, Plus } from "lucide-react";
+import { Eye, Pencil, Plus, UserPlus, Check, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
 import type { CreditLedgerEntry, Customer, CustomerWithStats } from "@/types/erp";
@@ -41,6 +41,10 @@ export default function CustomersPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
+  const [createAccountCustomer, setCreateAccountCustomer] = useState<CustomerWithStats | null>(null);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
   const load = () => {
@@ -123,6 +127,43 @@ export default function CustomersPage() {
     setLedgerCustomer(customer);
     const entries = await creditService.getLedger(customer.id);
     setLedger(entries);
+  };
+
+  const openCreateAccountModal = (c: CustomerWithStats) => {
+    setCreateAccountCustomer(c);
+    setAccountEmail(c.email || "");
+    setAccountPassword("Store" + c.mobile.slice(-4) + "!");
+  };
+
+  const handleCreateAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createAccountCustomer) return;
+    if (!accountEmail.trim() || !accountEmail.includes("@")) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+    if (accountPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+
+    setCreatingAccount(true);
+    try {
+      await customerService.createOnlineAccountForCustomer(
+        createAccountCustomer.id,
+        accountEmail.trim(),
+        accountPassword.trim()
+      );
+      toast.success(
+        `Online store account created for ${createAccountCustomer.name}! Login: ${accountEmail}`
+      );
+      setCreateAccountCustomer(null);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create online account");
+    } finally {
+      setCreatingAccount(false);
+    }
   };
 
   const customersWithCredit = customers.filter((c) => c.credit_balance > 0);
@@ -330,7 +371,18 @@ export default function CustomersPage() {
           },
         ]}
         actions={(c) => (
-          <div className="flex flex-wrap justify-end gap-1">
+          <div className="flex flex-wrap justify-end items-center gap-1">
+            {!c.user_id ? (
+              <ActionButton
+                icon={UserPlus}
+                label="Create Online Account"
+                onClick={() => openCreateAccountModal(c)}
+              />
+            ) : (
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                <Check className="h-3 w-3" /> Online Member
+              </span>
+            )}
             <ActionButton
               icon={Pencil}
               label="Edit"
@@ -398,6 +450,69 @@ export default function CustomersPage() {
           }}
         />
       )}
+
+      {/* Modal to create online store account for walk-in customer */}
+      <Modal
+        open={!!createAccountCustomer}
+        onClose={() => setCreateAccountCustomer(null)}
+        title={`Create Online Store Account — ${createAccountCustomer?.name ?? ""}`}
+        size="md"
+      >
+        <form onSubmit={handleCreateAccountSubmit} className="space-y-4">
+          <div className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900 leading-relaxed">
+            Provision a login account for this customer on your online grocery store. Their in-store bills and online orders will be counted as the same account.
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Customer Name
+            </label>
+            <p className="font-semibold text-gray-900">{createAccountCustomer?.name}</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Mobile Number
+            </label>
+            <p className="font-semibold text-gray-900">{createAccountCustomer?.mobile}</p>
+          </div>
+
+          <Input
+            label="Online Store Login Email"
+            type="email"
+            placeholder="customer@gmail.com"
+            value={accountEmail}
+            onChange={(e) => setAccountEmail(e.target.value)}
+            required
+          />
+
+          <Input
+            label="Initial Password"
+            type="password"
+            placeholder="Minimum 6 characters"
+            value={accountPassword}
+            onChange={(e) => setAccountPassword(e.target.value)}
+            required
+          />
+
+          <div className="flex justify-end gap-3 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateAccountCustomer(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              loading={creatingAccount}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Create Online Account
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

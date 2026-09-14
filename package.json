@@ -7,18 +7,19 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
-    "build": "cross-env CAPACITOR_BUILD=1 NEXT_PUBLIC_CAPACITOR=1 next build",
+    "build": "next build",
+    "build:mobile": "cross-env CAPACITOR_BUILD=1 NEXT_PUBLIC_CAPACITOR=1 next build",
     "start": "next start",
     "lint": "eslint .",
     "cap:init": "npx cap init \"Odhavram General Store\" com.odhavram.generalstore --web-dir=out",
     "cap:add:android": "npx cap add android",
     "cap:add:ios": "npx cap add ios",
-    "cap:sync": "npm run build && npx cap sync",
+    "cap:sync": "npm run build:mobile && npx cap sync",
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "electron": "electron .",
     "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:3000/admin/pos electron .",
-    "desktop:build": "npm run build && npx electron-builder --config electron-builder.json"
+    "desktop:build": "npm run build:mobile && npx electron-builder --config electron-builder.json"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.2",

@@ -4,7 +4,7 @@ echo   Odhavram General Store - Building Windows EXE
 echo ===================================================
 echo.
 echo Step 1: Building production static POS bundle...
-call npm run build
+call npm run build:mobile
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Next.js production build failed!
     pause

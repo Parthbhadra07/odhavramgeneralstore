@@ -13,6 +13,7 @@ import { loyaltyService } from "./loyalty.service";
 import { creditService } from "./credit.service";
 import { customerService } from "./customer.service";
 import { lotService } from "./lot.service";
+import { settingsService } from "./settings.service";
 import { syncManager } from "@/lib/offline/sync-manager";
 import { idbDeleteOfflineSale, idbClearAllOfflineSales } from "@/lib/offline/indexed-db";
 import { getActiveFinancialYearCode } from "@/utils/financial-year";
@@ -121,7 +122,11 @@ export const posService = {
 
     try {
       const supabase = requireClient();
-      const loyaltyDiscount = params.loyaltyPointsRedeemed ?? 0;
+      const settings = await settingsService.get().catch(() => null);
+      const loyaltyEnabled = settings?.enable_loyalty_points !== false;
+      const pointValue = Number(settings?.loyalty_point_value ?? 1.0);
+      const pointsRedeemed = loyaltyEnabled ? (params.loyaltyPointsRedeemed ?? 0) : 0;
+      const loyaltyDiscount = Math.round(pointsRedeemed * pointValue * 100) / 100;
 
       const customer = await customerService
         .resolveForPos({
@@ -135,11 +140,11 @@ export const posService = {
         });
       const customerId = customer?.id ?? params.customerId;
 
-      if (customer && loyaltyDiscount > 0) {
+      if (customer && pointsRedeemed > 0) {
         const available = customer.loyalty_points ?? 0;
-        if (loyaltyDiscount > available) {
+        if (pointsRedeemed > available) {
           throw new Error(
-            `Only ${available} loyalty points available (₹${available} discount)`
+            `Only ${available} loyalty points available (₹${(available * pointValue).toFixed(2)} discount)`
           );
         }
       }
@@ -184,7 +189,7 @@ export const posService = {
           sgst,
           igst,
           discount: totalDiscount,
-          loyalty_points_redeemed: params.loyaltyPointsRedeemed ?? 0,
+          loyalty_points_redeemed: pointsRedeemed,
           loyalty_discount: loyaltyDiscount,
           total_amount: total,
           payment_method: params.paymentMethod,
@@ -227,15 +232,16 @@ export const posService = {
         }
       }
 
-      if (customerId && params.saleStatus !== "held") {
-        const points = Math.floor(total / 100) * LOYALTY_POINTS_PER_100;
+      if (customerId && params.saleStatus !== "held" && loyaltyEnabled) {
+        const earnRate = Number(settings?.loyalty_points_per_100 ?? 1.0);
+        const points = Math.floor(total / 100) * earnRate;
         if (points > 0) {
           await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
         }
-        if (params.loyaltyPointsRedeemed) {
+        if (pointsRedeemed > 0) {
           await loyaltyService.redeemPoints(
             customerId,
-            params.loyaltyPointsRedeemed,
+            pointsRedeemed,
             "pos_sale",
             saleId
           );

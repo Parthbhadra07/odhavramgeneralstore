@@ -181,6 +181,14 @@ export default function AdminProductsPage() {
       {showForm && (
         <form
           onSubmit={handleSubmit(onSubmit)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+              const target = e.target as HTMLInputElement;
+              if (target.type !== "submit") {
+                e.preventDefault();
+              }
+            }
+          }}
           className="mb-6 grid gap-4 rounded-xl border bg-white p-6 sm:grid-cols-2"
         >
           <Input label="Name" error={errors.name?.message} {...register("name", {

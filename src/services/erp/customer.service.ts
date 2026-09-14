@@ -1,5 +1,7 @@
 import { requireClient } from "@/lib/supabase/client";
-import type { Customer, CustomerWithStats } from "@/types/erp";
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
+import { getSupabaseEnv } from "@/lib/supabase/env";
+import type { Customer, CustomerWithStats, PosSale } from "@/types/erp";
 import { isValidMobile, normalizeMobile } from "@/utils/phone";
 
 export const customerService = {
@@ -14,7 +16,52 @@ export const customerService = {
     return (data ?? []) as Customer[];
   },
 
+  /** Auto-sync any registered online customers who do not yet have a customers record */
+  async syncAllOnlineUsers(): Promise<void> {
+    try {
+      const supabase = requireClient();
+      const { data: users } = await supabase
+        .from("users")
+        .select("id, name, email, phone, role")
+        .eq("role", "customer");
+
+      if (!users || users.length === 0) return;
+
+      for (const u of users) {
+        if (!u.phone || !isValidMobile(u.phone)) continue;
+        const norm = normalizeMobile(u.phone);
+        const { data: existing } = await supabase
+          .from("customers")
+          .select("id, user_id")
+          .or(`mobile.eq.${norm},mobile.ilike.%${norm.slice(-10)}`)
+          .maybeSingle();
+
+        if (!existing) {
+          await supabase.from("customers").insert({
+            user_id: u.id,
+            name: u.name?.trim() || "Customer",
+            mobile: norm,
+            email: u.email?.trim() || null,
+            loyalty_points: 0,
+            credit_balance: 0,
+            updated_at: new Date().toISOString(),
+          });
+        } else if (!existing.user_id) {
+          await supabase
+            .from("customers")
+            .update({ user_id: u.id, updated_at: new Date().toISOString() })
+            .eq("id", existing.id);
+        }
+      }
+    } catch (err) {
+      console.warn("[CustomerService] syncAllOnlineUsers warning:", err);
+    }
+  },
+
   async listWithStats(search?: string): Promise<CustomerWithStats[]> {
+    // Sync online accounts in background on first load
+    void this.syncAllOnlineUsers();
+
     const customers = await this.list(search);
     if (customers.length === 0) return [];
 
@@ -66,25 +113,73 @@ export const customerService = {
   async getByMobile(mobile: string): Promise<Customer | null> {
     const normalized = normalizeMobile(mobile);
     if (normalized.length < 10) return null;
+    const last10 = normalized.slice(-10);
 
     const supabase = requireClient();
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .eq("mobile", normalized)
-      .maybeSingle();
-    if (error) throw error;
-    if (data) return data as Customer;
 
-    const { data: rows, error: searchErr } = await supabase
+    // 1. Search in customers table
+    const { data: customerRow } = await supabase
       .from("customers")
       .select("*")
-      .or(`mobile.eq.${normalized},mobile.ilike.%${normalized.slice(-10)}`);
-    if (searchErr) throw searchErr;
-    const match = (rows ?? []).find(
-      (c) => normalizeMobile(c.mobile as string) === normalized
-    );
-    return (match ?? null) as Customer | null;
+      .or(`mobile.eq.${normalized},mobile.ilike.%${last10}`)
+      .maybeSingle();
+
+    let customer = (customerRow as Customer) ?? null;
+
+    // 2. Also check public.users table to see if an online account exists
+    let onlineUser: { id: string; name?: string | null; email?: string | null; phone?: string | null } | null = null;
+    try {
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("id, name, email, phone")
+        .or(`phone.eq.${normalized},phone.ilike.%${last10}`)
+        .maybeSingle();
+      if (userRow) {
+        onlineUser = userRow;
+      }
+    } catch {}
+
+    // 3. If an online user exists, ensure customers row is linked as the SAME account!
+    if (onlineUser) {
+      if (customer) {
+        if (!customer.user_id) {
+          try {
+            const { data: updated } = await supabase
+              .from("customers")
+              .update({
+                user_id: onlineUser.id,
+                email: customer.email || onlineUser.email || null,
+                name: customer.name === "Customer" && onlineUser.name ? onlineUser.name : customer.name,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", customer.id)
+              .select()
+              .single();
+            if (updated) customer = updated as Customer;
+          } catch {}
+        }
+      } else {
+        // No customer record existed yet for this online user: auto-create unified CRM entry
+        try {
+          const { data: created } = await supabase
+            .from("customers")
+            .insert({
+              user_id: onlineUser.id,
+              name: onlineUser.name?.trim() || "Customer",
+              mobile: normalized,
+              email: onlineUser.email?.trim() || null,
+              loyalty_points: 0,
+              credit_balance: 0,
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+          if (created) customer = created as Customer;
+        } catch {}
+      }
+    }
+
+    return customer;
   },
 
   async findForPos(opts: {
@@ -103,6 +198,21 @@ export const customerService = {
     const exact = list.find((c) => c.name.toLowerCase() === lower);
     if (exact) return exact;
     if (list.length === 1) return list[0];
+
+    // If not found in customers by name, check online users table
+    const supabase = requireClient();
+    try {
+      const { data: userMatch } = await supabase
+        .from("users")
+        .select("id, name, email, phone")
+        .or(`name.ilike.%${name}%,email.ilike.%${name}%`)
+        .limit(1)
+        .maybeSingle();
+      if (userMatch?.phone) {
+        return this.getByMobile(userMatch.phone);
+      }
+    } catch {}
+
     return null;
   },
 
@@ -128,10 +238,10 @@ export const customerService = {
     const mobile = normalizeMobile(mobileRaw);
     if (!isValidMobile(mobileRaw)) return null;
 
-    const name = opts.name?.trim() || "Customer";
+    // getByMobile automatically links user_id if online account exists!
     const existing = await this.getByMobile(mobile);
     if (existing) {
-      if (opts.name?.trim() && existing.name !== opts.name.trim()) {
+      if (opts.name?.trim() && existing.name !== opts.name.trim() && existing.name === "Customer") {
         return this.upsert({
           ...existing,
           mobile,
@@ -141,7 +251,24 @@ export const customerService = {
       return existing;
     }
 
-    return this.upsert({ mobile, name });
+    // Double check users table before creating unlinked customer
+    const supabase = requireClient();
+    let userId: string | null = null;
+    let email: string | null = null;
+    try {
+      const { data: u } = await supabase
+        .from("users")
+        .select("id, name, email, phone")
+        .or(`phone.eq.${mobile},phone.ilike.%${mobile.slice(-10)}`)
+        .maybeSingle();
+      if (u) {
+        userId = u.id;
+        email = u.email ?? null;
+      }
+    } catch {}
+
+    const name = opts.name?.trim() || "Customer";
+    return this.upsert({ mobile, name, user_id: userId, email });
   },
 
   /** Auto-create CRM record from registered user */
@@ -295,5 +422,141 @@ export const customerService = {
       .eq("customer_id", customerId)
       .order("created_at", { ascending: false });
     return { posSales: pos ?? [] };
+  },
+
+  /** Create an online store login account for a walk-in customer and link them */
+  async createOnlineAccountForCustomer(
+    customerId: string,
+    email: string,
+    password?: string
+  ): Promise<Customer> {
+    const supabase = requireClient();
+    const { data: customer, error: custErr } = await supabase
+      .from("customers")
+      .select("*")
+      .eq("id", customerId)
+      .single();
+    if (custErr || !customer) {
+      throw new Error("Customer not found");
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      throw new Error("A valid email address is required to create an online account");
+    }
+
+    const cleanPassword = password?.trim() || "Store" + customer.mobile.slice(-4) + "!";
+    if (cleanPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters long");
+    }
+
+    // Create user in Supabase Auth using a non-persisting client so the admin is not logged out
+    const { url, anonKey } = getSupabaseEnv();
+    const tempClient = createSupabaseJsClient(url, anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+
+    const { data: authData, error: authError } = await tempClient.auth.signUp({
+      email: cleanEmail,
+      password: cleanPassword,
+      options: {
+        data: {
+          name: customer.name,
+          phone: customer.mobile,
+        },
+      },
+    });
+
+    if (authError) {
+      throw new Error(authError.message);
+    }
+
+    const newUserId = authData.user?.id;
+    if (!newUserId) {
+      throw new Error("Could not initialize online user account");
+    }
+
+    // Ensure public.users profile exists with customer role
+    await supabase.from("users").upsert({
+      id: newUserId,
+      email: cleanEmail,
+      name: customer.name,
+      phone: customer.mobile,
+      role: "customer",
+    }, { onConflict: "id" });
+
+    // Link customer.user_id = newUserId and save email
+    const { data: updatedCustomer, error: updateErr } = await supabase
+      .from("customers")
+      .update({
+        user_id: newUserId,
+        email: cleanEmail,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", customerId)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+    return updatedCustomer as Customer;
+  },
+
+  /** Get all in-store POS receipts for a logged-in user */
+  async getPosSalesForUser(userId: string): Promise<PosSale[]> {
+    const supabase = requireClient();
+    let { data: customer } = await supabase
+      .from("customers")
+      .select("id, mobile")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    // If not linked by user_id yet, check user's registered phone
+    if (!customer) {
+      const { data: u } = await supabase
+        .from("users")
+        .select("phone")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (u?.phone) {
+        const cleanMobile = normalizeMobile(u.phone);
+        const { data: matchedCust } = await supabase
+          .from("customers")
+          .select("id, mobile")
+          .or(`mobile.eq.${cleanMobile},mobile.ilike.%${cleanMobile.slice(-10)}`)
+          .maybeSingle();
+
+        if (matchedCust) {
+          customer = matchedCust;
+          // Auto-link to customer record
+          await supabase
+            .from("customers")
+            .update({ user_id: userId, updated_at: new Date().toISOString() })
+            .eq("id", matchedCust.id);
+        }
+      }
+    }
+
+    if (!customer?.id) return [];
+
+    const query = supabase
+      .from("pos_sales")
+      .select("*, pos_sale_items(*)")
+      .eq("sale_status", "completed")
+      .order("created_at", { ascending: false });
+
+    const { data: sales, error } = customer.mobile
+      ? await query.or(`customer_id.eq.${customer.id},customer_mobile.eq.${customer.mobile}`)
+      : await query.eq("customer_id", customer.id);
+
+    if (error) {
+      console.warn("[CustomerService] getPosSalesForUser error:", error);
+      return [];
+    }
+    return (sales ?? []) as PosSale[];
   },
 };

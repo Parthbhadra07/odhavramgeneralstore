@@ -6,35 +6,55 @@ import { customerService } from "@/services/erp/customer.service";
 export const authService = {
   async signUp(email: string, password: string, name: string, phone: string) {
     const supabase = requireClient();
+    const cleanPhone = phone.replace(/\D/g, "").slice(-10);
+    const cleanName = name.trim() || "Customer";
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, phone } },
+      options: {
+        data: {
+          name: cleanName,
+          phone: cleanPhone,
+          mobile: cleanPhone,
+          phone_number: cleanPhone,
+        },
+      },
     });
     if (error) throw error;
 
-    // Fallback if DB trigger did not create public.users row
     if (data.user) {
-      const { error: profileError } = await supabase.from("users").upsert(
-        {
-          id: data.user.id,
-          email: data.user.email ?? email,
-          name,
-          phone,
-          role: "customer",
-        },
-        { onConflict: "id" }
-      );
-      if (profileError) {
-        console.warn("Profile upsert:", profileError.message);
+      // 1. Try secure RPC to link phone and CRM customer
+      try {
+        await supabase.rpc("sync_user_signup_phone", {
+          p_user_id: data.user.id,
+          p_phone: cleanPhone,
+          p_name: cleanName,
+        });
+      } catch {
+        // Fallback direct upsert if session exists
+        try {
+          await supabase.from("users").upsert(
+            {
+              id: data.user.id,
+              email: data.user.email ?? email,
+              name: cleanName,
+              phone: cleanPhone,
+              role: "customer",
+            },
+            { onConflict: "id" }
+          );
+        } catch (profileError) {
+          console.warn("Profile upsert:", profileError);
+        }
       }
 
       try {
         await customerService.syncFromUser({
           id: data.user.id,
-          name,
+          name: cleanName,
           email: data.user.email ?? email,
-          phone,
+          phone: cleanPhone,
         });
       } catch (err) {
         console.warn("Customer sync on signup:", err);
@@ -57,6 +77,35 @@ export const authService = {
         password,
       });
       if (error) throw error;
+
+      // Auto-heal phone if stored in auth metadata but missing from public profile
+      if (data.user) {
+        const metaPhone =
+          data.user.user_metadata?.phone ||
+          data.user.user_metadata?.mobile ||
+          data.user.user_metadata?.phone_number ||
+          data.user.phone;
+        if (metaPhone) {
+          const cleanPhone = String(metaPhone).replace(/\D/g, "").slice(-10);
+          if (cleanPhone.length === 10) {
+            void (async () => {
+              try {
+                await supabase.rpc("sync_user_signup_phone", {
+                  p_user_id: data.user.id,
+                  p_phone: cleanPhone,
+                  p_name: data.user.user_metadata?.name,
+                });
+              } catch {
+                await supabase
+                  .from("users")
+                  .update({ phone: cleanPhone })
+                  .eq("id", data.user.id);
+              }
+            })();
+          }
+        }
+      }
+
       return data;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";

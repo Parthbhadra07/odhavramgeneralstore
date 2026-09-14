@@ -25,7 +25,8 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupInput) => {
     setLoading(true);
     try {
-      await authService.signUp(data.email, data.password, data.name, data.phone);
+      const cleanPhone = data.phone.replace(/\D/g, "").slice(-10);
+      await authService.signUp(data.email.trim(), data.password, data.name.trim(), cleanPhone);
       toast.success("Account created! Check your email to verify.");
       router.push("/auth/login");
     } catch (err: unknown) {

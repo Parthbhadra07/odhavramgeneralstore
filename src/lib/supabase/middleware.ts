@@ -71,7 +71,7 @@ export async function updateSession(request: NextRequest) {
   const isAdmin = adminRoutes.some((r) => pathname.startsWith(r));
   const isAuth = authRoutes.some((r) => pathname.startsWith(r));
 
-  // If server is offline, check if request has any auth cookies or is POS
+  // When offline, only allow previously authenticated staff session for POS billing
   const hasAuthCookie = request.cookies
     .getAll()
     .some(
@@ -81,8 +81,8 @@ export async function updateSession(request: NextRequest) {
         c.name.includes("supabase")
     );
 
-  // When offline, do not lock out previously logged in users or POS billing
-  if (isNetworkOffline && (hasAuthCookie || pathname.startsWith("/admin/pos"))) {
+  // If server is offline and user has an auth cookie and is accessing POS, let client AdminGuard verify
+  if (isNetworkOffline && hasAuthCookie && pathname.startsWith("/admin/pos")) {
     return supabaseResponse;
   }
 
@@ -108,13 +108,30 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url);
       }
     } catch {
-      // Offline / network failure during role check — do not block
+      // Role could not be verified — fail closed and redirect to store home
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
     }
   }
 
   if (userAfterCleanup && isAuth) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    try {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", userAfterCleanup.id)
+        .single();
+      const staffRoles = ["super_admin", "admin", "staff", "cashier"];
+      if (profile?.role && staffRoles.includes(profile.role)) {
+        url.pathname = "/admin";
+      } else {
+        url.pathname = "/dashboard";
+      }
+    } catch {
+      url.pathname = "/dashboard";
+    }
     return NextResponse.redirect(url);
   }
 

@@ -68,6 +68,25 @@ export function ProductBarcodeField({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              // Find and focus the next input field in the product form
+              const form = (e.target as HTMLElement).closest("form");
+              if (form) {
+                const inputs = Array.from(
+                  form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+                    "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled])"
+                  )
+                );
+                const currentIndex = inputs.indexOf(e.target as HTMLInputElement);
+                if (currentIndex !== -1 && currentIndex + 1 < inputs.length) {
+                  inputs[currentIndex + 1].focus();
+                }
+              }
+            }
+          }}
           placeholder="EAN / UPC number on product"
           className="min-w-[12rem] flex-1 font-mono"
           error={error}

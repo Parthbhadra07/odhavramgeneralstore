@@ -9,9 +9,11 @@ import { toast } from "sonner";
 import { loginSchema, type LoginInput } from "@/lib/validators";
 import { authService } from "@/services/auth.service";
 import { requestNotificationPermission } from "@/utils/browser-notifications";
+import { isErpStaff } from "@/utils/roles";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Leaf, WifiOff } from "lucide-react";
+import type { User } from "@/types/database";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -19,6 +21,7 @@ export default function LoginForm() {
   const redirect = searchParams.get("redirect") ?? "/dashboard";
   const [loading, setLoading] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [hasCachedStaffProfile, setHasCachedStaffProfile] = useState(false);
 
   const {
     register,
@@ -31,6 +34,17 @@ export default function LoginForm() {
     update();
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
+
+    try {
+      const cached = localStorage.getItem("ogs-offline-auth-profile");
+      if (cached) {
+        const p = JSON.parse(cached) as User;
+        if (p && isErpStaff(p.role)) {
+          setHasCachedStaffProfile(true);
+        }
+      }
+    } catch {}
+
     return () => {
       window.removeEventListener("online", update);
       window.removeEventListener("offline", update);
@@ -40,19 +54,47 @@ export default function LoginForm() {
   const onSubmit = async (data: LoginInput) => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       toast.error("No internet connection.", {
-        description: "You can click 'Open POS Billing (Offline Mode)' to start billing offline.",
+        description: hasCachedStaffProfile
+          ? "You can click 'Open POS Billing (Staff Offline Mode)' to bill offline."
+          : "Please reconnect to the internet to sign in.",
       });
       return;
     }
 
     setLoading(true);
     try {
-      await authService.signIn(data.email, data.password);
-      if (redirect.startsWith("/admin")) {
-        void requestNotificationPermission();
+      const signInRes = await authService.signIn(data.email, data.password);
+      const user = signInRes?.user;
+      let targetRedirect = redirect;
+
+      if (user) {
+        const profile = await authService.getProfile(user.id);
+        const isStaffUser = profile && isErpStaff(profile.role);
+
+        if (!isStaffUser) {
+          // If customer, clear any cached staff profile
+          try {
+            localStorage.removeItem("ogs-offline-auth-profile");
+          } catch {}
+
+          // Prevent customers from ever being routed to admin/POS pages
+          if (targetRedirect.startsWith("/admin")) {
+            targetRedirect = "/dashboard";
+          }
+        } else {
+          // Cache staff profile for offline POS support
+          try {
+            localStorage.setItem("ogs-offline-auth-profile", JSON.stringify(profile));
+          } catch {}
+          void requestNotificationPermission();
+          if (targetRedirect === "/dashboard") {
+            targetRedirect = "/admin";
+          }
+        }
       }
+
       toast.success("Welcome back!");
-      router.push(redirect);
+      router.push(targetRedirect);
       router.refresh();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Login failed");
@@ -79,14 +121,18 @@ export default function LoginForm() {
               <span>You are currently Offline</span>
             </div>
             <p className="mt-1 text-amber-800 leading-relaxed">
-              Online login requires an internet connection. However, POS Billing works fully offline without logging in again.
+              {hasCachedStaffProfile
+                ? "Online login requires an internet connection. However, staff POS Billing works fully offline without logging in again."
+                : "Online login requires an active internet connection. Please reconnect to your network to sign in."}
             </p>
-            <Button
-              href="/admin/pos"
-              className="mt-2.5 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-8"
-            >
-              Open POS Billing (Offline Mode)
-            </Button>
+            {hasCachedStaffProfile && (
+              <Button
+                href="/admin/pos"
+                className="mt-2.5 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs h-8"
+              >
+                Open POS Billing (Staff Offline Mode)
+              </Button>
+            )}
           </div>
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

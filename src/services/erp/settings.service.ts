@@ -21,6 +21,11 @@ const DEFAULT_SETTINGS: Omit<StoreSettings, "id" | "created_at" | "updated_at"> 
   receipt_header_text: "Thank You! Visit Again",
   receipt_footer_text: `${APP_NAME} — ${STORE_PHONE}`,
   receipt_width: "80mm",
+  enable_loyalty_points: true,
+  loyalty_point_value: 1,
+  loyalty_points_per_100: 1,
+  loyalty_min_points_redeem: 0,
+  gemini_api_key: null,
 };
 
 let cachedSettings: StoreSettings | null = null;
@@ -45,17 +50,39 @@ export const settingsService = {
       .limit(1)
       .maybeSingle();
 
+    let merged: StoreSettings;
     if (error || !data) {
-      const fallback: StoreSettings = {
+      merged = {
         id: "default",
         ...DEFAULT_SETTINGS,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      return fallback;
+    } else {
+      merged = {
+        ...DEFAULT_SETTINGS,
+        ...(data as StoreSettings),
+      };
     }
 
-    cachedSettings = data as StoreSettings;
+    // Merge any client-side overrides (e.g. if database schema migration is pending)
+    if (typeof window !== "undefined") {
+      try {
+        const storedKey = localStorage.getItem("gemini_api_key");
+        if (storedKey && !merged.gemini_api_key) {
+          merged.gemini_api_key = storedKey;
+        }
+        const overridesRaw = localStorage.getItem("erp_store_settings_overrides");
+        if (overridesRaw) {
+          const overrides = JSON.parse(overridesRaw);
+          merged = { ...merged, ...overrides };
+        }
+      } catch {
+        // ignore localStorage read issues
+      }
+    }
+
+    cachedSettings = merged;
     cacheTime = now;
     return cachedSettings;
   },
@@ -68,26 +95,99 @@ export const settingsService = {
     const supabase = requireClient();
     const current = await this.get();
 
+    // Persist API key and loyalty settings in localStorage as fallback
+    if (typeof window !== "undefined") {
+      try {
+        if (updates.gemini_api_key !== undefined) {
+          if (updates.gemini_api_key) {
+            localStorage.setItem("gemini_api_key", updates.gemini_api_key);
+          } else {
+            localStorage.removeItem("gemini_api_key");
+          }
+        }
+        const overridesRaw = localStorage.getItem("erp_store_settings_overrides");
+        const existingOverrides = overridesRaw ? JSON.parse(overridesRaw) : {};
+        localStorage.setItem(
+          "erp_store_settings_overrides",
+          JSON.stringify({ ...existingOverrides, ...updates })
+        );
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    const baseColumns = new Set([
+      "store_name",
+      "store_mobile",
+      "store_address",
+      "store_logo_url",
+      "gst_number",
+      "currency",
+      "default_gst_percentage",
+      "upi_id",
+      "upi_merchant_name",
+      "enable_upi_qr",
+      "receipt_header_text",
+      "receipt_footer_text",
+      "receipt_width",
+    ]);
+
     if (current.id === "default") {
-      const { data, error } = await supabase
-        .from("settings")
-        .insert({ ...DEFAULT_SETTINGS, ...updates })
-        .select("*")
-        .single();
-      if (error) throw error;
-      cachedSettings = data as StoreSettings;
+      try {
+        const { data, error } = await supabase
+          .from("settings")
+          .insert({ ...DEFAULT_SETTINGS, ...updates })
+          .select("*")
+          .single();
+        if (error) throw error;
+        cachedSettings = { ...DEFAULT_SETTINGS, ...(data as StoreSettings), ...updates };
+      } catch (err: unknown) {
+        const msg = String((err as { message?: string })?.message || "");
+        if (msg.includes("column") || msg.includes("schema cache")) {
+          // Retry inserting with base columns only
+          const filtered: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(updates)) {
+            if (baseColumns.has(k)) filtered[k] = v;
+          }
+          await supabase.from("settings").insert({ ...DEFAULT_SETTINGS, ...filtered });
+        } else {
+          throw err;
+        }
+        cachedSettings = { ...current, ...updates };
+      }
       cacheTime = Date.now();
       return cachedSettings;
     }
 
-    const { data, error } = await supabase
-      .from("settings")
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq("id", current.id)
-      .select("*")
-      .single();
-    if (error) throw error;
-    cachedSettings = data as StoreSettings;
+    try {
+      const { data, error } = await supabase
+        .from("settings")
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq("id", current.id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      cachedSettings = { ...current, ...(data as StoreSettings), ...updates };
+    } catch (err: unknown) {
+      const msg = String((err as { message?: string })?.message || "");
+      if (msg.includes("column") || msg.includes("schema cache")) {
+        // Retry updating with only standard base columns
+        const filtered: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(updates)) {
+          if (baseColumns.has(k)) filtered[k] = v;
+        }
+        if (Object.keys(filtered).length > 0) {
+          await supabase
+            .from("settings")
+            .update({ ...filtered, updated_at: new Date().toISOString() })
+            .eq("id", current.id);
+        }
+      } else {
+        throw err;
+      }
+      cachedSettings = { ...current, ...updates };
+    }
+
     cacheTime = Date.now();
     return cachedSettings;
   },

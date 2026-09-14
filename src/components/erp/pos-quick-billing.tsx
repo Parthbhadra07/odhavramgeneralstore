@@ -12,6 +12,7 @@ import {
   Search,
   Printer,
   Tag,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
+import { PosCreateOnlineAccountModal } from "@/components/erp/pos-create-online-account-modal";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
@@ -69,6 +71,7 @@ export function PosQuickBilling() {
   const [customerName, setCustomerName] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
+  const [showOnlineAccountModal, setShowOnlineAccountModal] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [discountPercent, setDiscountPercent] = useState(0);
@@ -437,10 +440,14 @@ export function PosQuickBilling() {
       ? Math.round((netItemsSubtotal * discountPercent) / 100)
       : discount;
   const totalDiscount = itemDiscounts + computedBillDiscount;
-  const total = Math.max(0, grossSubtotal - totalDiscount - loyaltyRedeem);
+  const loyaltyEnabled = settings?.enable_loyalty_points !== false;
+  const pointValue = Number(settings?.loyalty_point_value ?? 1.0);
+  const loyaltyPointsRate = Number(settings?.loyalty_points_per_100 ?? 1.0);
+  const loyaltyDiscountAmount = loyaltyEnabled ? Math.round(loyaltyRedeem * pointValue * 100) / 100 : 0;
+  const total = Math.max(0, grossSubtotal - totalDiscount - loyaltyDiscountAmount);
   const pointsToEarn =
-    selectedCustomer && total > 0
-      ? Math.floor(total / 100) * LOYALTY_POINTS_PER_100
+    selectedCustomer && total > 0 && loyaltyEnabled
+      ? Math.floor(total / 100) * loyaltyPointsRate
       : 0;
 
   const clearCustomer = () => {
@@ -1063,6 +1070,18 @@ export function PosQuickBilling() {
             >
               Find customer
             </Button>
+            {customerMobile.trim().length === 10 && !selectedCustomer?.user_id && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 gap-1"
+                onClick={() => setShowOnlineAccountModal(true)}
+              >
+                <Globe className="h-3.5 w-3.5" />
+                + Online Account
+              </Button>
+            )}
             {selectedCustomer && (
               <Button type="button" size="sm" variant="ghost" onClick={clearCustomer}>
                 Clear
@@ -1071,8 +1090,24 @@ export function PosQuickBilling() {
           </div>
           {selectedCustomer && (
             <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm">
-              <p className="font-medium text-green-900">{selectedCustomer.name}</p>
-              <p className="text-green-800">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium text-green-900">{selectedCustomer.name}</p>
+                {selectedCustomer.user_id ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                    🟢 Online Member
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlineAccountModal(true)}
+                    className="inline-flex items-center gap-1 rounded bg-white px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <Globe className="h-3 w-3" />
+                    + Create Online Account
+                  </button>
+                )}
+              </div>
+              <p className="text-green-800 mt-1">
                 {selectedCustomer.loyalty_points} points available
                 {selectedCustomer.credit_balance > 0 && (
                   <span className="ml-2 text-amber-700">
@@ -1228,25 +1263,69 @@ export function PosQuickBilling() {
               }}
             />
           )}
-          <Input
-            id="quick-loyalty-redeem"
-            type="number"
-            min={0}
-            placeholder="Redeem points [Enter]"
-            value={loyaltyRedeem || ""}
-            onChange={(e) => setLoyaltyRedeem(Number(e.target.value) || 0)}
-            disabled={!selectedCustomer}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                if (e.shiftKey) {
-                  focusField("quick-bill-discount");
-                  return;
-                }
-                focusField("quick-bill-notes");
-              }
-            }}
-          />
+          {loyaltyEnabled && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <Input
+                  id="quick-loyalty-redeem"
+                  type="number"
+                  min={0}
+                  max={selectedCustomer?.loyalty_points ?? 0}
+                  placeholder="Redeem points [Enter]"
+                  value={loyaltyRedeem || ""}
+                  onChange={(e) => {
+                    const maxPts = selectedCustomer?.loyalty_points ?? 0;
+                    const val = Math.min(maxPts, Math.max(0, Number(e.target.value) || 0));
+                    setLoyaltyRedeem(val);
+                  }}
+                  disabled={!selectedCustomer || (selectedCustomer?.loyalty_points ?? 0) <= 0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (e.shiftKey) {
+                        focusField("quick-bill-discount");
+                        return;
+                      }
+                      focusField("quick-bill-notes");
+                    }
+                  }}
+                />
+                {selectedCustomer && selectedCustomer.loyalty_points > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0 text-xs text-amber-800 border-amber-300 hover:bg-amber-50"
+                    onClick={() => {
+                      if (loyaltyRedeem > 0) {
+                        setLoyaltyRedeem(0);
+                      } else {
+                        const maxRedeemable = Math.min(
+                          selectedCustomer.loyalty_points,
+                          Math.floor((grossSubtotal - totalDiscount) / pointValue)
+                        );
+                        setLoyaltyRedeem(Math.max(0, maxRedeemable));
+                      }
+                    }}
+                  >
+                    {loyaltyRedeem > 0 ? "Clear" : "Max Pts"}
+                  </Button>
+                )}
+              </div>
+              {selectedCustomer && (
+                <div className="flex items-center justify-between px-1 text-[11px] text-gray-500">
+                  <span>
+                    Avail: {selectedCustomer.loyalty_points} pts ({formatPrice(selectedCustomer.loyalty_points * pointValue)})
+                  </span>
+                  {loyaltyDiscountAmount > 0 && (
+                    <span className="font-semibold text-emerald-700">
+                      -{formatPrice(loyaltyDiscountAmount)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <Input
           id="quick-bill-notes"
@@ -1289,10 +1368,10 @@ export function PosQuickBilling() {
               <span>- {formatPrice(totalDiscount)}</span>
             </div>
           )}
-          {loyaltyRedeem > 0 && (
+          {loyaltyDiscountAmount > 0 && (
             <div className="mt-1 flex justify-between text-sm text-emerald-700">
-              <span>Loyalty Points</span>
-              <span>- {formatPrice(loyaltyRedeem)}</span>
+              <span>Loyalty Points ({loyaltyRedeem} pts)</span>
+              <span>- {formatPrice(loyaltyDiscountAmount)}</span>
             </div>
           )}
           <p className="mt-1 text-xs italic text-gray-600">(Inclusive of GST)</p>
@@ -1406,6 +1485,19 @@ export function PosQuickBilling() {
           </div>
         )}
       </div>
+
+      <PosCreateOnlineAccountModal
+        open={showOnlineAccountModal}
+        onClose={() => setShowOnlineAccountModal(false)}
+        customer={selectedCustomer}
+        draftName={customerName}
+        draftMobile={customerMobile}
+        onAccountCreated={(updated) => {
+          setSelectedCustomer(updated);
+          setCustomerName(updated.name);
+          setCustomerMobile(updated.mobile);
+        }}
+      />
 
       <ProductDetailsLookupModal
         open={showProductLookup}

@@ -400,6 +400,11 @@ export interface StoreSettings {
   receipt_footer_text: string | null;
   receipt_width: "52mm" | "58mm" | "64mm" | "80mm" | "88mm";
   active_financial_year?: string | null;
+  enable_loyalty_points?: boolean;
+  loyalty_point_value?: number;
+  loyalty_points_per_100?: number;
+  loyalty_min_points_redeem?: number;
+  gemini_api_key?: string | null;
   created_at: string;
   updated_at: string;
 }

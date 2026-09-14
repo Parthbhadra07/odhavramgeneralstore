@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle } from "lucide-react";
+import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { openWhatsAppShare, posBillWhatsAppMessage } from "@/utils/whatsapp";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
+import { PosCreateOnlineAccountModal } from "@/components/erp/pos-create-online-account-modal";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { normalizeScannedBarcode } from "@/lib/barcode-scan-formats";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
@@ -90,6 +91,8 @@ export function PosInvoiceBilling() {
   const [customerMobile, setCustomerMobile] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showOnlineAccountModal, setShowOnlineAccountModal] = useState(false);
+  const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [received, setReceived] = useState(0);
   const [billNotes, setBillNotes] = useState("");
@@ -123,8 +126,11 @@ export function PosInvoiceBilling() {
       Math.round(r.rate * ((r.discountPercent || 0) / 100) * 100) / 100;
     return s + unitDiscount * r.quantity;
   }, 0);
+  const loyaltyEnabled = settings?.enable_loyalty_points !== false;
+  const pointValue = Number(settings?.loyalty_point_value ?? 1.0);
+  const loyaltyDiscountAmount = loyaltyEnabled ? Math.round(loyaltyRedeem * pointValue * 100) / 100 : 0;
   const totalItemDiscount = Math.round(itemDiscounts * 100) / 100;
-  const totalAllDiscounts = Math.round((totalItemDiscount + discount) * 100) / 100;
+  const totalAllDiscounts = Math.round((totalItemDiscount + discount + loyaltyDiscountAmount) * 100) / 100;
   const gstTotal = filledLines.reduce((s, r) => {
     const unitRate = r.rate * (1 - (r.discountPercent || 0) / 100);
     const gst = lineItemInclusiveGst(unitRate, r.quantity, r.gstPercentage);
@@ -217,6 +223,7 @@ export function PosInvoiceBilling() {
     const fresh = newRow();
     setRows([fresh]);
     setDiscount(0);
+    setLoyaltyRedeem(0);
     setReceived(0);
     setBillNotes("");
     setSelectedCustomer(null);
@@ -407,6 +414,7 @@ export function PosInvoiceBilling() {
         customerName: customerName.trim() || undefined,
         customerMobile: customerMobile.trim() || undefined,
         discount,
+        loyaltyPointsRedeemed: loyaltyEnabled && loyaltyRedeem > 0 ? loyaltyRedeem : undefined,
         notes: billNotes.trim() || undefined,
       });
       setLastSale(sale);
@@ -754,14 +762,44 @@ export function PosInvoiceBilling() {
           />
         </div>
       )}
-      {selectedCustomer && (
-        <p className="border-b bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
-          Linked: {selectedCustomer.name} · Points {selectedCustomer.loyalty_points}
-          {selectedCustomer.credit_balance > 0
-            ? ` · Credit due ${formatPrice(selectedCustomer.credit_balance)}`
-            : ""}
-        </p>
-      )}
+      {selectedCustomer ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+          <div>
+            Linked: <strong>{selectedCustomer.name}</strong> · Points {selectedCustomer.loyalty_points}
+            {selectedCustomer.credit_balance > 0
+              ? ` · Credit due ${formatPrice(selectedCustomer.credit_balance)}`
+              : ""}
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedCustomer.user_id ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                🟢 Online Store Member
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowOnlineAccountModal(true)}
+                className="inline-flex items-center gap-1 rounded bg-white px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-300 hover:bg-emerald-50"
+              >
+                <Globe className="h-3 w-3" />
+                + Create Online Account
+              </button>
+            )}
+          </div>
+        </div>
+      ) : customerMobile.trim().length === 10 ? (
+        <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-1 text-xs text-slate-600">
+          <span>Party mobile entered</span>
+          <button
+            type="button"
+            onClick={() => setShowOnlineAccountModal(true)}
+            className="inline-flex items-center gap-1 rounded bg-white px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-300 hover:bg-emerald-50"
+          >
+            <Globe className="h-3 w-3" />
+            + Create Online Account
+          </button>
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -1032,6 +1070,56 @@ export function PosInvoiceBilling() {
             <span>GST (incl.)</span>
             <span className="tabular-nums">{gstTotal.toFixed(2)}</span>
           </div>
+          {loyaltyEnabled && selectedCustomer && selectedCustomer.loyalty_points > 0 && (
+            <div className="my-2 rounded-lg border border-amber-200 bg-amber-50/70 p-2 text-xs">
+              <div className="flex items-center justify-between text-amber-900 font-medium">
+                <span>Loyalty Points ({selectedCustomer.loyalty_points} pts)</span>
+                <span className="font-bold">{formatPrice(selectedCustomer.loyalty_points * pointValue)}</span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const maxPoints = Math.min(
+                      selectedCustomer.loyalty_points,
+                      Math.floor((grossSubtotal - totalItemDiscount - discount) / pointValue)
+                    );
+                    setLoyaltyRedeem(loyaltyRedeem > 0 ? 0 : Math.max(0, maxPoints));
+                  }}
+                  className={`rounded px-2 py-1 text-[11px] font-semibold transition ${
+                    loyaltyRedeem > 0
+                      ? "bg-amber-600 text-white"
+                      : "bg-white text-amber-800 border border-amber-300 hover:bg-amber-100"
+                  }`}
+                >
+                  {loyaltyRedeem > 0 ? "Remove Points" : "Use Points"}
+                </button>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-500 text-[11px]">Pts:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedCustomer.loyalty_points}
+                    value={loyaltyRedeem || ""}
+                    onChange={(e) => {
+                      const val = Math.min(
+                        selectedCustomer.loyalty_points,
+                        Math.max(0, Number(e.target.value) || 0)
+                      );
+                      setLoyaltyRedeem(val);
+                    }}
+                    placeholder="0"
+                    className="h-6 w-16 rounded border border-amber-300 bg-white px-1 text-right text-xs font-bold text-amber-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+              {loyaltyDiscountAmount > 0 && (
+                <p className="mt-1 text-right text-[11px] font-semibold text-emerald-700">
+                  Discount: -{formatPrice(loyaltyDiscountAmount)}
+                </p>
+              )}
+            </div>
+          )}
           <label className="mt-2 flex items-center justify-between gap-2">
             <span className="text-slate-600 font-medium">Bill discount</span>
             <input
@@ -1114,6 +1202,19 @@ export function PosInvoiceBilling() {
           </div>
         </div>
       )}
+
+      <PosCreateOnlineAccountModal
+        open={showOnlineAccountModal}
+        onClose={() => setShowOnlineAccountModal(false)}
+        customer={selectedCustomer}
+        draftName={customerName}
+        draftMobile={customerMobile}
+        onAccountCreated={(updated) => {
+          setSelectedCustomer(updated);
+          setCustomerName(updated.name);
+          setCustomerMobile(updated.mobile);
+        }}
+      />
 
       <ProductDetailsLookupModal
         open={showProductLookup}

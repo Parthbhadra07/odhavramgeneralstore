@@ -1,13 +1,14 @@
 {
-  "name": "Odhavram General Store - POS & ERP",
-  "short_name": "OGS POS",
-  "description": "Offline-ready Desktop POS & Retail Billing software for Odhavram General Store",
-  "start_url": "/admin/pos/",
+  "name": "Odhavram General Store",
+  "short_name": "OGS",
+  "description": "Local grocery store — Odhav, Ahmedabad. Order online groceries with fast delivery or pickup.",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",
-  "categories": ["business", "productivity", "shopping"],
+  "orientation": "portrait-primary",
+  "categories": ["shopping", "business", "productivity"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -20,6 +21,29 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Shop Products",
+      "short_name": "Shop",
+      "description": "Browse grocery items and daily essentials",
+      "url": "/products",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Track Order",
+      "short_name": "Track",
+      "description": "Track your grocery order delivery status",
+      "url": "/track-order",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "POS Billing (Staff)",
+      "short_name": "POS",
+      "description": "Open POS Quick Billing for staff",
+      "url": "/admin/pos/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

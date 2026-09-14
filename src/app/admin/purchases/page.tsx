@@ -95,6 +95,58 @@ export default function PurchasesPage() {
     else setEditForm((f) => ({ ...f, ...patch }));
   };
 
+  const handleBarcodeChange = (code: string, target: "create" | "edit") => {
+    if (target === "create") {
+      setForm((f) => ({ ...f, barcode: code }));
+    } else {
+      setEditForm((f) => ({ ...f, barcode: code }));
+    }
+
+    // Auto-match product from catalog if a valid barcode is scanned
+    const clean = code.trim();
+    if (clean.length >= 3) {
+      const matched = products.find((p) => p.barcode === clean);
+      if (matched) {
+        handleProductSelect(matched.id, target);
+        toast.success(`Matched: ${matched.name}`);
+      }
+    }
+  };
+
+  const handleBarcodeKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    target: "create" | "edit"
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const code = (target === "create" ? form.barcode : editForm.barcode).trim();
+      if (code) {
+        const matched = products.find((p) => p.barcode === code);
+        if (matched) {
+          handleProductSelect(matched.id, target);
+          toast.success(`Matched: ${matched.name}`);
+        }
+      }
+
+      // Move focus to Quantity field instead of submitting form prematurely
+      const qtyInput = document.getElementById(
+        target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
+      );
+      qtyInput?.focus();
+    }
+  };
+
+  const preventEnterSubmit = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+      const target = e.target as HTMLInputElement;
+      if (target.type !== "submit") {
+        e.preventDefault();
+      }
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const validation = validateForm(form);
@@ -246,10 +298,10 @@ export default function PurchasesPage() {
         <div>
           <h1 className="admin-page-title">Purchase Management</h1>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Record purchases with lot/barcode tracking
+            Record supplier purchases with lot and barcode tracking
           </p>
         </div>
-        <Button onClick={openAddForm} className="hidden lg:inline-flex">
+        <Button onClick={openAddForm}>
           <Plus className="mr-1 h-4 w-4" />
           Add Purchase
         </Button>
@@ -260,7 +312,11 @@ export default function PurchasesPage() {
       {showForm && (
         <div ref={formRef} className="admin-card mb-6 p-4 sm:p-6">
           <h2 className="admin-section-title mb-4">New Purchase</h2>
-          <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <form
+            onSubmit={handleCreate}
+            onKeyDown={preventEnterSubmit}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
             <Input
               label="Bill Number"
               placeholder="e.g. PUR-2026-001"
@@ -295,9 +351,10 @@ export default function PurchasesPage() {
             />
             <Input
               label="Barcode"
-              placeholder="8901234567890"
+              placeholder="Scan or enter barcode"
               value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+              onChange={(e) => handleBarcodeChange(e.target.value, "create")}
+              onKeyDown={(e) => handleBarcodeKeyDown(e, "create")}
             />
             <Input
               label="Lot Number"
@@ -318,6 +375,7 @@ export default function PurchasesPage() {
               onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
             />
             <Input
+              id="purchase-qty-input"
               label="Quantity"
               type="number"
               min={1}
@@ -473,7 +531,11 @@ export default function PurchasesPage() {
           </div>
         }
       >
-        <form onSubmit={handleEdit} className="grid gap-4 sm:grid-cols-2">
+        <form
+          onSubmit={handleEdit}
+          onKeyDown={preventEnterSubmit}
+          className="grid gap-4 sm:grid-cols-2"
+        >
           <SelectField
             label="Supplier"
             value={editForm.supplierId}
@@ -490,8 +552,10 @@ export default function PurchasesPage() {
           />
           <Input
             label="Barcode"
+            placeholder="Scan or enter barcode"
             value={editForm.barcode}
-            onChange={(e) => setEditForm({ ...editForm, barcode: e.target.value })}
+            onChange={(e) => handleBarcodeChange(e.target.value, "edit")}
+            onKeyDown={(e) => handleBarcodeKeyDown(e, "edit")}
           />
           <Input
             label="Lot Number"
@@ -510,6 +574,7 @@ export default function PurchasesPage() {
             onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
           />
           <Input
+            id="edit-purchase-qty-input"
             label="Quantity"
             type="number"
             min={1}

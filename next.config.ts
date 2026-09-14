@@ -23,7 +23,8 @@ export default withPWA({
     runtimeCaching: [
       {
         urlPattern: ({ url }: { url: URL }) =>
-          url.hostname.includes("supabase.co"),
+          url.hostname.includes("supabase.co") &&
+          !url.pathname.startsWith("/auth/v1"),
         handler: "NetworkFirst",
         options: {
           cacheName: "supabase-api",
@@ -41,8 +42,10 @@ export default withPWA({
         },
       },
       {
-        urlPattern: ({ request }: { request: Request }) =>
-          request.destination === "document",
+        urlPattern: ({ request, url }: { request: Request; url: URL }) =>
+          request.destination === "document" &&
+          !url.pathname.startsWith("/admin") &&
+          !url.pathname.startsWith("/auth"),
         handler: "NetworkFirst",
         options: {
           cacheName: "app-shell",
