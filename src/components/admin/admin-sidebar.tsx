@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -143,11 +144,20 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
         className
       )}
     >
-      <div className="flex items-center gap-2 border-b px-4 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-600 text-white">
-          <Store className="h-4 w-4" />
+      <div className="flex items-center gap-2.5 border-b px-4 py-4">
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-green-200 bg-white p-0.5 shadow-sm">
+          <Image
+            src="/logo.png"
+            alt={APP_NAME}
+            width={36}
+            height={36}
+            className="h-full w-full rounded-full object-contain"
+          />
         </div>
-        <span className="text-sm font-bold leading-tight text-green-800">{APP_NAME}</span>
+        <div className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-bold leading-tight text-green-900">{APP_NAME}</span>
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-green-600">Admin Portal</span>
+        </div>
       </div>
       <nav className="flex-1 space-y-4 overflow-y-auto p-3">
         {navGroups.map((group) => (

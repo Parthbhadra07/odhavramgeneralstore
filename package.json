@@ -17,6 +17,7 @@
     "cap:sync": "npm run build:mobile && npx cap sync",
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
+    "cap:assets": "node scripts/generate-assets.js",
     "electron": "electron .",
     "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:3000/admin/pos electron .",
     "desktop:build": "npm run build:mobile && npx electron-builder --config electron-builder.json"

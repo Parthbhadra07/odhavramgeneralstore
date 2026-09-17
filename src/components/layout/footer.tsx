@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Leaf, Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin } from "lucide-react";
 import {
   APP_NAME,
   STORE_PHONE,
@@ -23,11 +24,20 @@ export function Footer() {
       <div className="container mx-auto px-4 py-12">
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <div className="mb-4 flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-600">
-                <Leaf className="h-5 w-5 text-white" />
+            <div className="mb-4 flex items-center gap-3">
+              <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-0.5 shadow-md">
+                <Image
+                  src="/logo.png"
+                  alt={APP_NAME}
+                  width={44}
+                  height={44}
+                  className="h-full w-full rounded-full object-contain"
+                />
               </div>
-              <span className="text-lg font-bold leading-tight">{APP_NAME}</span>
+              <div>
+                <span className="text-lg font-bold leading-tight text-white">{APP_NAME}</span>
+                <p className="text-[11px] font-medium text-green-300">Est. 2022 · Fresh &amp; Daily</p>
+              </div>
             </div>
             <p className="text-sm text-green-200">
               Your trusted local grocery store. Daily essentials delivered with care.

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useMounted } from "@/hooks/use-mounted";
@@ -9,7 +10,6 @@ import {
   User,
   Menu,
   X,
-  Leaf,
   Heart,
   LayoutDashboard,
 } from "lucide-react";
@@ -45,12 +45,22 @@ export function Navbar() {
       <header className="sticky top-0 z-40 border-b border-green-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <div className="container mx-auto px-4">
           <div className="flex h-16 items-center justify-between gap-4">
-            <Link href="/" className="flex shrink-0 items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-600 text-white">
-                <Leaf className="h-5 w-5" />
+            <Link href="/" className="group flex shrink-0 items-center gap-2.5">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-green-200 bg-white p-0.5 shadow-sm transition-transform group-hover:scale-105">
+                <Image
+                  src="/logo.png"
+                  alt={APP_NAME}
+                  width={40}
+                  height={40}
+                  priority
+                  className="h-full w-full rounded-full object-contain"
+                />
               </div>
-              <span className="hidden text-lg font-bold text-green-800 sm:inline">{APP_NAME}</span>
-              <span className="text-sm font-bold text-green-800 sm:hidden">OGS</span>
+              <div className="flex flex-col">
+                <span className="hidden text-base font-bold leading-tight text-green-900 sm:inline">{APP_NAME}</span>
+                <span className="text-sm font-bold text-green-900 sm:hidden">OGS</span>
+                <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-green-600 sm:inline">Fresh &amp; Daily Grocery</span>
+              </div>
             </Link>
 
             <div className="hidden flex-1 max-w-xl md:block">
