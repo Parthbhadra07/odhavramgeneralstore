@@ -137,8 +137,8 @@ async function run() {
   const appleIcon = await sharp(master1024Buffer).resize(180, 180).png().toBuffer();
   fs.writeFileSync(path.join(ROOT_DIR, 'src', 'app', 'apple-icon.png'), appleIcon);
 
-  // Favicons (.ico multi-size 16, 32, 48)
-  const icoSizes = [16, 32, 48];
+  // Favicons (.ico multi-size 16, 32, 48, 64, 128, 256)
+  const icoSizes = [16, 32, 48, 64, 128, 256];
   const icoBuffers = await Promise.all(
     icoSizes.map((s) => sharp(master1024Buffer).resize(s, s).png().toBuffer())
   );
