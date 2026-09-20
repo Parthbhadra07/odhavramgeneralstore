@@ -57,6 +57,8 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
       product_name: itemName,
       barcode: line.barcode,
       lot_id: line.lotId ?? null,
+      unit: line.unit ?? "pcs",
+      pack_multiplier: line.packMultiplier ?? 1,
       quantity: line.quantity,
       rate: baseRate,
       gst_percentage: line.gstPercentage,
@@ -221,9 +223,10 @@ export const posService = {
       if (params.saleStatus !== "held") {
         for (const line of params.lines) {
           if (line.lotId) {
+            const effQty = line.quantity * (line.packMultiplier || 1);
             await lotService.deductStock(
               line.lotId,
-              line.quantity,
+              effQty,
               "pos_sale",
               saleId,
               `POS ${billNumber}`
@@ -335,9 +338,10 @@ export const posService = {
     }
 
     for (const item of sale.pos_sale_items ?? []) {
+      const effQty = item.quantity * (Number(item.pack_multiplier) || 1);
       await supabase.rpc("apply_stock_movement", {
         p_product_id: item.product_id,
-        p_quantity: item.quantity,
+        p_quantity: effQty,
         p_movement_type: "cancel",
         p_reference_type: "pos_sale",
         p_reference_id: saleId,
@@ -380,9 +384,10 @@ export const posService = {
     // Revert stock if requested and sale was completed
     if ((options.restoreStock ?? true) && sale.sale_status === "completed") {
       for (const item of sale.pos_sale_items ?? []) {
+        const effQty = item.quantity * (Number(item.pack_multiplier) || 1);
         await supabase.rpc("apply_stock_movement", {
           p_product_id: item.product_id,
-          p_quantity: item.quantity,
+          p_quantity: effQty,
           p_movement_type: "cancel",
           p_reference_type: "pos_sale",
           p_reference_id: saleId,
@@ -393,7 +398,7 @@ export const posService = {
           try {
             await supabase.rpc("apply_lot_stock_movement", {
               p_lot_id: item.lot_id,
-              p_quantity: item.quantity,
+              p_quantity: effQty,
               p_movement_type: "cancel",
               p_reference_type: "pos_sale",
               p_reference_id: saleId,

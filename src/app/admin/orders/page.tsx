@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Search, Eye, Printer } from "lucide-react";
+import { Search, Eye, Printer, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { orderService } from "@/services/order.service";
 import { useAdminOrderNotifications } from "@/hooks/use-admin-order-notifications";
 import { formatPrice, formatDate } from "@/utils/format";
@@ -18,12 +19,31 @@ export default function AdminOrdersPage() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(() => {
     orderService
       .getAll({ status, search, dateFrom, dateTo })
       .then(setOrders);
   }, [status, search, dateFrom, dateTo]);
+
+  const handleDeleteOrder = async () => {
+    if (!deletingOrder) return;
+    setDeleting(true);
+    try {
+      await orderService.deleteOrder(deletingOrder.id, { restoreStock: true });
+      toast.success(
+        `Order #${deletingOrder.order_number || deletingOrder.id.slice(0, 8)} deleted and stock restored.`
+      );
+      setDeletingOrder(null);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete order");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const { newOrderCount } = useAdminOrderNotifications(load);
 
@@ -125,15 +145,25 @@ export default function AdminOrdersPage() {
                   <Link
                     href={`/admin/orders/view?id=${order.id}`}
                     className="mr-2 inline-flex text-green-700 hover:text-green-900"
+                    title="View Order"
                   >
                     <Eye className="h-4 w-4" />
                   </Link>
                   <Link
                     href={`/orders/invoice?id=${order.id}`}
-                    className="inline-flex text-gray-600 hover:text-gray-900"
+                    className="mr-2 inline-flex text-gray-600 hover:text-gray-900"
+                    title="Print Invoice"
                   >
                     <Printer className="h-4 w-4" />
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingOrder(order)}
+                    className="inline-flex text-red-600 hover:text-red-800 transition-colors"
+                    title="Delete Order"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -143,6 +173,51 @@ export default function AdminOrdersPage() {
           <p className="p-8 text-center text-gray-500">No orders found.</p>
         )}
       </div>
+
+      {deletingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600 shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Delete Online Order?</h3>
+                <p className="text-xs text-gray-500 font-mono">
+                  #{deletingOrder.order_number ?? deletingOrder.id.slice(0, 8)}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-gray-600">
+              Are you sure you want to permanently delete this online order for{" "}
+              <strong>{deletingOrder.customer_name || "Customer"}</strong> (Total: {formatPrice(deletingOrder.total_amount)})?
+            </p>
+
+            <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800">
+              📦 <strong>Stock Safety:</strong> If this order was not already cancelled, all reserved product items will be automatically returned to the inventory stock ledger.
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                disabled={deleting}
+                onClick={() => setDeletingOrder(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={deleting}
+                onClick={handleDeleteOrder}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete Order
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

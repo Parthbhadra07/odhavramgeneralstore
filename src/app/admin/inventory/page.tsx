@@ -204,7 +204,7 @@ export default function InventoryPage() {
       <div className="relative mb-4 max-w-md">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <Input
-          placeholder="Search by name, SKU, or barcode"
+          placeholder="Search by name or barcode"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -355,7 +355,7 @@ export default function InventoryPage() {
                       <td className="p-3">
                         <p className="font-medium">{p.name}</p>
                         <p className="font-mono text-xs text-gray-500">
-                          {p.sku ?? p.barcode ?? "—"}
+                          {p.barcode ?? "—"}
                         </p>
                       </td>
                       <td className="p-3">

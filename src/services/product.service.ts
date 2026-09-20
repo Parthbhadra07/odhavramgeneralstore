@@ -12,6 +12,31 @@ function isOfflineError(err: unknown): boolean {
   return /fetch|network|failed/i.test(msg);
 }
 
+function isColumnMissingError(
+  error: { code?: string; message?: string; details?: string } | null | undefined
+): boolean {
+  if (!error) return false;
+  const code = String(error.code || "");
+  const msg = String(error.message || "").toLowerCase();
+  const details = String(error.details || "").toLowerCase();
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    code === "PGRST200" ||
+    msg.includes("column") ||
+    msg.includes("schema cache") ||
+    msg.includes("box_selling_price") ||
+    msg.includes("packet_selling_price") ||
+    msg.includes("box_price") ||
+    msg.includes("packet_price") ||
+    msg.includes("pieces_per_packet") ||
+    msg.includes("packets_per_box") ||
+    details.includes("column") ||
+    details.includes("schema cache") ||
+    details.includes("box_selling_price")
+  );
+}
+
 function toProductRow(
   product: Partial<Product> & {
     name: string;
@@ -31,10 +56,14 @@ function toProductRow(
     image_url: product.image_url?.trim() || null,
     category_id: product.category_id || null,
     featured: product.featured ?? false,
-    sku: product.sku?.trim() || null,
+    sku: null,
     barcode: product.barcode?.trim() || null,
     brand: product.brand?.trim() || null,
     unit: product.unit?.trim() || "pcs",
+    pieces_per_packet: product.pieces_per_packet ?? 12,
+    packets_per_box: product.packets_per_box ?? 12,
+    packet_selling_price: product.packet_selling_price ?? null,
+    box_selling_price: product.box_selling_price ?? null,
     purchase_price: product.purchase_price ?? null,
     mrp: product.mrp ?? null,
     gst_percentage: product.gst_percentage ?? 0,
@@ -140,19 +169,84 @@ export const productService = {
     product: Omit<Product, "id" | "created_at" | "categories">
   ) {
     const supabase = requireClient();
-    const row = toProductRow(product);
+    let row: Record<string, unknown> = toProductRow(product);
 
-    const { data, error } = await supabase
-      .from("products")
-      .insert(row)
-      .select()
-      .single();
+    let data: any = null;
+    let error: any = null;
+
+    // Retry loop for unique slug resolution
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase
+        .from("products")
+        .insert(row)
+        .select()
+        .single();
+      data = res.data;
+      error = res.error;
+
+      if (error && isColumnMissingError(error)) {
+        // Column does not exist yet (migration 023 not run). Strip packaging fields and retry
+        delete row.pieces_per_packet;
+        delete row.packets_per_box;
+        delete row.packet_selling_price;
+        delete row.box_selling_price;
+        delete row.box_price;
+        delete row.packet_price;
+        const retry = await supabase.from("products").insert(row).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
+      // If duplicate slug (code 23505), automatically append unique number and retry!
+      if (
+        error &&
+        error.code === "23505" &&
+        (error.message?.includes("slug") ||
+          error.details?.includes("slug") ||
+          error.message?.includes("products_slug_key"))
+      ) {
+        const base = String(row.slug || "product").replace(/-\d+$/, "");
+        row = {
+          ...row,
+          slug: `${base}-${attempt + 2}`,
+        };
+        continue;
+      }
+
+      break;
+    }
 
     if (error) {
-      if (error.code === "23505") {
-        throw new Error("A product with this slug already exists. Use a different slug.");
+      if (
+        error.code === "23505" &&
+        (error.message?.includes("sku") || error.details?.includes("sku"))
+      ) {
+        const retry = await supabase.from("products").insert({ ...row, sku: null }).select().single();
+        if (!retry.error && retry.data) {
+          return retry.data as Product;
+        }
       }
-      if (error.code === "42501" || error.message.includes("policy")) {
+
+      if (
+        error.code === "23505" &&
+        (error.message?.includes("slug") ||
+          error.details?.includes("slug") ||
+          error.message?.includes("products_slug_key"))
+      ) {
+        const uniqueSlug = `${String(row.slug || "product").replace(/-\d+$/, "")}-${Date.now().toString(36).slice(-4)}`;
+        const lastTry = await supabase.from("products").insert({ ...row, slug: uniqueSlug, sku: null }).select().single();
+        if (!lastTry.error && lastTry.data) {
+          return lastTry.data as Product;
+        }
+      }
+
+      if (error.code === "23505") {
+        if (error.message?.includes("barcode") || error.details?.includes("barcode")) {
+          throw new Error("A product with this barcode already exists.");
+        }
+        throw new Error("A product with this name or barcode already exists. Please check your Active or Archived products.");
+      }
+      if (error.code === "42501" || error.message?.includes("policy")) {
         throw new Error(
           "Permission denied. Make sure your account has admin role in Supabase."
         );
@@ -169,22 +263,84 @@ export const productService = {
     if (product.name !== undefined) row.name = product.name;
     if (product.slug !== undefined) row.slug = product.slug;
     if (product.description !== undefined) row.description = product.description?.trim() || null;
-    if (product.price !== undefined) row.price = product.price;
+    if (product.price !== undefined) {
+      row.price = product.price;
+      row.selling_price = product.selling_price ?? product.price;
+    }
+    if (product.selling_price !== undefined) row.selling_price = product.selling_price;
     if (product.stock !== undefined) row.stock = product.stock;
     if (product.image_url !== undefined) row.image_url = product.image_url?.trim() || null;
     if (product.category_id !== undefined) row.category_id = product.category_id || null;
     if (product.featured !== undefined) row.featured = product.featured;
+    if (product.is_bestseller !== undefined) row.is_bestseller = product.is_bestseller;
+    if (product.is_new_arrival !== undefined) row.is_new_arrival = product.is_new_arrival;
+    if (product.sku !== undefined) row.sku = null;
+    if (product.barcode !== undefined) row.barcode = product.barcode?.trim() || null;
+    if (product.brand !== undefined) row.brand = product.brand?.trim() || null;
+    if (product.unit !== undefined) row.unit = product.unit?.trim() || "pcs";
+    if (product.pieces_per_packet !== undefined) row.pieces_per_packet = product.pieces_per_packet;
+    if (product.packets_per_box !== undefined) row.packets_per_box = product.packets_per_box;
+    if (product.packet_selling_price !== undefined) row.packet_selling_price = product.packet_selling_price;
+    if (product.box_selling_price !== undefined) row.box_selling_price = product.box_selling_price;
+    if (product.purchase_price !== undefined) row.purchase_price = product.purchase_price;
+    if (product.mrp !== undefined) row.mrp = product.mrp;
+    if (product.gst_percentage !== undefined) row.gst_percentage = product.gst_percentage;
+    if (product.reorder_level !== undefined) row.reorder_level = product.reorder_level;
+    if (product.min_stock_level !== undefined) row.min_stock_level = product.min_stock_level;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("products")
       .update(row)
       .eq("id", id)
       .select()
       .single();
 
+    if (error && isColumnMissingError(error)) {
+      // Column does not exist yet (migration 023 not run). Strip packaging fields and retry
+      const cleanRow: Record<string, unknown> = { ...row };
+      delete cleanRow.pieces_per_packet;
+      delete cleanRow.packets_per_box;
+      delete cleanRow.packet_selling_price;
+      delete cleanRow.box_selling_price;
+      delete cleanRow.box_price;
+      delete cleanRow.packet_price;
+      const retry = await supabase.from("products").update(cleanRow).eq("id", id).select().single();
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (
+      error &&
+      error.code === "23505" &&
+      (error.message?.includes("sku") || error.details?.includes("sku"))
+    ) {
+      const retry = await supabase.from("products").update({ ...row, sku: null }).eq("id", id).select().single();
+      if (!retry.error && retry.data) {
+        return retry.data as Product;
+      }
+    }
+
+    if (
+      error &&
+      error.code === "23505" &&
+      (error.message?.includes("slug") ||
+        error.details?.includes("slug") ||
+        error.message?.includes("products_slug_key"))
+    ) {
+      const base = String(row.slug || "product").replace(/-\d+$/, "");
+      const uniqueSlug = `${base}-${Date.now().toString(36).slice(-4)}`;
+      const retry = await supabase.from("products").update({ ...row, slug: uniqueSlug, sku: null }).eq("id", id).select().single();
+      if (!retry.error && retry.data) {
+        return retry.data as Product;
+      }
+    }
+
     if (error) {
       if (error.code === "23505") {
-        throw new Error("A product with this slug already exists.");
+        if (error.message?.includes("barcode") || error.details?.includes("barcode")) {
+          throw new Error("A product with this barcode already exists.");
+        }
+        throw new Error("A product with this name or barcode already exists.");
       }
       throw new Error(error.message);
     }
@@ -236,6 +392,15 @@ export const productService = {
       };
     }
 
+    // If force deleting, clean up sales and purchase references
+    if (options?.force) {
+      try { await supabase.from("pos_sale_items").delete().eq("product_id", id); } catch {}
+      try { await supabase.from("order_items").delete().eq("product_id", id); } catch {}
+      try { await supabase.from("sales_return_items").delete().eq("product_id", id); } catch {}
+      try { await supabase.from("purchase_return_items").delete().eq("product_id", id); } catch {}
+      try { await supabase.from("purchase_items").delete().eq("product_id", id); } catch {}
+    }
+
     // Clean up accessible dependent records
     await supabase.from("cart_items").delete().eq("product_id", id);
     await supabase.from("wishlist").delete().eq("product_id", id);
@@ -247,18 +412,20 @@ export const productService = {
 
     const { error } = await supabase.from("products").delete().eq("id", id);
     if (error) {
-      // If foreign key constraint still blocks it, soft-deactivate
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({ is_active: false })
-        .eq("id", id);
-      if (!updateError) {
-        removeProductFromCatalog(id);
-        return {
-          success: true,
-          action: "deactivated",
-          message: "Product has linked records and was archived.",
-        };
+      // If foreign key constraint still blocks it and not force, soft-deactivate
+      if (!options?.force) {
+        const { error: updateError } = await supabase
+          .from("products")
+          .update({ is_active: false })
+          .eq("id", id);
+        if (!updateError) {
+          removeProductFromCatalog(id);
+          return {
+            success: true,
+            action: "deactivated",
+            message: "Product has linked records and was archived.",
+          };
+        }
       }
       throw new Error(error.message || "Failed to delete product");
     }
@@ -268,6 +435,16 @@ export const productService = {
       success: true,
       action: "deleted",
       message: "Product deleted successfully",
+    };
+  },
+
+  async restore(id: string): Promise<{ success: boolean; message: string }> {
+    const supabase = requireClient();
+    const { error } = await supabase.from("products").update({ is_active: true }).eq("id", id);
+    if (error) throw new Error(error.message || "Failed to restore product");
+    return {
+      success: true,
+      message: "Product restored to active catalog.",
     };
   },
 };

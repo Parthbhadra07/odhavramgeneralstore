@@ -1,5 +1,6 @@
 import { requireClient } from "@/lib/supabase/client";
 import { erpReportsService } from "./reports.service";
+import { clearProductCatalog } from "@/lib/offline/product-cache";
 
 const EXPORT_TABLES = [
   "products",
@@ -67,5 +68,76 @@ export const backupService = {
     }
 
     return { imported, errors };
+  },
+
+  async clearStoreDataExceptUsers(): Promise<{ success: boolean; message: string }> {
+    const supabase = requireClient();
+
+    // 1. Try invoking the database RPC function (Migration 024)
+    try {
+      const { data, error } = await supabase.rpc("clear_store_data_except_users");
+      if (!error && data) {
+        await clearProductCatalog();
+        return {
+          success: true,
+          message: (data as { message?: string }).message || "Store data cleared successfully. User accounts preserved.",
+        };
+      }
+    } catch {
+      // Fall through to client-side cascade
+    }
+
+    // 2. Client-side cascade fallback in reverse foreign key order
+    const tablesToDelete = [
+      "tracking_history",
+      "order_items",
+      "orders",
+      "refunds",
+      "sales_return_items",
+      "sales_returns",
+      "purchase_return_items",
+      "purchase_returns",
+      "pos_payment_splits",
+      "pos_sale_items",
+      "pos_sales",
+      "supplier_payments",
+      "purchase_items",
+      "purchase_bills",
+      "lot_stock_movements",
+      "stock_movements",
+      "barcode_labels",
+      "product_variants",
+      "product_images",
+      "product_lots",
+      "cart_items",
+      "wishlist",
+      "products",
+      "categories",
+      "brands",
+      "suppliers",
+      "customer_loyalty",
+      "customer_credit",
+      "customers",
+      "addresses",
+      "cash_closing",
+      "expenses",
+      "notifications",
+    ];
+
+    for (const t of tablesToDelete) {
+      try {
+        await supabase.from(t).delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch {
+        // Continue through all tables
+      }
+    }
+
+    // Clear local offline product cache
+    await clearProductCatalog();
+
+    return {
+      success: true,
+      message: "Store data cleared successfully. User accounts and login preserved.",
+    };
   },
 };

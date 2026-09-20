@@ -55,10 +55,14 @@ export type ProductInput = {
   featured: boolean;
   is_bestseller?: boolean;
   is_new_arrival?: boolean;
-  sku?: string;
+  sku?: string | null;
   barcode?: string;
   brand?: string;
   unit?: string;
+  pieces_per_packet?: number;
+  packets_per_box?: number;
+  packet_selling_price?: number;
+  box_selling_price?: number;
   purchase_price?: number;
   mrp?: number;
   gst_percentage?: number;
@@ -102,10 +106,14 @@ export const productSchema = z.object({
   featured: z.boolean().default(false),
   is_bestseller: z.boolean().default(false),
   is_new_arrival: z.boolean().default(false),
-  sku: z.string().optional(),
+  sku: z.string().optional().nullable(),
   barcode: z.string().optional(),
   brand: z.string().optional(),
   unit: z.string().optional(),
+  pieces_per_packet: z.coerce.number().int().min(1).optional(),
+  packets_per_box: z.coerce.number().int().min(1).optional(),
+  packet_selling_price: z.coerce.number().min(0).optional(),
+  box_selling_price: z.coerce.number().min(0).optional(),
   purchase_price: z.coerce.number().min(0).optional(),
   mrp: z.coerce.number().min(0).optional(),
   gst_percentage: z.coerce.number().min(0).max(100).optional(),

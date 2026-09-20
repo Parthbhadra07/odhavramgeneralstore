@@ -6,6 +6,7 @@ import {
   idbFindProductByBarcode,
   idbSearchProducts,
   idbDeleteProduct,
+  idbClearAllProducts,
 } from "./indexed-db";
 
 const CATALOG_KEY = "ogs-catalog-cache";
@@ -38,6 +39,23 @@ export function removeProductFromCatalog(id: string) {
       const filtered = items.filter((p) => p.id !== id);
       localStorage.setItem(CATALOG_KEY, JSON.stringify(filtered));
     }
+  } catch {
+    // ignore
+  }
+}
+
+export async function clearProductCatalog(): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  try {
+    await idbClearAllProducts();
+  } catch {
+    // ignore
+  }
+
+  try {
+    localStorage.removeItem(CATALOG_KEY);
+    localStorage.removeItem(CATALOG_TS_KEY);
   } catch {
     // ignore
   }

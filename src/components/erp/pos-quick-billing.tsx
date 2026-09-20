@@ -93,6 +93,7 @@ export function PosQuickBilling() {
   const completeSaleRef = useRef<(autoPrint?: boolean) => Promise<void>>(async () => {});
   const holdBillRef = useRef<() => Promise<void>>(async () => {});
   const autoPrintSaleIdRef = useRef<string | null>(null);
+  const activeLineIndexRef = useRef<number>(-1);
 
   const loadHeld = useCallback(() => {
     posService.getHeldBills().then(setHeldBills);
@@ -118,6 +119,47 @@ export function PosQuickBilling() {
     const onKey = (e: globalThis.KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      // Unit shortcuts: Alt+P (Pcs), Alt+K (Pkt), Alt+B (Box), Alt+U (Cycle), Alt+Q (Focus Qty)
+      if (cart.length > 0) {
+        const activeIdx =
+          activeLineIndexRef.current >= 0 && activeLineIndexRef.current < cart.length
+            ? activeLineIndexRef.current
+            : cart.length - 1;
+        const targetLine = cart[activeIdx];
+        const lineKey = cartLineKey(targetLine);
+
+        if (e.altKey && (e.key === "p" || e.key === "P" || e.key === "1")) {
+          e.preventDefault();
+          setLineUnit(lineKey, "pcs");
+          toast.info(`Switched to Pcs (1 pc): ${targetLine.name}`);
+          return;
+        }
+        if (e.altKey && (e.key === "k" || e.key === "K" || e.key === "2")) {
+          e.preventDefault();
+          setLineUnit(lineKey, "pkt");
+          toast.info(`Switched to Packet (${targetLine.piecesPerPacket || 12} pcs): ${targetLine.name}`);
+          return;
+        }
+        if (e.altKey && (e.key === "b" || e.key === "B" || e.key === "3")) {
+          e.preventDefault();
+          setLineUnit(lineKey, "box");
+          toast.info(
+            `Switched to Box (${(targetLine.piecesPerPacket || 12) * (targetLine.packetsPerBox || 12)} pcs): ${targetLine.name}`
+          );
+          return;
+        }
+        if (e.altKey && (e.key === "u" || e.key === "U")) {
+          e.preventDefault();
+          cycleLineUnit(lineKey);
+          return;
+        }
+        if (e.altKey && (e.key === "q" || e.key === "Q")) {
+          e.preventDefault();
+          focusField(`quick-qty-${activeIdx}`);
+          return;
+        }
+      }
 
       if (e.key === "F2") {
         e.preventDefault();
@@ -155,10 +197,20 @@ export function PosQuickBilling() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cart.length]);
+  }, [cart]);
 
   useEffect(() => {
-    if (!productSearch.trim()) {
+    let query = productSearch.trim();
+    if (!query) {
+      setSearchResults([]);
+      setSearchSelectIndex(0);
+      return;
+    }
+    const starMatch = query.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+    if (starMatch) {
+      query = starMatch[3].trim();
+    }
+    if (!query) {
       setSearchResults([]);
       setSearchSelectIndex(0);
       return;
@@ -166,7 +218,7 @@ export function PosQuickBilling() {
     const t = setTimeout(() => {
       setSearchLoading(true);
       inventoryService
-        .listProducts({ search: productSearch.trim() })
+        .listProducts({ search: query })
         .then((res) => {
           setSearchResults(res);
           setSearchSelectIndex(0);
@@ -184,6 +236,138 @@ export function PosQuickBilling() {
           : l
       )
     );
+  };
+
+  const setLineUnit = (key: string, nextUnit: "pcs" | "pkt" | "box") => {
+    setCart((prev) =>
+      prev.map((l) => {
+        if (cartLineKey(l) !== key) return l;
+        const piecesPerPkt = l.piecesPerPacket || 12;
+        const pktsPerBox = l.packetsPerBox || 12;
+        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const baseRate = Number((l as any).baseRate ?? l.rate);
+
+        let packMultiplier = 1;
+        let rate = baseRate;
+
+        if (nextUnit === "pkt") {
+          packMultiplier = piecesPerPkt;
+          rate = Number(l.packetSellingPrice) || (baseRate * piecesPerPkt);
+        } else if (nextUnit === "box") {
+          packMultiplier = totalPcsInBox;
+          rate = Number(l.boxSellingPrice) || (baseRate * totalPcsInBox);
+        }
+
+        return {
+          ...l,
+          unit: nextUnit,
+          packMultiplier,
+          rate: Math.round(rate * 100) / 100,
+        };
+      })
+    );
+  };
+
+  const cycleLineUnit = (key: string) => {
+    setCart((prev) => {
+      const target = prev.find((l) => cartLineKey(l) === key);
+      if (!target) return prev;
+      const current = target.unit || "pcs";
+      const next: "pcs" | "pkt" | "box" =
+        current === "pcs" ? "pkt" : current === "pkt" ? "box" : "pcs";
+
+      const piecesPerPkt = target.piecesPerPacket || 12;
+      const pktsPerBox = target.packetsPerBox || 12;
+      const totalPcsInBox = piecesPerPkt * pktsPerBox;
+      const baseRate = Number((target as any).baseRate ?? target.rate);
+
+      let packMultiplier = 1;
+      let rate = baseRate;
+
+      if (next === "pkt") {
+        packMultiplier = piecesPerPkt;
+        rate = Number(target.packetSellingPrice) || (baseRate * piecesPerPkt);
+      } else if (next === "box") {
+        packMultiplier = totalPcsInBox;
+        rate = Number(target.boxSellingPrice) || (baseRate * totalPcsInBox);
+      }
+
+      toast.info(`Unit set to ${next.toUpperCase()} for ${target.name}`);
+      return prev.map((l) =>
+        cartLineKey(l) === key
+          ? { ...l, unit: next, packMultiplier, rate: Math.round(rate * 100) / 100 }
+          : l
+      );
+    });
+  };
+
+  const handleQtyInput = (key: string, val: string) => {
+    const trimmed = val.trim().toLowerCase();
+    const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)?$/);
+    if (match) {
+      const num = parseFloat(match[1]) || 1;
+      const unitPart = match[2];
+      if (unitPart) {
+        if (unitPart.startsWith("p")) {
+          setLineUnit(key, "pcs");
+        } else if (unitPart.startsWith("k")) {
+          setLineUnit(key, "pkt");
+        } else if (unitPart.startsWith("b")) {
+          setLineUnit(key, "box");
+        }
+        setLineQty(key, num);
+      } else {
+        // Automatically calculate box or packets based on quantity entered in pieces
+        setCart((prev) =>
+          prev.map((l) => {
+            if (cartLineKey(l) !== key) return l;
+            const piecesPerPkt = l.piecesPerPacket || 12;
+            const pktsPerBox = l.packetsPerBox || 12;
+            const totalPcsInBox = piecesPerPkt * pktsPerBox;
+            const baseRate = Number((l as any).baseRate ?? l.rate);
+
+            // If line is already set to packet or box unit, treat number as pack count
+            if (l.unit === "pkt") {
+              return { ...l, quantity: Math.max(1, num) };
+            }
+            if (l.unit === "box") {
+              return { ...l, quantity: Math.max(1, num) };
+            }
+
+            // In pcs mode: auto-calculate boxes or packets
+            if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
+              const boxes = num / totalPcsInBox;
+              const rate = Number(l.boxSellingPrice) || (baseRate * totalPcsInBox);
+              toast.info(`Auto-calculated: ${num} pcs = ${boxes} Box`);
+              return {
+                ...l,
+                unit: "box",
+                packMultiplier: totalPcsInBox,
+                rate: Math.round(rate * 100) / 100,
+                quantity: boxes,
+              };
+            }
+            if (num >= piecesPerPkt && num % piecesPerPkt === 0) {
+              const pkts = num / piecesPerPkt;
+              const rate = Number(l.packetSellingPrice) || (baseRate * piecesPerPkt);
+              toast.info(`Auto-calculated: ${num} pcs = ${pkts} Packet`);
+              return {
+                ...l,
+                unit: "pkt",
+                packMultiplier: piecesPerPkt,
+                rate: Math.round(rate * 100) / 100,
+                quantity: pkts,
+              };
+            }
+
+            return { ...l, quantity: Math.max(1, num) };
+          })
+        );
+      }
+    } else {
+      const num = parseFloat(val) || 1;
+      setLineQty(key, num);
+    }
   };
 
   const setLineRate = (key: string, nextRate: number) => {
@@ -231,16 +415,53 @@ export function PosQuickBilling() {
   const addLineToCart = useCallback(
     (
       product: ErpProduct,
-      lot?: { id: string; barcode: string; current_stock: number; selling_price: number | null } | null
+      lot?: { id: string; barcode: string; current_stock: number; selling_price: number | null } | null,
+      initialUnit: "pcs" | "pkt" | "box" = "pcs",
+      initialQty = 1
     ) => {
       const stock = lot ? lot.current_stock : product.stock;
       if (stock <= 0) {
         toast.error(`${product.name} is out of stock`);
         return;
       }
-      const rate = Number(
+
+      const piecesPerPkt = Number(product.pieces_per_packet) || 12;
+      const pktsPerBox = Number(product.packets_per_box) || 12;
+      const totalPcsInBox = piecesPerPkt * pktsPerBox;
+
+      const baseRate = Number(
         lot?.selling_price ?? product.selling_price ?? product.price
       );
+
+      let unit: "pcs" | "pkt" | "box" = initialUnit;
+      let packMultiplier = 1;
+      let rate = baseRate;
+
+      // Auto-calculate packet or box from initial piece quantity
+      if (initialUnit === "pcs") {
+        if (initialQty >= totalPcsInBox && initialQty % totalPcsInBox === 0) {
+          unit = "box";
+          packMultiplier = totalPcsInBox;
+          rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+          initialQty = initialQty / totalPcsInBox;
+          toast.info(`Auto-calculated: ${initialQty} Box`);
+        } else if (initialQty >= piecesPerPkt && initialQty % piecesPerPkt === 0) {
+          unit = "pkt";
+          packMultiplier = piecesPerPkt;
+          rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+          initialQty = initialQty / piecesPerPkt;
+          toast.info(`Auto-calculated: ${initialQty} Packet`);
+        }
+      }
+
+      if (unit === "pkt") {
+        packMultiplier = piecesPerPkt;
+        rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+      } else if (unit === "box") {
+        packMultiplier = totalPcsInBox;
+        rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+      }
+
       const lotId = lot?.id ?? null;
       const barcode = lot?.barcode ?? product.barcode;
       const discountPercent = Number(product.discount_percent ?? 0);
@@ -249,16 +470,56 @@ export function PosQuickBilling() {
       setCart((prev) => {
         const existingIdx = prev.findIndex((l) => cartLineKey(l) === key);
         const targetIdx = existingIdx >= 0 ? existingIdx : prev.length;
+        activeLineIndexRef.current = targetIdx;
         focusField(`quick-qty-${targetIdx}`, 60);
 
         if (existingIdx >= 0) {
           const existing = prev[existingIdx];
-          if (existing.quantity >= stock) {
-            toast.error("Not enough stock");
+          const totalExistingPieces = existing.quantity * (existing.packMultiplier || 1);
+          const newTotalPieces = totalExistingPieces + (initialQty * packMultiplier);
+          if (newTotalPieces > stock) {
+            toast.error("Not enough stock available");
             return prev;
           }
+
+          // If current line is in loose pcs, check if repeated scanning reaches packet or box
+          if ((existing.unit || "pcs") === "pcs") {
+            if (newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
+              const boxes = newTotalPieces / totalPcsInBox;
+              const boxRate = Number(existing.boxSellingPrice) || (baseRate * totalPcsInBox);
+              toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${boxes} Box`);
+              return prev.map((l, i) =>
+                i === existingIdx
+                  ? {
+                      ...l,
+                      unit: "box",
+                      packMultiplier: totalPcsInBox,
+                      rate: Math.round(boxRate * 100) / 100,
+                      quantity: boxes,
+                    }
+                  : l
+              );
+            }
+            if (newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
+              const pkts = newTotalPieces / piecesPerPkt;
+              const pktRate = Number(existing.packetSellingPrice) || (baseRate * piecesPerPkt);
+              toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${pkts} Packet`);
+              return prev.map((l, i) =>
+                i === existingIdx
+                  ? {
+                      ...l,
+                      unit: "pkt",
+                      packMultiplier: piecesPerPkt,
+                      rate: Math.round(pktRate * 100) / 100,
+                      quantity: pkts,
+                    }
+                  : l
+              );
+            }
+          }
+
           return prev.map((l, i) =>
-            i === existingIdx ? { ...l, quantity: l.quantity + 1 } : l
+            i === existingIdx ? { ...l, quantity: l.quantity + initialQty } : l
           );
         }
         return [
@@ -269,13 +530,21 @@ export function PosQuickBilling() {
             name: product.name,
             barcode,
             rate,
+            unit,
+            packMultiplier,
+            piecesPerPacket: piecesPerPkt,
+            packetsPerBox: pktsPerBox,
+            packetSellingPrice: product.packet_selling_price ?? null,
+            boxSellingPrice: product.box_selling_price ?? null,
+            baseRate,
             discountPercent,
             gstPercentage: Number(product.gst_percentage ?? 0),
-            quantity: 1,
-          },
+            quantity: initialQty,
+          } as PosCartLine & { baseRate?: number },
         ];
       });
-      toast.success(`Added: ${product.name}`, { id: "pos-scan-added" });
+      const unitLabel = unit === "pcs" ? "" : ` [${unit.toUpperCase()}]`;
+      toast.success(`Added: ${product.name}${unitLabel}`, { id: "pos-scan-added" });
       setShowProductPicker(false);
       setProductSearch("");
       setSearchResults([]);
@@ -284,7 +553,23 @@ export function PosQuickBilling() {
   );
 
   const addProductToCart = useCallback(
-    async (barcode: string) => {
+    async (rawBarcode: string) => {
+      let barcode = rawBarcode.trim();
+      let multiplier = 1;
+      let targetUnit: "pcs" | "pkt" | "box" | undefined = undefined;
+
+      const starMatch = barcode.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+      if (starMatch) {
+        multiplier = parseInt(starMatch[1], 10) || 1;
+        if (starMatch[2]) {
+          const u = starMatch[2].toLowerCase();
+          if (u === "p") targetUnit = "pcs";
+          else if (u === "k") targetUnit = "pkt";
+          else if (u === "b") targetUnit = "box";
+        }
+        barcode = starMatch[3].trim();
+      }
+
       const resolved = await inventoryService.resolveByBarcode(barcode);
       if (resolved) {
         addLineToCart(
@@ -296,13 +581,15 @@ export function PosQuickBilling() {
                 current_stock: resolved.lot.current_stock,
                 selling_price: resolved.lot.selling_price,
               }
-            : null
+            : null,
+          targetUnit || (resolved as any).unit || "pcs",
+          multiplier
         );
         return;
       }
       const products = await inventoryService.listProducts({ search: barcode });
       if (products[0]) {
-        addLineToCart(products[0]);
+        addLineToCart(products[0], null, targetUnit || "pcs", multiplier);
         return;
       }
       toast.error("Product not found");
@@ -315,6 +602,36 @@ export function PosQuickBilling() {
     key: string,
     e: React.KeyboardEvent<HTMLInputElement>
   ) => {
+    activeLineIndexRef.current = idx;
+
+    if (e.key === "ArrowUp" || e.key === "+") {
+      e.preventDefault();
+      updateQty(key, 1);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "-") {
+      e.preventDefault();
+      updateQty(key, -1);
+      return;
+    }
+    if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      setLineUnit(key, "pcs");
+      toast.info("Switched to Pcs (1 pc)");
+      return;
+    }
+    if ((e.key === "k" || e.key === "K") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      setLineUnit(key, "pkt");
+      toast.info("Switched to Packet (Pkt)");
+      return;
+    }
+    if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      setLineUnit(key, "box");
+      toast.info("Switched to Box");
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (e.shiftKey) {
@@ -420,7 +737,19 @@ export function PosQuickBilling() {
       }
 
       if (searchResults.length > 0 && searchResults[searchSelectIndex]) {
-        addLineToCart(searchResults[searchSelectIndex]);
+        let multiplier = 1;
+        let targetUnit: "pcs" | "pkt" | "box" = "pcs";
+        const starMatch = query.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+        if (starMatch) {
+          multiplier = parseInt(starMatch[1], 10) || 1;
+          if (starMatch[2]) {
+            const u = starMatch[2].toLowerCase();
+            if (u === "p") targetUnit = "pcs";
+            else if (u === "k") targetUnit = "pkt";
+            else if (u === "b") targetUnit = "box";
+          }
+        }
+        addLineToCart(searchResults[searchSelectIndex], null, targetUnit, multiplier);
         return;
       }
 
@@ -783,6 +1112,20 @@ export function PosQuickBilling() {
             )}
           </div>
 
+          {/* Quick billing keyboard shortcuts hint bar */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
+            <span className="font-semibold text-slate-800">⚡ Shortcuts:</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+P</kbd> Pcs</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+K</kbd> Packet</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+B</kbd> Box</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+U</kbd> Cycle Unit</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">+/-</kbd> Qty</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">5*barcode</kbd> Multi-scan</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">F4</kbd> Clear</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">F8</kbd> Save</span>
+            <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">F9</kbd> Print</span>
+          </div>
+
           {searchLoading && (
             <p className="mt-1 text-xs text-gray-500">Searching products...</p>
           )}
@@ -877,6 +1220,66 @@ export function PosQuickBilling() {
                       </button>
                     </div>
 
+                    {/* Packaging Unit Pills (Pcs / Packet / Box) */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unit:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          activeLineIndexRef.current = idx;
+                          setLineUnit(key, "pcs");
+                        }}
+                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                          (line.unit || "pcs") === "pcs"
+                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                        title="Sell loose pieces (Shortcut: Alt+P or P)"
+                      >
+                        Pcs (1 pc)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          activeLineIndexRef.current = idx;
+                          setLineUnit(key, "pkt");
+                        }}
+                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                          line.unit === "pkt"
+                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                        title={`Sell 1 packet = ${line.piecesPerPacket || 12} pcs (Shortcut: Alt+K or K)`}
+                      >
+                        Pkt ({line.piecesPerPacket || 12} pcs)
+                        {line.packetSellingPrice ? ` · ₹${line.packetSellingPrice}` : ""}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          activeLineIndexRef.current = idx;
+                          setLineUnit(key, "box");
+                        }}
+                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                          line.unit === "box"
+                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                        title={`Sell 1 box = ${(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs (Shortcut: Alt+B or B)`}
+                      >
+                        Box ({(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs)
+                        {line.boxSellingPrice ? ` · ₹${line.boxSellingPrice}` : ""}
+                      </button>
+
+                      {line.unit && line.unit !== "pcs" && (
+                        <span className="ml-auto text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                          Deducts {line.quantity * (line.packMultiplier || 1)} base pcs
+                        </span>
+                      )}
+                    </div>
+
                     {/* 4 Keyboard-navigable inputs: Qty, Rate, Disc %, Amount */}
                     <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 items-center text-xs">
                       {/* Qty field */}
@@ -899,14 +1302,18 @@ export function PosQuickBilling() {
                           </button>
                           <input
                             id={`quick-qty-${idx}`}
-                            type="number"
-                            min={1}
+                            type="text"
+                            inputMode="numeric"
                             value={line.quantity}
+                            onFocus={() => {
+                              activeLineIndexRef.current = idx;
+                            }}
                             onChange={(e) =>
-                              setLineQty(key, Number(e.target.value) || 1)
+                              handleQtyInput(key, e.target.value)
                             }
                             onKeyDown={(e) => handleQtyKeyDown(idx, key, e)}
                             className="w-full bg-transparent text-center font-bold text-gray-900 text-sm focus:outline-none"
+                            title="Type qty (e.g. 5, or 12p / 2k / 1b). Press Up/Down or +/- to change qty, P/K/B to change unit"
                           />
                           <button
                             type="button"

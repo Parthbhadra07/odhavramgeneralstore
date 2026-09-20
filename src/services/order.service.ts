@@ -53,12 +53,14 @@ export const orderService = {
       .from("orders")
       .select(orderSelectFull)
       .eq("user_id", userId)
+      .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER")
       .order("created_at", { ascending: false });
     if (error) {
       const fallback = await supabase
         .from("orders")
         .select(orderSelectBasic)
         .eq("user_id", userId)
+        .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER")
         .order("created_at", { ascending: false });
       if (fallback.error) throw fallback.error;
       return (fallback.data ?? []) as Order[];
@@ -119,6 +121,7 @@ export const orderService = {
     if (filters?.status && filters.status !== "all") {
       query = query.eq("order_status", filters.status);
     }
+    query = query.or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER");
     if (filters?.search) {
       query = query.ilike("order_number", `%${filters.search}%`);
     }
@@ -157,6 +160,24 @@ export const orderService = {
     }
 
     const supabase = requireClient();
+
+    // Verify stock availability for all cart items
+    for (const item of params.items) {
+      const { data: product } = await supabase
+        .from("products")
+        .select("id, name, stock")
+        .eq("id", item.productId)
+        .single();
+      if (!product) {
+        throw new Error("One or more items in your cart are no longer available.");
+      }
+      if (product.stock < item.quantity) {
+        throw new Error(
+          `Only ${product.stock} left in stock for "${product.name}". Please reduce quantity to continue.`
+        );
+      }
+    }
+
     const orderNumber = await this.generateOrderNumber();
     const deliveryOtp = generateDeliveryOtp();
 
@@ -250,16 +271,27 @@ export const orderService = {
     }
 
     for (const item of params.items) {
-      const { data: product } = await supabase
-        .from("products")
-        .select("stock")
-        .eq("id", item.productId)
-        .single();
-      if (product) {
-        await supabase
+      try {
+        await supabase.rpc("apply_stock_movement", {
+          p_product_id: item.productId,
+          p_quantity: -item.quantity,
+          p_movement_type: "online_order",
+          p_reference_type: "order",
+          p_reference_id: order.id,
+          p_notes: `Online order ${orderNumber}`,
+        });
+      } catch {
+        const { data: product } = await supabase
           .from("products")
-          .update({ stock: Math.max(0, product.stock - item.quantity) })
-          .eq("id", item.productId);
+          .select("stock")
+          .eq("id", item.productId)
+          .single();
+        if (product) {
+          await supabase
+            .from("products")
+            .update({ stock: Math.max(0, product.stock - item.quantity) })
+            .eq("id", item.productId);
+        }
       }
     }
 
@@ -370,6 +402,69 @@ export const orderService = {
   async updateStatus(orderId: string, orderStatus: OrderStatus, note?: string) {
     const supabase = requireClient();
 
+    // Fetch existing order to check previous status and line items
+    const existing = await this.getById(orderId);
+    const prevStatus = existing?.order_status;
+
+    // If order is transitioning TO cancelled from non-cancelled, restore stock!
+    if (orderStatus === "cancelled" && prevStatus && prevStatus !== "cancelled") {
+      try {
+        await supabase.rpc("restore_online_order_stock", { p_order_id: orderId });
+      } catch (err) {
+        console.warn("restore_online_order_stock RPC failed, falling back to manual restore:", err);
+        for (const item of existing.order_items ?? []) {
+          try {
+            await supabase.rpc("apply_stock_movement", {
+              p_product_id: item.product_id,
+              p_quantity: item.quantity,
+              p_movement_type: "cancel",
+              p_reference_type: "order",
+              p_reference_id: orderId,
+              p_notes: `Online order ${existing.order_number || orderId} cancelled`,
+            });
+          } catch {
+            const { data: prod } = await supabase
+              .from("products")
+              .select("stock")
+              .eq("id", item.product_id)
+              .single();
+            if (prod) {
+              await supabase
+                .from("products")
+                .update({ stock: prod.stock + item.quantity })
+                .eq("id", item.product_id);
+            }
+          }
+        }
+      }
+    } else if (prevStatus === "cancelled" && orderStatus !== "cancelled") {
+      // Transitioning FROM cancelled back to active, re-deduct stock
+      for (const item of existing?.order_items ?? []) {
+        try {
+          await supabase.rpc("apply_stock_movement", {
+            p_product_id: item.product_id,
+            p_quantity: -item.quantity,
+            p_movement_type: "online_order",
+            p_reference_type: "order",
+            p_reference_id: orderId,
+            p_notes: `Online order ${existing?.order_number || orderId} re-activated`,
+          });
+        } catch {
+          const { data: prod } = await supabase
+            .from("products")
+            .select("stock")
+            .eq("id", item.product_id)
+            .single();
+          if (prod) {
+            await supabase
+              .from("products")
+              .update({ stock: Math.max(0, prod.stock - item.quantity) })
+              .eq("id", item.product_id);
+          }
+        }
+      }
+    }
+
     const base: Record<string, unknown> = {
       order_status: orderStatus,
       tracking_notes: note ?? null,
@@ -415,6 +510,98 @@ export const orderService = {
     }
 
     throw new Error(parseDbError(lastError ?? { message: "Could not update order status" }));
+  },
+
+  async deleteOrder(
+    orderId: string,
+    options: { restoreStock?: boolean } = { restoreStock: true }
+  ): Promise<{ success: boolean; orderNumber?: string }> {
+    const supabase = requireClient();
+
+    // 1. Try atomic database RPC function first
+    try {
+      const { data, error } = await supabase.rpc("delete_online_order", {
+        p_order_id: orderId,
+        p_restore_stock: options.restoreStock ?? true,
+      });
+      if (!error && (data as { success?: boolean })?.success) {
+        return {
+          success: true,
+          orderNumber: (data as { order_number?: string })?.order_number,
+        };
+      }
+    } catch (e) {
+      console.warn("delete_online_order RPC failed, trying fallback:", e);
+    }
+
+    // 2. Client-side fallback
+    const existing = await this.getById(orderId);
+    if (!existing) throw new Error("Order not found");
+
+    // Restore stock if requested and order wasn't already cancelled
+    if (options.restoreStock !== false && existing.order_status !== "cancelled") {
+      for (const item of existing.order_items ?? []) {
+        try {
+          await supabase.rpc("apply_stock_movement", {
+            p_product_id: item.product_id,
+            p_quantity: item.quantity,
+            p_movement_type: "cancel",
+            p_reference_type: "order",
+            p_reference_id: orderId,
+            p_notes: `Online order ${existing.order_number || orderId} deleted`,
+          });
+        } catch {
+          const { data: prod } = await supabase
+            .from("products")
+            .select("stock")
+            .eq("id", item.product_id)
+            .single();
+          if (prod) {
+            await supabase
+              .from("products")
+              .update({ stock: prod.stock + item.quantity })
+              .eq("id", item.product_id);
+          }
+        }
+      }
+    }
+
+    // Clean up dependent records where possible
+    try { await supabase.from("tracking_history").delete().eq("order_id", orderId); } catch {}
+    try { await supabase.from("notifications").delete().eq("reference_type", "order").eq("reference_id", orderId); } catch {}
+    try { await supabase.from("order_items").delete().eq("order_id", orderId); } catch {}
+
+    const { error: delError } = await supabase.from("orders").delete().eq("id", orderId);
+
+    if (delError) {
+      // If direct delete failed (RLS permission code 42501 on orders), mark cancelled & DELETED_ORDER
+      // so it is removed from the active orders list and stock is safely restored
+      const { error: updateErr } = await supabase
+        .from("orders")
+        .update({
+          order_status: "cancelled",
+          tracking_notes: "DELETED_ORDER",
+        })
+        .eq("id", orderId);
+
+      if (updateErr) {
+        throw new Error(
+          "Could not delete order: " +
+            parseDbError(delError) +
+            ". Run supabase/migrations/023_packaging_and_online_order_delete.sql in Supabase SQL Editor."
+        );
+      }
+
+      return {
+        success: true,
+        orderNumber: existing.order_number ?? existing.id,
+      };
+    }
+
+    return {
+      success: true,
+      orderNumber: existing.order_number ?? existing.id,
+    };
   },
 
   getDeliveryOtp(order: Pick<Order, "delivery_otp" | "tracking_notes">): string | null {
@@ -538,7 +725,8 @@ export const orderService = {
 
     const { data: orders } = await supabase
       .from("orders")
-      .select("total_amount, order_status, created_at, payment_status");
+      .select("total_amount, order_status, created_at, payment_status, tracking_notes")
+      .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER");
 
     const all = orders ?? [];
     const active = (o: { order_status: string }) =>
@@ -564,8 +752,9 @@ export const orderService = {
     const supabase = requireClient();
     const { data, error } = await supabase
       .from("orders")
-      .select("total_amount, payment_status, created_at, order_status")
-      .neq("order_status", "cancelled");
+      .select("total_amount, payment_status, created_at, order_status, tracking_notes")
+      .neq("order_status", "cancelled")
+      .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER");
     if (error) throw error;
     return data ?? [];
   },

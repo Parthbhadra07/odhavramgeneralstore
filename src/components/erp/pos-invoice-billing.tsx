@@ -34,7 +34,13 @@ type InvoiceRow = {
   productId: string | null;
   name: string;
   hsn: string;
-  unit: string;
+  unit: "pcs" | "pkt" | "box" | string;
+  packMultiplier?: number;
+  piecesPerPacket?: number;
+  packetsPerBox?: number;
+  packetSellingPrice?: number | null;
+  boxSellingPrice?: number | null;
+  baseRate?: number;
   quantity: number;
   rate: number;
   discountPercent: number;
@@ -49,7 +55,8 @@ function newRow(): InvoiceRow {
     productId: null,
     name: "",
     hsn: "",
-    unit: "",
+    unit: "pcs",
+    packMultiplier: 1,
     quantity: 1,
     rate: 0,
     discountPercent: 0,
@@ -206,6 +213,36 @@ export function PosInvoiceBilling() {
         resetInvoice();
         toast.message("New invoice");
       }
+      if (activeRowId) {
+        if (e.altKey && (e.key === "p" || e.key === "P" || e.key === "1")) {
+          e.preventDefault();
+          switchRowUnit(activeRowId, "pcs");
+          toast.info("Switched to Pcs (1 pc)");
+          return;
+        }
+        if (e.altKey && (e.key === "k" || e.key === "K" || e.key === "2")) {
+          e.preventDefault();
+          switchRowUnit(activeRowId, "pkt");
+          toast.info("Switched to Packet");
+          return;
+        }
+        if (e.altKey && (e.key === "b" || e.key === "B" || e.key === "3")) {
+          e.preventDefault();
+          switchRowUnit(activeRowId, "box");
+          toast.info("Switched to Box");
+          return;
+        }
+        if (e.altKey && (e.key === "u" || e.key === "U")) {
+          e.preventDefault();
+          const target = rows.find((r) => r.id === activeRowId);
+          if (target) {
+            const next = target.unit === "pcs" ? "pkt" : target.unit === "pkt" ? "box" : "pcs";
+            switchRowUnit(activeRowId, next);
+          }
+          return;
+        }
+      }
+
       if ((e.key === "F8" || e.key === "F9") && filledLines.length) {
         e.preventDefault();
         promptCheckoutRef.current();
@@ -217,7 +254,7 @@ export function PosInvoiceBilling() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [filledLines.length, checkoutStep]);
+  }, [filledLines.length, checkoutStep, activeRowId, rows]);
 
   const resetInvoice = () => {
     const fresh = newRow();
@@ -245,11 +282,125 @@ export function PosInvoiceBilling() {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
 
-  const applyProduct = (rowId: string, product: ErpProduct) => {
+  const switchRowUnit = (rowId: string, nextUnit: "pcs" | "pkt" | "box") => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        const piecesPerPkt = r.piecesPerPacket || 12;
+        const pktsPerBox = r.packetsPerBox || 12;
+        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const baseRate = Number(r.baseRate ?? r.rate);
+
+        let packMultiplier = 1;
+        let rate = baseRate;
+        if (nextUnit === "pkt") {
+          packMultiplier = piecesPerPkt;
+          rate = Number(r.packetSellingPrice) || (baseRate * piecesPerPkt);
+        } else if (nextUnit === "box") {
+          packMultiplier = totalPcsInBox;
+          rate = Number(r.boxSellingPrice) || (baseRate * totalPcsInBox);
+        }
+        return {
+          ...r,
+          unit: nextUnit,
+          packMultiplier,
+          rate: Math.round(rate * 100) / 100,
+        };
+      })
+    );
+  };
+
+  const handleRowQtyInput = (rowId: string, val: string) => {
+    const trimmed = val.trim().toLowerCase();
+    const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)?$/);
+    if (match) {
+      const num = parseFloat(match[1]) || 1;
+      const unitPart = match[2];
+      if (unitPart) {
+        if (unitPart.startsWith("p")) {
+          switchRowUnit(rowId, "pcs");
+        } else if (unitPart.startsWith("k")) {
+          switchRowUnit(rowId, "pkt");
+        } else if (unitPart.startsWith("b")) {
+          switchRowUnit(rowId, "box");
+        }
+        updateRow(rowId, { quantity: num });
+      } else {
+        // Automatically calculate box or packets based on quantity entered in pieces
+        setRows((prev) =>
+          prev.map((r) => {
+            if (r.id !== rowId) return r;
+            const piecesPerPkt = r.piecesPerPacket || 12;
+            const pktsPerBox = r.packetsPerBox || 12;
+            const totalPcsInBox = piecesPerPkt * pktsPerBox;
+            const baseRate = Number(r.baseRate ?? r.rate);
+
+            // If row is already set to pkt or box, treat num as quantity of that unit
+            if (r.unit === "pkt" || r.unit === "box") {
+              return { ...r, quantity: Math.max(1, num) };
+            }
+
+            // In pcs mode: auto-calculate boxes or packets
+            if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
+              const boxes = num / totalPcsInBox;
+              const rate = Number(r.boxSellingPrice) || (baseRate * totalPcsInBox);
+              toast.info(`Auto-calculated: ${num} pcs = ${boxes} Box`);
+              return {
+                ...r,
+                unit: "box",
+                packMultiplier: totalPcsInBox,
+                rate: Math.round(rate * 100) / 100,
+                quantity: boxes,
+              };
+            }
+            if (num >= piecesPerPkt && num % piecesPerPkt === 0) {
+              const pkts = num / piecesPerPkt;
+              const rate = Number(r.packetSellingPrice) || (baseRate * piecesPerPkt);
+              toast.info(`Auto-calculated: ${num} pcs = ${pkts} Packet`);
+              return {
+                ...r,
+                unit: "pkt",
+                packMultiplier: piecesPerPkt,
+                rate: Math.round(rate * 100) / 100,
+                quantity: pkts,
+              };
+            }
+
+            return { ...r, quantity: Math.max(1, num) };
+          })
+        );
+      }
+    } else {
+      updateRow(rowId, { quantity: parseFloat(val) || 0 });
+    }
+  };
+
+  const applyProduct = (
+    rowId: string,
+    product: ErpProduct,
+    initialUnit: "pcs" | "pkt" | "box" = "pcs",
+    initialMultiplier = 1
+  ) => {
     if (product.stock <= 0) {
       toast.error(`${product.name} is out of stock`);
       return;
     }
+    const piecesPerPkt = Number(product.pieces_per_packet) || 12;
+    const pktsPerBox = Number(product.packets_per_box) || 12;
+    const totalPcsInBox = piecesPerPkt * pktsPerBox;
+    const baseRate = Number(product.selling_price ?? product.price);
+
+    let unit = initialUnit;
+    let packMultiplier = 1;
+    let rate = baseRate;
+    if (unit === "pkt") {
+      packMultiplier = piecesPerPkt;
+      rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+    } else if (unit === "box") {
+      packMultiplier = totalPcsInBox;
+      rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+    }
+
     setRows((prev) => {
       const next = prev.map((r) =>
         r.id === rowId
@@ -258,9 +409,15 @@ export function PosInvoiceBilling() {
               productId: product.id,
               name: product.name,
               hsn: product.hsn_code ?? "",
-              unit: product.unit ?? "pcs",
-              quantity: r.quantity || 1,
-              rate: Number(product.selling_price ?? product.price),
+              unit,
+              packMultiplier,
+              piecesPerPacket: piecesPerPkt,
+              packetsPerBox: pktsPerBox,
+              packetSellingPrice: product.packet_selling_price ?? null,
+              boxSellingPrice: product.box_selling_price ?? null,
+              baseRate,
+              quantity: initialMultiplier || r.quantity || 1,
+              rate,
               discountPercent: Number(product.discount_percent ?? 0),
               gstPercentage: Number(product.gst_percentage ?? 0),
               barcode: product.barcode,
@@ -277,8 +434,22 @@ export function PosInvoiceBilling() {
 
   const addProductFromScan = useCallback(
     async (rawBarcode: string, options?: { keepScanFocus?: boolean; clearRowId?: string; exactBarcodeOnly?: boolean }) => {
-      const code = normalizeScannedBarcode(rawBarcode);
+      let code = normalizeScannedBarcode(rawBarcode);
       if (!code) return false;
+
+      let multiplier = 1;
+      let targetUnit: "pcs" | "pkt" | "box" | undefined = undefined;
+      const starMatch = code.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+      if (starMatch) {
+        multiplier = parseInt(starMatch[1], 10) || 1;
+        if (starMatch[2]) {
+          const u = starMatch[2].toLowerCase();
+          if (u === "p") targetUnit = "pcs";
+          else if (u === "k") targetUnit = "pkt";
+          else if (u === "b") targetUnit = "box";
+        }
+        code = starMatch[3].trim();
+      }
 
       try {
         const resolved = await inventoryService.resolveByBarcode(code);
@@ -298,21 +469,101 @@ export function PosInvoiceBilling() {
           return false;
         }
 
+        const piecesPerPkt = Number(product.pieces_per_packet) || 12;
+        const pktsPerBox = Number(product.packets_per_box) || 12;
+        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const baseRate = Number(lot?.selling_price ?? product.selling_price ?? product.price);
+
+        let unit: "pcs" | "pkt" | "box" = targetUnit || (resolved as any)?.unit || "pcs";
+        let packMultiplier = 1;
+        let rate = baseRate;
+
+        // Auto-calculate packet or box from scan multiplier if no unit explicitly specified
+        if (!targetUnit && unit === "pcs") {
+          if (multiplier >= totalPcsInBox && multiplier % totalPcsInBox === 0) {
+            unit = "box";
+            packMultiplier = totalPcsInBox;
+            rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+            multiplier = multiplier / totalPcsInBox;
+            toast.info(`Auto-calculated: ${multiplier} Box`);
+          } else if (multiplier >= piecesPerPkt && multiplier % piecesPerPkt === 0) {
+            unit = "pkt";
+            packMultiplier = piecesPerPkt;
+            rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+            multiplier = multiplier / piecesPerPkt;
+            toast.info(`Auto-calculated: ${multiplier} Packet`);
+          }
+        }
+
+        if (unit === "pkt") {
+          packMultiplier = piecesPerPkt;
+          rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+        } else if (unit === "box") {
+          packMultiplier = totalPcsInBox;
+          rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+        }
+
         const lotId = lot?.id ?? null;
-        const rate = Number(lot?.selling_price ?? product.selling_price ?? product.price);
         const barcode = lot?.barcode ?? product.barcode;
 
         setRows((prev) => {
           const existing = prev.find(
-            (r) => r.productId === product.id && (r.lotId ?? null) === lotId
+            (r) => r.productId === product.id && (r.lotId ?? null) === lotId && r.unit === unit
           );
           if (existing) {
-            if (existing.quantity + 1 > stock) {
+            const totalExistingPieces = existing.quantity * (existing.packMultiplier || 1);
+            const newTotalPieces = totalExistingPieces + (multiplier * packMultiplier);
+            if (newTotalPieces > stock) {
               toast.error("Not enough stock");
               return prev;
             }
+
+            // If existing row is in loose pcs, check if repeated scanning reaches packet or box
+            if (existing.unit === "pcs") {
+              if (newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
+                const boxes = newTotalPieces / totalPcsInBox;
+                const boxRate = Number(existing.boxSellingPrice) || (baseRate * totalPcsInBox);
+                toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${boxes} Box`);
+                let next = prev.map((r) =>
+                  r.id === existing.id
+                    ? {
+                        ...r,
+                        unit: "box",
+                        packMultiplier: totalPcsInBox,
+                        rate: Math.round(boxRate * 100) / 100,
+                        quantity: boxes,
+                      }
+                    : r
+                );
+                if (options?.clearRowId && options.clearRowId !== existing.id) {
+                  next = next.map((r) => (r.id === options.clearRowId ? { ...newRow(), id: r.id } : r));
+                }
+                return next;
+              }
+              if (newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
+                const pkts = newTotalPieces / piecesPerPkt;
+                const pktRate = Number(existing.packetSellingPrice) || (baseRate * piecesPerPkt);
+                toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${pkts} Packet`);
+                let next = prev.map((r) =>
+                  r.id === existing.id
+                    ? {
+                        ...r,
+                        unit: "pkt",
+                        packMultiplier: piecesPerPkt,
+                        rate: Math.round(pktRate * 100) / 100,
+                        quantity: pkts,
+                      }
+                    : r
+                );
+                if (options?.clearRowId && options.clearRowId !== existing.id) {
+                  next = next.map((r) => (r.id === options.clearRowId ? { ...newRow(), id: r.id } : r));
+                }
+                return next;
+              }
+            }
+
             let next = prev.map((r) =>
-              r.id === existing.id ? { ...r, quantity: r.quantity + 1 } : r
+              r.id === existing.id ? { ...r, quantity: r.quantity + multiplier } : r
             );
             if (options?.clearRowId && options.clearRowId !== existing.id) {
               next = next.map((r) =>
@@ -328,8 +579,14 @@ export function PosInvoiceBilling() {
             productId: product.id,
             name: product.name,
             hsn: product.hsn_code ?? "",
-            unit: product.unit ?? "pcs",
-            quantity: 1,
+            unit,
+            packMultiplier,
+            piecesPerPacket: piecesPerPkt,
+            packetsPerBox: pktsPerBox,
+            packetSellingPrice: product.packet_selling_price ?? null,
+            boxSellingPrice: product.box_selling_price ?? null,
+            baseRate,
+            quantity: multiplier,
             rate,
             discountPercent: Number(product.discount_percent ?? 0),
             gstPercentage: Number(product.gst_percentage ?? 0),
@@ -350,7 +607,8 @@ export function PosInvoiceBilling() {
           return next;
         });
 
-        toast.success(`Added: ${product.name}`, { id: "pos-scan-added" });
+        const unitSuffix = unit === "pcs" ? "" : ` [${unit.toUpperCase()}]`;
+        toast.success(`Added: ${product.name}${unitSuffix}`, { id: "pos-scan-added" });
         setShowSuggest(false);
         setSuggestions([]);
         setScanCode("");
@@ -369,12 +627,22 @@ export function PosInvoiceBilling() {
   const searchItems = async (rowId: string, query: string) => {
     updateRow(rowId, { name: query, productId: null });
     setActiveRowId(rowId);
-    if (!query.trim()) {
+    let searchTerm = query.trim();
+    if (!searchTerm) {
       setSuggestions([]);
       setShowSuggest(false);
       return;
     }
-    const products = await inventoryService.listProducts({ search: query.trim() });
+    const starMatch = searchTerm.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+    if (starMatch) {
+      searchTerm = starMatch[3].trim();
+    }
+    if (!searchTerm) {
+      setSuggestions([]);
+      setShowSuggest(false);
+      return;
+    }
+    const products = await inventoryService.listProducts({ search: searchTerm });
     setSuggestions(products.slice(0, 12));
     setSuggestIndex(0);
     setShowSuggest(true);
@@ -387,6 +655,12 @@ export function PosInvoiceBilling() {
       name: r.name,
       barcode: r.barcode,
       rate: r.rate,
+      unit: (r.unit === "pkt" || r.unit === "box" ? r.unit : "pcs") as "pcs" | "pkt" | "box",
+      packMultiplier: r.packMultiplier || 1,
+      piecesPerPacket: r.piecesPerPacket,
+      packetsPerBox: r.packetsPerBox,
+      packetSellingPrice: r.packetSellingPrice,
+      boxSellingPrice: r.boxSellingPrice,
       discountPercent: r.discountPercent || 0,
       gstPercentage: r.gstPercentage,
       quantity: r.quantity,
@@ -568,6 +842,42 @@ export function PosInvoiceBilling() {
     }
   };
 
+  const handleRowQtyKeyDown = (row: InvoiceRow, e: KeyboardEvent<HTMLInputElement>) => {
+    setActiveRowId(row.id);
+    if (e.key === "ArrowUp" || e.key === "+") {
+      e.preventDefault();
+      updateRow(row.id, { quantity: (row.quantity || 0) + 1 });
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "-") {
+      e.preventDefault();
+      updateRow(row.id, { quantity: Math.max(1, (row.quantity || 1) - 1) });
+      return;
+    }
+    if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      switchRowUnit(row.id, "pcs");
+      toast.info("Switched to Pcs (1 pc)");
+      return;
+    }
+    if ((e.key === "k" || e.key === "K") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      switchRowUnit(row.id, "pkt");
+      toast.info("Switched to Packet");
+      return;
+    }
+    if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      switchRowUnit(row.id, "box");
+      toast.info("Switched to Box");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      focusCell(`rate-${row.id}`);
+    }
+  };
+
   const handleItemKey = (row: InvoiceRow, e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && (!showSuggest || !suggestions.length || activeRowId !== row.id)) {
       e.preventDefault();
@@ -595,7 +905,19 @@ export function PosInvoiceBilling() {
       e.preventDefault();
       const pick = suggestions[suggestIndex];
       if (pick) {
-        applyProduct(row.id, pick);
+        let multiplier = 1;
+        let targetUnit: "pcs" | "pkt" | "box" = "pcs";
+        const starMatch = row.name.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
+        if (starMatch) {
+          multiplier = parseInt(starMatch[1], 10) || 1;
+          if (starMatch[2]) {
+            const u = starMatch[2].toLowerCase();
+            if (u === "p") targetUnit = "pcs";
+            else if (u === "k") targetUnit = "pkt";
+            else if (u === "b") targetUnit = "box";
+          }
+        }
+        applyProduct(row.id, pick, targetUnit, multiplier);
         requestAnimationFrame(() => focusCell(`qty-${row.id}`));
       }
     } else if (e.key === "Escape") {
@@ -610,7 +932,7 @@ export function PosInvoiceBilling() {
           <div>
             <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
             <p className="text-[11px] text-slate-300">
-              F2 Scan · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
+              F2 Scan · F3 Details · F4 New · Alt+P/K/B Unit · +/- Qty · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
           </div>
           <OfflineStatusBanner compact />
@@ -875,24 +1197,37 @@ export function PosInvoiceBilling() {
                 <td className="px-0 py-0.5">
                   <input
                     id={`qty-${row.id}`}
-                    type="number"
-                    min={0}
-                    step="any"
+                    type="text"
+                    inputMode="numeric"
                     value={row.quantity}
                     onFocus={() => setActiveRowId(row.id)}
-                    onChange={(e) =>
-                      updateRow(row.id, { quantity: Number(e.target.value) || 0 })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        focusCell(`rate-${row.id}`);
-                      }
-                    }}
-                    className={cellClass("text-right")}
+                    onChange={(e) => handleRowQtyInput(row.id, e.target.value)}
+                    onKeyDown={(e) => handleRowQtyKeyDown(row, e)}
+                    className={cellClass("text-right font-semibold")}
+                    title="Qty (type 5, or 12p / 2k / 1b). Keys: +/- or Up/Down, P/K/B"
                   />
                 </td>
-                <td className="px-1.5 py-0.5 text-slate-600">{row.unit}</td>
+                <td className="px-1 py-0.5">
+                  {row.productId ? (
+                    <select
+                      value={row.unit || "pcs"}
+                      onChange={(e) => switchRowUnit(row.id, e.target.value as any)}
+                      onFocus={() => setActiveRowId(row.id)}
+                      className="h-7 w-full rounded border border-slate-300 bg-white px-1 text-xs font-semibold text-slate-700 focus:border-amber-500 focus:outline-none"
+                    >
+                      <option value="pcs">Pcs (1 pc)</option>
+                      <option value="pkt">Pkt ({row.piecesPerPacket || 12} pcs)</option>
+                      <option value="box">Box ({(row.piecesPerPacket || 12) * (row.packetsPerBox || 12)} pcs)</option>
+                    </select>
+                  ) : (
+                    <span className="text-xs text-slate-400">{row.unit || "pcs"}</span>
+                  )}
+                  {row.unit && row.unit !== "pcs" && (
+                    <div className="text-[10px] text-amber-700 font-medium whitespace-nowrap">
+                      ={row.quantity * (row.packMultiplier || 1)} pcs
+                    </div>
+                  )}
+                </td>
                 <td className="px-0 py-0.5">
                   <input
                     id={`rate-${row.id}`}

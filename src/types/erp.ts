@@ -60,6 +60,12 @@ export interface ErpProduct {
   barcode: string | null;
   brand: string | null;
   unit: string | null;
+  pieces_per_packet?: number | null;
+  packets_per_box?: number | null;
+  packet_selling_price?: number | null;
+  box_selling_price?: number | null;
+  packet_barcode?: string | null;
+  box_barcode?: string | null;
   hsn_code?: string | null;
   discount_percent?: number | null;
   description: string | null;
@@ -312,6 +318,8 @@ export interface PosSaleItem {
   lot_id?: string | null;
   quantity: number;
   rate: number;
+  unit?: string | null;
+  pack_multiplier?: number | null;
   gst_percentage: number;
   gst_amount: number;
   total_amount: number;
@@ -378,6 +386,14 @@ export interface PosCartLine {
   name: string;
   barcode: string | null;
   rate: number;
+  unit?: "pcs" | "pkt" | "box" | string;
+  packMultiplier?: number;
+  piecesPerPacket?: number;
+  packetsPerBox?: number;
+  packetSellingPrice?: number | null;
+  boxSellingPrice?: number | null;
+  packetBarcode?: string | null;
+  boxBarcode?: string | null;
   discountPercent?: number;
   discountAmount?: number;
   gstPercentage: number;

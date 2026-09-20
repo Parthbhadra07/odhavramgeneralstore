@@ -123,6 +123,18 @@ export async function idbDeleteProduct(id: string): Promise<void> {
   });
 }
 
+export async function idbClearAllProducts(): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("products", "readwrite");
+    const store = tx.objectStore("products");
+    store.clear();
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function idbFindProductByBarcode(barcode: string): Promise<ErpProduct | null> {
   const trimmed = barcode.trim();
   if (!trimmed) return null;

@@ -58,6 +58,8 @@ function AdminOrderDetailContent() {
   const [deliveryPerson, setDeliveryPerson] = useState("");
   const [deliveryOtpInput, setDeliveryOtpInput] = useState("");
   const [issuedOtp, setIssuedOtp] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = () => {
     if (!id) return;
@@ -178,6 +180,23 @@ function AdminOrderDetailContent() {
       load();
     } catch (err: unknown) {
       toast.error(orderErrorMessage(err), { duration: 6000 });
+    }
+  };
+
+  const deleteOrder = async () => {
+    if (!id || !order) return;
+    setDeleting(true);
+    try {
+      await orderService.deleteOrder(id, { restoreStock: true });
+      toast.success(
+        `Order #${order.order_number || id.slice(0, 8)} deleted and stock restored`
+      );
+      router.push("/admin/orders");
+    } catch (err: unknown) {
+      toast.error(orderErrorMessage(err), { duration: 6000 });
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -448,6 +467,15 @@ function AdminOrderDetailContent() {
             <Button variant="danger" onClick={cancelOrder} className="w-full sm:w-auto">
               Cancel Order
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowDeleteModal(true)}
+              className="w-full sm:w-auto border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              Delete Order
+            </Button>
           </div>
         </div>
       </div>
@@ -583,6 +611,51 @@ function AdminOrderDetailContent() {
       <Button variant="ghost" onClick={() => router.push("/admin/orders")}>
         ← Back to Orders
       </Button>
+
+      {showDeleteModal && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600 shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Delete Online Order?</h3>
+                <p className="text-xs text-gray-500 font-mono">
+                  #{order.order_number ?? order.id.slice(0, 8)}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-gray-600">
+              Are you sure you want to permanently delete this order for{" "}
+              <strong>{order.customer_name || "Customer"}</strong>?
+            </p>
+
+            <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800">
+              📦 <strong>Stock Safety:</strong> If this order was not already cancelled, all reserved product items will be returned to the inventory stock automatically.
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                disabled={deleting}
+                onClick={() => setShowDeleteModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={deleting}
+                onClick={deleteOrder}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete Order
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -26,12 +26,16 @@ export const adminService = {
 
     const [products, orders, users, paidOrders] = await Promise.all([
       supabase.from("products").select("id", { count: "exact", head: true }),
-      supabase.from("orders").select("id", { count: "exact", head: true }),
+      supabase
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER"),
       supabase.from("users").select("id", { count: "exact", head: true }),
       supabase
         .from("orders")
         .select("total_amount")
-        .eq("payment_status", "paid"),
+        .eq("payment_status", "paid")
+        .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER"),
     ]);
 
     const revenue =

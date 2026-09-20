@@ -96,7 +96,7 @@ export const inventoryService = {
         supabase
           .from("products")
           .select(productSelect)
-          .eq("barcode", trimmed)
+          .or(`barcode.eq.${trimmed},packet_barcode.eq.${trimmed},box_barcode.eq.${trimmed}`)
           .eq("is_active", true)
           .limit(1)
           .maybeSingle(),
@@ -105,16 +105,20 @@ export const inventoryService = {
       if (lotRes.error) throw lotRes.error;
       if (productRes.error) throw productRes.error;
 
-      let result: { product: ErpProduct; lot: ProductLot | null } | null = null;
+      let result: { product: ErpProduct; lot: ProductLot | null; unit?: "pcs" | "pkt" | "box" } | null = null;
       const lot = (lotRes.data as (ProductLot & { products?: ErpProduct | null }) | null) ?? null;
       if (lot) {
         const nested = lot.products;
         const product =
           nested && "id" in nested ? (nested as ErpProduct) : await this.getById(lot.product_id);
-        if (product) result = { product, lot };
+        if (product) result = { product, lot, unit: "pcs" };
       }
       if (!result && productRes.data) {
-        result = { product: productRes.data as ErpProduct, lot: null };
+        const p = productRes.data as ErpProduct;
+        let unit: "pcs" | "pkt" | "box" = "pcs";
+        if (p.packet_barcode === trimmed) unit = "pkt";
+        else if (p.box_barcode === trimmed) unit = "box";
+        result = { product: p, lot: null, unit };
       }
 
       barcodeResolveCache.set(trimmed, { at: Date.now(), result });

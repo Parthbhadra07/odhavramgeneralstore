@@ -38,6 +38,12 @@ export interface Product {
   barcode?: string | null;
   brand?: string | null;
   unit?: string | null;
+  pieces_per_packet?: number | null;
+  packets_per_box?: number | null;
+  packet_selling_price?: number | null;
+  box_selling_price?: number | null;
+  packet_barcode?: string | null;
+  box_barcode?: string | null;
   purchase_price?: number | null;
   selling_price?: number | null;
   mrp?: number | null;
@@ -52,6 +58,8 @@ export interface Product {
   image_url: string | null;
   category_id: string | null;
   featured: boolean;
+  is_bestseller?: boolean | null;
+  is_new_arrival?: boolean | null;
   created_at: string;
   categories?: Category | null;
 }

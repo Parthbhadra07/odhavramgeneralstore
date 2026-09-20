@@ -17,12 +17,16 @@ import {
 
 export function receiptFromPosSale(sale: PosSale): ReceiptData {
   const created = new Date(sale.created_at);
-  const items = (sale.pos_sale_items ?? []).map((i) => ({
-    name: i.product_name,
-    quantity: i.quantity,
-    rate: Number(i.rate),
-    amount: Number(i.total_amount ?? Number(i.rate) * i.quantity),
-  }));
+  const items = (sale.pos_sale_items ?? []).map((i) => {
+    const unit = (i as any).unit;
+    const unitSuffix = unit && unit !== "pcs" ? ` [${String(unit).toUpperCase()}]` : "";
+    return {
+      name: `${i.product_name}${unitSuffix}`,
+      quantity: i.quantity,
+      rate: Number(i.rate),
+      amount: Number(i.total_amount ?? Number(i.rate) * i.quantity),
+    };
+  });
 
   return {
     orderId: sale.bill_number,
