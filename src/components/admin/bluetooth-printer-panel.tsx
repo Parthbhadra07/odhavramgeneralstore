@@ -17,7 +17,8 @@ export function BluetoothPrinterPanel() {
   const [connected, setConnected] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const supported = isWebBluetoothSupported();
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron);
+  const supported = isWebBluetoothSupported() || isElectron;
 
   useEffect(() => {
     const refresh = () => {

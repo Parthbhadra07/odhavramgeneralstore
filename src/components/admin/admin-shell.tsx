@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Menu, X, Store } from "lucide-react";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminPrinterSettings } from "@/components/admin/admin-printer-settings";
+import { BluetoothDevicePickerModal } from "@/components/admin/bluetooth-device-picker-modal";
 import { DesktopInstallPrompt } from "@/components/admin/desktop-install-prompt";
 import { FinancialYearSwitcher } from "@/components/admin/financial-year-switcher";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
@@ -37,6 +38,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminOrderNotificationsProvider>
+      <BluetoothDevicePickerModal />
       <div className="flex w-full min-w-0 max-w-[100vw] overflow-x-hidden bg-gray-50">
         {/* Mobile backdrop */}
         <div

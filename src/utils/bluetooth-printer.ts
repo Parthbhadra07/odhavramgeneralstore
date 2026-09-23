@@ -87,12 +87,15 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 export function isWebBluetoothSupported(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.electronAPI?.isElectron) return true;
   if (typeof navigator === "undefined") return false;
   return Boolean(navigator.bluetooth);
 }
 
 export function isBluetoothPrintingAvailable(): boolean {
   if (typeof window === "undefined") return false;
+  if (window.electronAPI?.isElectron) return true;
   if (isCapacitorNative() && Capacitor.getPlatform() === "android") return true;
   return isWebBluetoothSupported();
 }
@@ -540,6 +543,9 @@ export async function printElementToBluetooth(elementId: string) {
 }
 
 export function bluetoothPrinterHint(): string {
+  if (typeof window !== "undefined" && window.electronAPI?.isElectron) {
+    return "Connect any Bluetooth ESC/POS thermal printer directly or select your installed Windows printer below. Uses 58/80mm roll.";
+  }
   if (isCapacitorNative() && Capacitor.getPlatform() === "android") {
     return "Pair the thermal printer in Android Bluetooth settings, then connect it here. Bills print on 58/80mm roll — not A4.";
   }

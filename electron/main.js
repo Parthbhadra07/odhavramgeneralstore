@@ -1,11 +1,16 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const url = require("url");
 
+// Enable Web Bluetooth and experimental web features in Chromium for desktop BLE printer pairing
+app.commandLine.appendSwitch("enable-web-bluetooth");
+app.commandLine.appendSwitch("enable-experimental-web-platform-features");
+
 let mainWindow = null;
 let localServer = null;
+let selectBluetoothCallback = null;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -106,6 +111,78 @@ function startInternalServer() {
   });
 }
 
+function buildApplicationMenu() {
+  const template = [
+    {
+      label: "POS",
+      submenu: [
+        {
+          label: "Quick POS Billing",
+          accelerator: "CmdOrCtrl+1",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.executeJavaScript(
+                `window.location.href = "/admin/pos/";`
+              );
+            }
+          },
+        },
+        {
+          label: "Dashboard",
+          accelerator: "CmdOrCtrl+D",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.executeJavaScript(
+                `window.location.href = "/admin/";`
+              );
+            }
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Reload",
+          accelerator: "CmdOrCtrl+R",
+          click: () => {
+            if (mainWindow) mainWindow.reload();
+          },
+        },
+        {
+          label: "Exit",
+          accelerator: "CmdOrCtrl+Q",
+          click: () => app.quit(),
+        },
+      ],
+    },
+    {
+      label: "Printer",
+      submenu: [
+        {
+          label: "Printer & POS Settings...",
+          accelerator: "CmdOrCtrl+P",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send("open-printer-settings");
+            }
+          },
+        },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1366,
@@ -126,6 +203,27 @@ async function createWindow() {
 
   mainWindow.maximize();
 
+  // Intercept Web Bluetooth device selection requests
+  mainWindow.webContents.on("select-bluetooth-device", (event, deviceList, callback) => {
+    event.preventDefault();
+    selectBluetoothCallback = callback;
+    // Send list of discovered devices to renderer to display popup UI
+    mainWindow.webContents.send("bluetooth-device-list", deviceList);
+  });
+
+  // Automatically handle Bluetooth PIN confirmation for thermal printers
+  if (mainWindow.webContents.session.setBluetoothPairingHandler) {
+    mainWindow.webContents.session.setBluetoothPairingHandler((details, callback) => {
+      if (details.pairingKind === "confirm" || details.pairingKind === "confirmPin") {
+        callback({ confirmed: true });
+      } else if (details.pairingKind === "providePin") {
+        callback({ confirmed: true, pin: "0000" });
+      } else {
+        callback({ confirmed: true });
+      }
+    });
+  }
+
   let startUrl = process.env.ELECTRON_START_URL;
   if (!startUrl) {
     // Completely self-contained: start internal zero-configuration server
@@ -137,9 +235,31 @@ async function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    if (selectBluetoothCallback) {
+      try {
+        selectBluetoothCallback("");
+      } catch {}
+      selectBluetoothCallback = null;
+    }
     mainWindow = null;
   });
 }
+
+// IPC handler when user selects a Bluetooth device from the popup UI
+ipcMain.on("select-bluetooth-device", (_event, deviceId) => {
+  if (selectBluetoothCallback) {
+    selectBluetoothCallback(deviceId || "");
+    selectBluetoothCallback = null;
+  }
+});
+
+// IPC handler when user cancels Bluetooth device selection
+ipcMain.on("cancel-bluetooth-device", () => {
+  if (selectBluetoothCallback) {
+    selectBluetoothCallback("");
+    selectBluetoothCallback = null;
+  }
+});
 
 // IPC handler to list connected printers (thermal / laser)
 ipcMain.handle("get-printers", async () => {
@@ -171,6 +291,7 @@ ipcMain.handle("print-silent", async (event, options = {}) => {
 });
 
 app.whenReady().then(() => {
+  buildApplicationMenu();
   createWindow();
 
   app.on("activate", () => {
@@ -190,3 +311,4 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+

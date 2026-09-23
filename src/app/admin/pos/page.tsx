@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Monitor, FileSpreadsheet, Tag } from "lucide-react";
+import { Monitor, FileSpreadsheet, Tag, Printer } from "lucide-react";
 import { PosQuickBilling } from "@/components/erp/pos-quick-billing";
 import { PosInvoiceBilling } from "@/components/erp/pos-invoice-billing";
+import { AdminPrinterSettings } from "@/components/admin/admin-printer-settings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 
@@ -18,6 +19,18 @@ export default function PosPage() {
   useEffect(() => {
     const saved = window.sessionStorage.getItem(STORAGE_KEY);
     if (saved === "quick" || saved === "invoice") setTab(saved);
+  }, []);
+
+  // Shortcut for Printer Settings (F10 or Alt+P)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F10" || (e.altKey && (e.key === "p" || e.key === "P"))) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("open-printer-settings"));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const selectTab = (next: PosTab) => {
@@ -57,16 +70,32 @@ export default function PosPage() {
           </button>
         </div>
 
-        <Link href="/admin/inventory/price-checker">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 font-semibold text-xs shadow-sm"
-          >
-            <Tag className="h-3.5 w-3.5 text-blue-600" />
-            Full Price &amp; Stock Checker
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <AdminPrinterSettings
+            triggerButton={
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-green-300 bg-green-50 text-green-900 hover:bg-green-100 font-semibold text-xs shadow-sm cursor-pointer"
+                title="Configure thermal printer & Bluetooth (F10)"
+              >
+                <Printer className="h-3.5 w-3.5 text-green-700" />
+                Printer Settings
+              </Button>
+            }
+          />
+
+          <Link href="/admin/inventory/price-checker">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 font-semibold text-xs shadow-sm"
+            >
+              <Tag className="h-3.5 w-3.5 text-blue-600" />
+              Full Price &amp; Stock Checker
+            </Button>
+          </Link>
+        </div>
       </div>
       {tab === "quick" ? <PosQuickBilling /> : <PosInvoiceBilling />}
     </div>

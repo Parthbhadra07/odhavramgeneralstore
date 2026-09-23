@@ -13,6 +13,7 @@ import {
   Printer,
   Tag,
   Globe,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -1045,7 +1046,7 @@ export function PosQuickBilling() {
                 <Tag className="h-3.5 w-3.5 text-blue-600" />
                 Check Details (F3)
               </Button>
-              <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+              <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
                 <Printer className="h-3.5 w-3.5 text-gray-500" />
                 <select
                   value={printWidth}
@@ -1063,6 +1064,14 @@ export function PosQuickBilling() {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent("open-printer-settings"))}
+                  className="ml-0.5 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-green-700 transition"
+                  title="Open Full Printer & Bluetooth Settings (F10)"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
               </div>
               <Button
                 type="button"
