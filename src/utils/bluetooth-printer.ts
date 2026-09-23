@@ -10,6 +10,7 @@ import {
   escFeed,
   escInit,
   escText,
+  escTextSize,
   scaleCanvasForPrinter,
 } from "@/utils/escpos";
 import { isCapacitorNative } from "@/lib/capacitor";
@@ -18,6 +19,7 @@ import { getLocalReceiptWidth } from "@/utils/printer-prefs";
 import { renderBarcodeToCanvas } from "@/components/erp/barcode-label-utils";
 import { DEFAULT_LABEL_CONFIG } from "@/services/erp/barcode-label.service";
 import type { BondedBluetoothDevice } from "@/plugins/thermal-printer";
+import type { BarcodeLabelConfig } from "@/types/erp";
 
 const NAME_KEY = "ogs_bt_printer_name";
 const ID_KEY = "ogs_bt_printer_id";
@@ -304,16 +306,54 @@ async function rasterizeElement(el: HTMLElement, dots: number): Promise<Uint8Arr
     clone.style.position = "static";
     clone.style.left = "auto";
     clone.style.top = "auto";
+
+    // Ensure all canvas elements are copied to clone as images
+    const sourceCanvases = Array.from(el.querySelectorAll("canvas"));
+    const cloneCanvases = Array.from(clone.querySelectorAll("canvas"));
+    sourceCanvases.forEach((src, idx) => {
+      const dest = cloneCanvases[idx];
+      if (!dest) return;
+      try {
+        const img = document.createElement("img");
+        img.src = src.toDataURL("image/png");
+        img.style.width = src.style.width || `${src.width}px`;
+        img.style.height = src.style.height || `${src.height}px`;
+        img.style.display = "block";
+        img.style.margin = "0 auto";
+        dest.replaceWith(img);
+      } catch {
+        dest.width = src.width;
+        dest.height = src.height;
+        const ctx = dest.getContext("2d");
+        ctx?.drawImage(src, 0, 0);
+      }
+    });
+
     holder.appendChild(clone);
     document.body.appendChild(holder);
+
     try {
+      // Ensure all images (including UPI QR code data URLs) are loaded before rasterizing
+      const imgs = Array.from(clone.querySelectorAll("img"));
+      await Promise.all(
+        imgs.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.onload = () => resolve(null);
+            img.onerror = () => resolve(null);
+            setTimeout(resolve, 400);
+          });
+        })
+      );
+
       const canvas = await toCanvas(clone, {
         backgroundColor: "#ffffff",
         pixelRatio: 2,
         cacheBust: true,
+        skipFonts: true,
       });
-      const scaled = scaleCanvasForPrinter(canvas, dots);
-      return canvasToEscPosRaster(scaled, 90);
+      const scaled = scaleCanvasForPrinter(canvas, dots, true);
+      return canvasToEscPosRaster(scaled, 128);
     } finally {
       holder.remove();
     }
@@ -333,26 +373,37 @@ export interface BluetoothBarcodeLabel {
 
 export async function printBarcodeLabelsBluetooth(
   label: BluetoothBarcodeLabel,
-  copies = 1
+  copies = 1,
+  configOverride?: Partial<BarcodeLabelConfig>
 ) {
   const dots = getBluetoothPrinterDots();
-  const config = {
+  const prefs = getBarcodePrinterPrefs();
+  const config: BarcodeLabelConfig = {
     ...DEFAULT_LABEL_CONFIG,
+    ...prefs,
+    ...configOverride,
     showBarcodeNumber: label.showBarcodeNumber !== false,
-    barcodeHeight: 56,
-    paperType: getBarcodePrinterPrefs().paperType,
+    paperType: configOverride?.paperType ?? prefs.paperType,
+    barcodeHeight: Math.max(25, Math.min(180, configOverride?.barcodeHeight ?? prefs.barcodeHeight ?? 60)),
+    labelWidthMm: configOverride?.labelWidthMm ?? prefs.labelWidthMm ?? DEFAULT_LABEL_CONFIG.labelWidthMm,
+    labelHeightMm: configOverride?.labelHeightMm ?? prefs.labelHeightMm ?? DEFAULT_LABEL_CONFIG.labelHeightMm,
   };
   const chunks: Uint8Array[] = [];
 
   for (let i = 0; i < copies; i++) {
     chunks.push(escAlign("center"));
     if (label.shopName) {
-      chunks.push(escBold(true), escText(label.shopName.toUpperCase()), escBold(false));
+      chunks.push(
+        escBold(true),
+        escText(label.shopName.toUpperCase()),
+        escBold(false)
+      );
     }
     chunks.push(escText(label.productName));
 
     const canvas = renderBarcodeToCanvas(label.value, config, dots - 16);
-    chunks.push(canvasToEscPosRaster(canvas, 90));
+    const centeredCanvas = scaleCanvasForPrinter(canvas, dots, true);
+    chunks.push(canvasToEscPosRaster(centeredCanvas, 128));
 
     const prices: string[] = [];
     if (label.mrp != null) prices.push(`MRP Rs ${label.mrp.toFixed(2)}`);
@@ -363,15 +414,42 @@ export async function printBarcodeLabelsBluetooth(
     chunks.push(escFeed(2));
   }
 
-  await printEscPosDocument(chunks);
+  // End of print job: feed to clear cutter, then cut
+  chunks.push(escFeed(2), escCut());
+  await printRawToBluetooth(concatBytes(escInit(), ...chunks));
 }
 
-export async function printBarcodeLabelsFromPrintRoot(elementId: string) {
+export async function printBarcodeLabelsFromPrintRoot(
+  elementId: string,
+  configOverride?: Partial<BarcodeLabelConfig>
+) {
   const root = document.getElementById(elementId);
   if (!root) throw new Error("Nothing to print");
   const labels = Array.from(root.querySelectorAll<HTMLElement>(".thermal-label"));
   if (labels.length === 0) throw new Error("No barcode labels found");
 
+  const dots = getBluetoothPrinterDots();
+  const chunks: Uint8Array[] = [];
+
+  // Try rasterizing each styled HTML label so fonts, layout, and styling match wired print 100%
+  let rasterSuccess = true;
+  for (const labelEl of labels) {
+    const raster = await rasterizeElement(labelEl, dots);
+    if (raster && raster.length > 8) {
+      chunks.push(escAlign("center"), raster, escFeed(2));
+    } else {
+      rasterSuccess = false;
+      break;
+    }
+  }
+
+  if (rasterSuccess && chunks.length > 0) {
+    chunks.push(escFeed(2), escCut());
+    await printRawToBluetooth(concatBytes(escInit(), ...chunks));
+    return;
+  }
+
+  // Fallback: structured print with matching clean formatting
   const items: BluetoothBarcodeLabel[] = [];
   for (const label of labels) {
     const value = label.getAttribute("data-barcode-value")?.trim();
@@ -388,7 +466,7 @@ export async function printBarcodeLabelsFromPrintRoot(elementId: string) {
   }
 
   for (const item of items) {
-    await printBarcodeLabelsBluetooth(item, 1);
+    await printBarcodeLabelsBluetooth(item, 1, configOverride);
   }
 }
 
@@ -412,15 +490,18 @@ export async function printElementToBluetooth(elementId: string) {
   const el = document.getElementById(elementId);
   if (!el) throw new Error("Nothing to print");
 
-  const raster = await rasterizeElement(el, getBluetoothPrinterDots());
+  const dots = getBluetoothPrinterDots();
+  const raster = await rasterizeElement(el, dots);
   if (raster && raster.length > 8) {
     await printEscPosDocument([escAlign("center"), raster]);
     return;
   }
 
+  // Fallback: structured text print with centered QR code
+  const qrImg = el.querySelector<HTMLImageElement>(".receipt-qr-wrap img, img.receipt-qr-img");
   const canvases = Array.from(el.querySelectorAll("canvas"));
   const chunks: Uint8Array[] = [escAlign("center")];
-  const cols = getBluetoothPrinterDots() >= 576 ? 48 : 32;
+  const cols = dots >= 576 ? 48 : 32;
   for (const line of el.innerText.split(/\r?\n/)) {
     const trimmed = line.replace(/\s+$/g, "");
     if (!trimmed) {
@@ -431,9 +512,30 @@ export async function printElementToBluetooth(elementId: string) {
       chunks.push(escText(wrapped));
     }
   }
-  for (const canvas of canvases) {
-    chunks.push(canvasToEscPosRaster(scaleCanvasForPrinter(canvas, getBluetoothPrinterDots()), 90));
+
+  if (qrImg && qrImg.src) {
+    try {
+      const qrCanvas = document.createElement("canvas");
+      qrCanvas.width = qrImg.naturalWidth || 240;
+      qrCanvas.height = qrImg.naturalHeight || 240;
+      const ctx = qrCanvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, qrCanvas.width, qrCanvas.height);
+        ctx.drawImage(qrImg, 0, 0, qrCanvas.width, qrCanvas.height);
+        const centered = scaleCanvasForPrinter(qrCanvas, dots, true);
+        chunks.push(canvasToEscPosRaster(centered, 128));
+      }
+    } catch {
+      // ignore
+    }
+  } else {
+    for (const canvas of canvases) {
+      const centered = scaleCanvasForPrinter(canvas, dots, true);
+      chunks.push(canvasToEscPosRaster(centered, 128));
+    }
   }
+
   await printEscPosDocument(chunks);
 }
 

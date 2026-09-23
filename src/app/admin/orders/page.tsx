@@ -132,8 +132,19 @@ export default function AdminOrdersPage() {
                   {order.customer_name ?? order.users?.name ?? "—"}
                 </td>
                 <td className="px-4 py-3">{order.customer_phone ?? "—"}</td>
-                <td className="px-4 py-3 font-medium">
-                  {formatPrice(order.total_amount)}
+                <td className="px-4 py-3">
+                  <div className="font-semibold text-gray-900">
+                    {formatPrice(order.total_amount)}
+                  </div>
+                  <div className="text-[11px] text-gray-500 font-normal whitespace-nowrap">
+                    Items: {formatPrice(Math.max(0, Number(order.total_amount) - Number(order.delivery_charge ?? 0)))}
+                    {" · "}
+                    Del: {Number(order.delivery_charge ?? 0) === 0 ? (
+                      <span className="font-semibold text-emerald-700">FREE</span>
+                    ) : (
+                      <span className="font-semibold text-blue-700">+{formatPrice(Number(order.delivery_charge))}</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <OrderStatusBadge status={order.order_status} />

@@ -17,9 +17,29 @@ export const cashClosingService = {
     });
     const expenseTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
+    const { data: creditPayments } = await supabase
+      .from("customer_credit")
+      .select("amount, payment_method, transaction_type")
+      .eq("transaction_type", "payment")
+      .gte("created_at", dayStart)
+      .lte("created_at", dayEnd);
+
+    const creditCashCollected = (creditPayments ?? [])
+      .filter(
+        (c) =>
+          c.payment_method === "cash" ||
+          !c.payment_method ||
+          c.payment_method === ""
+      )
+      .reduce((s, c) => s + Number(c.amount), 0);
+
+    const creditUpiCollected = (creditPayments ?? [])
+      .filter((c) => c.payment_method === "upi")
+      .reduce((s, c) => s + Number(c.amount), 0);
+
     const orderStats = await orderService.getDashboardStats();
     const closingCash =
-      openingCash + posStats.cash - expenseTotal;
+      openingCash + posStats.cash + creditCashCollected - expenseTotal;
 
     const {
       data: { user },
@@ -31,8 +51,8 @@ export const cashClosingService = {
         {
           closing_date: date,
           opening_cash: openingCash,
-          cash_sales: posStats.cash,
-          upi_sales: posStats.upi,
+          cash_sales: posStats.cash + creditCashCollected,
+          upi_sales: posStats.upi + creditUpiCollected,
           card_sales: posStats.card,
           credit_sales: posStats.credit,
           online_cash_sales: orderStats.todaySales,

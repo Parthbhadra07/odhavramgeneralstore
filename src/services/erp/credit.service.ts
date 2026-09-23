@@ -374,11 +374,32 @@ export const creditService = {
     ).length;
 
     const todayStr = format(todayStart, "yyyy-MM-dd");
-    const todaysCollection = rows
+    const todaysCreditRows = rows.filter(
+      (r) => r.created_at >= todayStart.toISOString()
+    );
+
+    const todaysCreditGiven = todaysCreditRows
+      .filter((r) => r.transaction_type === "credit")
+      .reduce((s, r) => s + Number(r.amount), 0);
+
+    const todaysCollection = todaysCreditRows
+      .filter((r) => r.transaction_type === "payment")
+      .reduce((s, r) => s + Number(r.amount), 0);
+
+    const todaysCashCollection = todaysCreditRows
       .filter(
         (r) =>
           r.transaction_type === "payment" &&
-          r.created_at >= todayStart.toISOString()
+          (r.payment_method === "cash" ||
+            !r.payment_method ||
+            r.payment_method === "")
+      )
+      .reduce((s, r) => s + Number(r.amount), 0);
+
+    const todaysUpiCollection = todaysCreditRows
+      .filter(
+        (r) =>
+          r.transaction_type === "payment" && r.payment_method === "upi"
       )
       .reduce((s, r) => s + Number(r.amount), 0);
 
@@ -398,6 +419,9 @@ export const creditService = {
       overdueAmount: Math.round(overdueAmount * 100) / 100,
       activeCreditCustomers,
       todaysCollection: Math.round(todaysCollection * 100) / 100,
+      todaysCreditGiven: Math.round(todaysCreditGiven * 100) / 100,
+      todaysCashCollection: Math.round(todaysCashCollection * 100) / 100,
+      todaysUpiCollection: Math.round(todaysUpiCollection * 100) / 100,
     };
   },
 

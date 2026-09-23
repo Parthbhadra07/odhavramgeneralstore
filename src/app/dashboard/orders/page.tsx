@@ -158,10 +158,16 @@ export default function OrdersPage() {
                     <OrderStatusBadge status={order.order_status} />
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-green-700">
-                      {formatPrice(order.total_amount)}
-                    </span>
-                    <span className="text-xs text-gray-500">
+                    <div>
+                      <span className="font-semibold text-green-700 text-base">
+                        {formatPrice(order.total_amount)}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-500 font-normal">
+                        (Items: {formatPrice(Math.max(0, Number(order.total_amount) - Number(order.delivery_charge ?? 0)))}
+                        {Number(order.delivery_charge ?? 0) > 0 ? ` + Delivery: ${formatPrice(Number(order.delivery_charge))}` : " · Free Delivery"})
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500 font-medium">
                       {PAYMENT_METHOD_LABELS[order.payment_method ?? "cod"]}
                     </span>
                   </div>

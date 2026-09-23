@@ -68,6 +68,12 @@ export type ProductInput = {
   gst_percentage?: number;
   reorder_level?: number;
   min_stock_level?: number;
+  auto_refill_enabled?: boolean;
+  auto_refill_quantity?: number;
+  auto_refill_time?: string;
+  auto_refill_slot2_enabled?: boolean;
+  auto_refill_slot2_quantity?: number;
+  auto_refill_slot2_time?: string;
 };
 
 export const productSchema = z.object({
@@ -119,6 +125,12 @@ export const productSchema = z.object({
   gst_percentage: z.coerce.number().min(0).max(100).optional(),
   reorder_level: z.coerce.number().int().min(0).optional(),
   min_stock_level: z.coerce.number().int().min(0).optional(),
+  auto_refill_enabled: z.boolean().optional().default(false),
+  auto_refill_quantity: z.coerce.number().int().min(0).optional(),
+  auto_refill_time: z.string().optional(),
+  auto_refill_slot2_enabled: z.boolean().optional().default(false),
+  auto_refill_slot2_quantity: z.coerce.number().int().min(0).optional(),
+  auto_refill_slot2_time: z.string().optional(),
 });
 
 export const categorySchema = z.object({

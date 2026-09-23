@@ -8,18 +8,21 @@ import type {
 } from "@/types/erp";
 
 export const LABEL_SIZE_PRESETS = [
-  { id: "25x15", label: "25×15 mm", width: 25, height: 15 },
-  { id: "38x25", label: "38×25 mm", width: 38, height: 25 },
-  { id: "50x25", label: "50×25 mm", width: 50, height: 25 },
-  { id: "75x50", label: "75×50 mm", width: 75, height: 50 },
-  { id: "custom", label: "Custom Size", width: 50, height: 25 },
+  { id: "25x15", label: "25×15 mm (Small Item)", width: 25, height: 15, barcodeHeight: 32, fontSize: 8 },
+  { id: "38x25", label: "38×25 mm (Grocery / Cosmetic)", width: 38, height: 25, barcodeHeight: 48, fontSize: 9 },
+  { id: "50x25", label: "50×25 mm (Standard Indian Retail)", width: 50, height: 25, barcodeHeight: 56, fontSize: 10 },
+  { id: "75x50", label: "75×50 mm (Shipping / Large Box)", width: 75, height: 50, barcodeHeight: 85, fontSize: 12 },
+  { id: "100x50", label: "100×50 mm (Warehouse / Pallet)", width: 100, height: 50, barcodeHeight: 90, fontSize: 13 },
+  { id: "roll58", label: "58mm Continuous Roll", width: 58, height: 35, barcodeHeight: 58, fontSize: 10 },
+  { id: "roll80", label: "80mm Continuous Roll", width: 80, height: 45, barcodeHeight: 70, fontSize: 11 },
+  { id: "custom", label: "Custom Dimensions", width: 50, height: 25, barcodeHeight: 56, fontSize: 10 },
 ] as const;
 
 export const DEFAULT_LABEL_CONFIG: BarcodeLabelConfig = {
   format: "CODE128",
   labelWidthMm: 50,
   labelHeightMm: 25,
-  barcodeHeight: 40,
+  barcodeHeight: 56,
   fontSize: 10,
   printerType: "tvs",
   paperType: "roll58",

@@ -9,12 +9,16 @@ import { DesktopInstallPrompt } from "@/components/admin/desktop-install-prompt"
 import { FinancialYearSwitcher } from "@/components/admin/financial-year-switcher";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { AdminOrderNotificationsProvider } from "@/components/admin/admin-order-notifications-provider";
+import { useDailyAutoRefill } from "@/hooks/use-daily-auto-refill";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+
+  // Run automated daily refills for milk, bread, and essentials
+  useDailyAutoRefill();
 
   useEffect(() => {
     setSidebarOpen(false);

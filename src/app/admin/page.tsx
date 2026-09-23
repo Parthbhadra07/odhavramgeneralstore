@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ShoppingCart,
   Clock,
@@ -13,21 +14,25 @@ import {
   Banknote,
   Smartphone,
   Package,
+  CreditCard,
 } from "lucide-react";
 import { analyticsService } from "@/services/erp";
 import { adminService } from "@/services/admin.service";
 import { useAdminOrderNotifications } from "@/hooks/use-admin-order-notifications";
 import { useErpNotifications } from "@/hooks/use-erp-notifications";
 import { StatCard } from "@/components/admin/stat-card";
+import { OnlineOrdersBreakdownModal } from "@/components/admin/online-orders-breakdown-modal";
 import { SimpleBarChart } from "@/components/admin/charts/simple-bar-chart";
 import { SimpleLineChart } from "@/components/admin/charts/simple-line-chart";
 import { formatPrice } from "@/utils/format";
 import { APP_NAME } from "@/lib/constants";
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [lowStock, setLowStock] = useState<{ id: string; name: string; stock: number }[]>([]);
   const [metrics, setMetrics] = useState<Awaited<ReturnType<typeof analyticsService.getDashboardMetrics>> | null>(null);
+  const [showOnlineOrdersModal, setShowOnlineOrdersModal] = useState(false);
   const [sales7, setSales7] = useState<{ label: string; value: number }[]>([]);
   const [sales30, setSales30] = useState<{ label: string; value: number }[]>([]);
   const [monthlyRev, setMonthlyRev] = useState<{ label: string; value: number }[]>([]);
@@ -80,18 +85,59 @@ export default function AdminDashboardPage() {
         </Link>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Today's Online Sales" value={formatPrice(metrics.todayOnlineSales)} icon={ShoppingCart} color="bg-blue-500" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+        <StatCard
+          label="Today's Online Sales"
+          value={formatPrice(metrics.todayOnlineSales)}
+          icon={ShoppingCart}
+          color="bg-blue-500"
+          subtext={`Items ${formatPrice(metrics.todayOnlineItemsSubtotal ?? 0)} · Delivery ${formatPrice(metrics.todayOnlineDeliveryCharges ?? 0)}`}
+          onClick={() => setShowOnlineOrdersModal(true)}
+          clickableHint="Breakdown"
+        />
         <StatCard label="Today's POS Sales" value={formatPrice(metrics.todayPosSales)} icon={Monitor} color="bg-indigo-500" />
         <StatCard label="Total Orders" value={metrics.totalOrders} icon={Package} color="bg-violet-500" />
         <StatCard label="Pending Orders" value={metrics.pendingOrders} icon={Clock} color="bg-amber-500" />
         <StatCard label="Delivered Orders" value={metrics.deliveredOrders} icon={CheckCircle} color="bg-green-500" />
-        <StatCard label="Cash Collection" value={formatPrice(metrics.cashCollection)} icon={Banknote} color="bg-emerald-600" />
-        <StatCard label="UPI Collection" value={formatPrice(metrics.upiCollection)} icon={Smartphone} color="bg-cyan-600" />
+        <StatCard
+          label="Cash Collection"
+          value={formatPrice(metrics.cashCollection)}
+          icon={Banknote}
+          color="bg-emerald-600"
+          subtext={`POS ${formatPrice(metrics.posCashSales ?? 0)} + Khata ${formatPrice(metrics.creditCashCollection ?? 0)}`}
+        />
+        <StatCard
+          label="UPI Collection"
+          value={formatPrice(metrics.upiCollection)}
+          icon={Smartphone}
+          color="bg-cyan-600"
+          subtext={`POS ${formatPrice(metrics.posUpiSales ?? 0)} + Khata ${formatPrice(metrics.creditUpiCollection ?? 0)}`}
+        />
+        <StatCard
+          label="Credit Given"
+          value={formatPrice(metrics.todayCreditGiven ?? 0)}
+          icon={CreditCard}
+          color="bg-rose-600"
+          subtext={`Due ${formatPrice(metrics.outstandingCredit ?? 0)} · Rec ${formatPrice(metrics.todayCreditCollected ?? 0)}`}
+          onClick={() => router.push("/admin/credit")}
+          clickableHint="Khata"
+        />
         <StatCard label="Inventory Value" value={formatPrice(metrics.inventoryValue)} icon={Warehouse} color="bg-teal-600" />
         <StatCard label="Today's Profit" value={formatPrice(metrics.todayProfit)} icon={TrendingUp} color="bg-green-600" />
         <StatCard label="Monthly Profit" value={formatPrice(metrics.monthlyProfit)} icon={IndianRupee} color="bg-emerald-500" subtext={`Revenue ${formatPrice(metrics.monthlyRevenue)}`} />
       </div>
+
+      <OnlineOrdersBreakdownModal
+        open={showOnlineOrdersModal}
+        onClose={() => setShowOnlineOrdersModal(false)}
+        todaySales={metrics.todayOnlineSales}
+        todayItemsSubtotal={metrics.todayOnlineItemsSubtotal ?? 0}
+        todayDeliveryCharges={metrics.todayOnlineDeliveryCharges ?? 0}
+        todayOrders={metrics.todayOnlineOrders ?? []}
+        monthlySales={metrics.monthlyRevenue}
+        monthlyItemsSubtotal={metrics.monthlyOnlineItemsSubtotal}
+        monthlyDeliveryCharges={metrics.monthlyOnlineDeliveryCharges}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="admin-card p-4 sm:p-5">

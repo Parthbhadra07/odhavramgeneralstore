@@ -32,11 +32,33 @@ export function mmToPx(mm: number, dpi = 203): number {
 
 export function getBarcodeBarWidth(
   config: BarcodeLabelConfig,
-  valueLength = 12
+  valueLengthOrVal: number | string = 12
 ): number {
-  const usablePx = Math.max(80, mmToPx(config.labelWidthMm) - 24);
-  const estimatedModules = Math.max(80, valueLength * 11 + 40);
-  if (config.paperType === "roll80" && estimatedModules * 2 <= usablePx) {
+  const value = typeof valueLengthOrVal === "string" ? valueLengthOrVal : "";
+  const len = typeof valueLengthOrVal === "number" ? valueLengthOrVal : value.length;
+
+  // Physical label width in dots at 203 DPI (8 dots/mm)
+  const labelDots = mmToPx(config.labelWidthMm || 50);
+  const maxRollDots =
+    config.paperType === "roll80" ? 576 : config.paperType === "roll58" ? 384 : 9999;
+  const totalDots = Math.min(maxRollDots, labelDots);
+
+  // Usable area allowing small margin
+  const usableDots = Math.max(80, totalDots - 16);
+  // Code128: ~11 modules per char + 35. EAN-13 / UPC: exactly 95 modules. EAN-8: 67 modules.
+  const isEan13 =
+    config.format === "EAN13" ||
+    config.format === "UPC" ||
+    (len === 13 && (value ? /^\d{13}$/.test(value) : true));
+  const isEan8 =
+    config.format === "EAN8" ||
+    (len === 8 && (value ? /^\d{8}$/.test(value) : true));
+  const estimatedModules = isEan13 ? 95 : isEan8 ? 67 : Math.max(50, len * 11 + 35);
+
+  if (estimatedModules * 3 <= usableDots) {
+    return 3;
+  }
+  if (estimatedModules * 2 <= usableDots) {
     return 2;
   }
   return 1;
@@ -59,15 +81,15 @@ export function getBarcodePrintCss(config: BarcodeLabelConfig): string {
   const profile = PRINTER_PROFILES[config.printerType];
   const fontFamily = FONT_FAMILY_CSS[config.fontFamily];
   const fontWeight = PRINT_DENSITY_WEIGHT[config.printDensity];
+  const isDiscreteLabel = config.paperType === "label";
   const pageSize =
-    config.paperType === "label"
+    isDiscreteLabel
       ? `${config.labelWidthMm}mm ${config.labelHeightMm}mm`
       : config.paperType === "roll80"
-        ? "80mm 2000mm"
-        : "58mm 2000mm";
+        ? "80mm auto"
+        : "58mm auto";
   const rollWidth = config.paperType === "roll80" ? "80mm" : "58mm";
-  const pageWidth =
-    config.paperType === "label" ? `${config.labelWidthMm}mm` : rollWidth;
+  const pageWidth = isDiscreteLabel ? `${config.labelWidthMm}mm` : rollWidth;
 
   return `
     @page {
@@ -104,20 +126,21 @@ export function getBarcodePrintCss(config: BarcodeLabelConfig): string {
       flex-direction: column;
       flex-wrap: nowrap;
       align-items: center;
-      gap: 2mm;
+      gap: ${isDiscreteLabel ? "0" : "2mm"};
       width: ${pageWidth};
       max-width: ${pageWidth};
-      padding: ${profile.marginMm}mm;
+      padding: ${isDiscreteLabel ? "0" : `${profile.marginMm}mm`};
       background: #fff;
     }
     .thermal-label {
       box-sizing: border-box;
       page-break-inside: avoid;
       break-inside: avoid;
+      ${isDiscreteLabel ? "page-break-after: always; break-after: page;" : "margin-bottom: 2mm;"}
       width: ${config.labelWidthMm}mm;
       max-width: ${config.labelWidthMm}mm;
       min-height: ${config.labelHeightMm}mm;
-      overflow: visible;
+      overflow: hidden;
       background: #fff !important;
       color: #000;
       font-family: ${fontFamily};
@@ -127,20 +150,19 @@ export function getBarcodePrintCss(config: BarcodeLabelConfig): string {
       font-family: ${fontFamily};
       color: #000;
     }
-    .thermal-label img.barcode-img,
-    .thermal-label canvas,
     .thermal-label svg {
       display: block;
       margin: 0 auto;
-      width: auto !important;
       max-width: 100%;
-      height: auto !important;
+      height: auto;
+    }
+    .thermal-label img.barcode-img,
+    .thermal-label canvas {
+      display: block;
+      margin: 0 auto;
+      max-width: 100%;
+      height: auto;
       background: #fff !important;
-      image-rendering: pixelated;
-      image-rendering: -moz-crisp-edges;
-      image-rendering: crisp-edges;
-      -ms-interpolation-mode: nearest-neighbor;
-      filter: none !important;
     }
     @media print {
       html, body {
@@ -150,7 +172,10 @@ export function getBarcodePrintCss(config: BarcodeLabelConfig): string {
         max-width: ${pageWidth};
         background: #fff !important;
       }
-      .label-grid { padding: ${profile.marginMm}mm; background: #fff; }
+      .label-grid {
+        padding: ${isDiscreteLabel ? "0" : `${profile.marginMm}mm`};
+        background: #fff;
+      }
     }
   `;
 }
@@ -167,14 +192,18 @@ export function resolveJsBarcodeFormat(
 }
 
 export function getJsBarcodeOptions(config: BarcodeLabelConfig, value: string) {
+  const barWidth = getBarcodeBarWidth(config, value);
+  const height = Math.max(20, Math.min(180, config.barcodeHeight || 56));
+  const font =
+    FONT_FAMILY_CSS[config.fontFamily]?.split(",")[0]?.replace(/"/g, "") || "Courier New";
   return {
     format: resolveJsBarcodeFormat(config.format, value),
-    width: getBarcodeBarWidth(config, value.length),
-    height: Math.max(32, config.barcodeHeight),
+    width: barWidth,
+    height,
     displayValue: config.showBarcodeNumber,
     fontSize: config.fontSize,
-    font: FONT_FAMILY_CSS[config.fontFamily].split(",")[0].replace(/"/g, ""),
-    margin: 10,
+    font,
+    margin: 4,
     background: "#ffffff",
     lineColor: "#000000",
   };
@@ -200,28 +229,27 @@ export function renderBarcodeToCanvas(
   try {
     draw(options.width);
   } catch {
-    draw(1, "CODE128");
+    try {
+      draw(options.width, "CODE128");
+    } catch {
+      draw(1, "CODE128");
+    }
   }
 
-  if (maxWidthPx && canvas.width > maxWidthPx) {
-    draw(1, options.format === "CODE128" ? "CODE128" : options.format);
-  }
-  if (maxWidthPx && canvas.width > maxWidthPx) {
-    draw(1, "CODE128");
+  // If too wide for target area, step down module width
+  if (maxWidthPx && canvas.width > maxWidthPx && options.width > 2) {
+    try {
+      draw(2);
+    } catch {
+      // keep
+    }
   }
 
-  if (maxWidthPx && canvas.width > maxWidthPx) {
-    const out = document.createElement("canvas");
-    const scale = maxWidthPx / canvas.width;
-    out.width = maxWidthPx;
-    out.height = Math.max(1, Math.round(canvas.height * scale));
-    const ctx = out.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, out.width, out.height);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(canvas, 0, 0, out.width, out.height);
-      return out;
+  if (maxWidthPx && canvas.width > maxWidthPx && options.width > 1) {
+    try {
+      draw(1);
+    } catch {
+      // keep
     }
   }
 
@@ -232,37 +260,13 @@ export function barcodeValueToPngDataUrl(value: string, config: BarcodeLabelConf
   return renderBarcodeToCanvas(value, config).toDataURL("image/png");
 }
 
-function replaceNodeWithBarcodePng(
-  node: Element,
-  value: string,
-  config: BarcodeLabelConfig
-) {
-  const img = document.createElement("img");
-  img.src = barcodeValueToPngDataUrl(value, config);
-  img.alt = value;
-  img.className = "barcode-img";
-  img.style.background = "#ffffff";
-  node.replaceWith(img);
-}
-
 async function rasterizeLabelsForPrint(
   source: HTMLElement,
   config: BarcodeLabelConfig
 ): Promise<string> {
   const clone = source.cloneNode(true) as HTMLElement;
-  const barcodeNodes = Array.from(
-    clone.querySelectorAll("svg[data-barcode-value], canvas[data-barcode-value]")
-  );
-  for (const node of barcodeNodes) {
-    const value = node.getAttribute("data-barcode-value")?.trim();
-    if (!value) continue;
-    try {
-      replaceNodeWithBarcodePng(node, value, config);
-    } catch {
-      /* keep original */
-    }
-  }
 
+  // Convert any canvas elements to data URL images
   const leftoverCanvases = Array.from(clone.querySelectorAll("canvas"));
   for (const orig of leftoverCanvases) {
     try {
@@ -276,6 +280,9 @@ async function rasterizeLabelsForPrint(
       orig.remove();
     }
   }
+
+  // Note: SVG barcode elements are preserved as pure vector in the clone.
+  // This guarantees razor-sharp 203/300 DPI vector lines when sent to the printer.
 
   return clone.innerHTML;
 }
@@ -374,7 +381,8 @@ function printBarcodePopup(
 
 export function downloadBarcodePng(
   element: SVGSVGElement | HTMLCanvasElement,
-  filename: string
+  filename: string,
+  config?: BarcodeLabelConfig
 ) {
   const finish = (href: string) => {
     const link = document.createElement("a");
@@ -388,12 +396,6 @@ export function downloadBarcodePng(
     return;
   }
 
-  const value = element.getAttribute("data-barcode-value");
-  if (value) {
-    finish(barcodeValueToPngDataUrl(value, DEFAULT_LABEL_CONFIG));
-    return;
-  }
-
   const svgData = new XMLSerializer().serializeToString(element);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -403,8 +405,8 @@ export function downloadBarcodePng(
 
   img.onload = () => {
     if (!ctx) return;
-    canvas.width = img.width || 400;
-    canvas.height = img.height || 120;
+    canvas.width = img.naturalWidth || img.width || 400;
+    canvas.height = img.naturalHeight || img.height || 120;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = false;
@@ -427,14 +429,13 @@ export async function downloadBarcodePdf(
 }
 
 export function buildLabelStyle(config: BarcodeLabelConfig): Record<string, string | number> {
-  const widthPx = mmToPx(config.labelWidthMm);
-  const minHeightPx = mmToPx(config.labelHeightMm);
   return {
-    width: `${widthPx}px`,
-    minHeight: `${minHeightPx}px`,
+    width: `${config.labelWidthMm}mm`,
+    minHeight: `${config.labelHeightMm}mm`,
     fontSize: `${config.fontSize}px`,
     fontFamily: FONT_FAMILY_CSS[config.fontFamily],
-    padding: "2mm",
+    padding: "1.5mm",
     background: "#ffffff",
+    boxSizing: "border-box",
   };
 }

@@ -145,6 +145,9 @@ export interface CreditDashboardStats {
   overdueAmount: number;
   activeCreditCustomers: number;
   todaysCollection: number;
+  todaysCreditGiven: number;
+  todaysCashCollection: number;
+  todaysUpiCollection: number;
 }
 
 export interface BarcodeLabelRecord {

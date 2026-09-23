@@ -27,6 +27,12 @@ export function escBold(on: boolean): Uint8Array {
   return new Uint8Array([ESC, 0x45, on ? 1 : 0]);
 }
 
+/** ESC/POS GS ! n (Select character size: widthMult and heightMult 1..4) */
+export function escTextSize(widthMult: 1 | 2 | 3 | 4 = 1, heightMult: 1 | 2 | 3 | 4 = 1): Uint8Array {
+  const n = (((widthMult - 1) & 0x07) << 4) | ((heightMult - 1) & 0x07);
+  return new Uint8Array([GS, 0x21, n]);
+}
+
 export function escFeed(lines = 1): Uint8Array {
   return new Uint8Array([ESC, 0x64, Math.max(0, Math.min(255, lines))]);
 }
@@ -70,10 +76,9 @@ export function escCode128(value: string): Uint8Array {
 
 /**
  * GS v 0 raster bit image from a canvas (1-bit, white background).
- * Only near-black pixels become ink so anti-aliased bars do not fill solid black.
- * Width is padded to a multiple of 8.
+ * Near-black pixels become ink. Padded to full bytes.
  */
-export function canvasToEscPosRaster(canvas: HTMLCanvasElement, threshold = 90): Uint8Array {
+export function canvasToEscPosRaster(canvas: HTMLCanvasElement, threshold = 128): Uint8Array {
   const ctx = canvas.getContext("2d");
   if (!ctx) return new Uint8Array();
 
@@ -87,7 +92,7 @@ export function canvasToEscPosRaster(canvas: HTMLCanvasElement, threshold = 90):
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const luminance = image[i] * 0.299 + image[i + 1] * 0.587 + image[i + 2] * 0.114;
-      const ink = luminance < threshold && image[i + 3] > 200;
+      const ink = luminance < threshold && image[i + 3] > 128;
       if (ink) {
         raster[y * widthBytes + (x >> 3)] |= 0x80 >> (x & 7);
       }
@@ -107,20 +112,29 @@ export function canvasToEscPosRaster(canvas: HTMLCanvasElement, threshold = 90):
   return concatBytes(header, raster);
 }
 
+/**
+ * Scales and centers a canvas onto the full printer dot width (e.g. 384 or 576 dots).
+ * Filling with white ensures widthBytes is an exact line buffer match for ESC/POS GS v 0.
+ */
 export function scaleCanvasForPrinter(
   source: HTMLCanvasElement,
-  maxWidthDots: number
+  maxWidthDots: number,
+  centerOnLineWidth = true
 ): HTMLCanvasElement {
-  const targetW = Math.min(maxWidthDots, source.width);
-  const targetH = Math.max(1, Math.round((source.height * targetW) / source.width));
+  const srcW = Math.max(1, source.width);
+  const srcH = Math.max(1, source.height);
+  const targetW = Math.min(maxWidthDots, srcW);
+  const targetH = Math.max(1, Math.round((srcH * targetW) / srcW));
+  const canvasW = centerOnLineWidth ? maxWidthDots : targetW;
   const out = document.createElement("canvas");
-  out.width = targetW;
+  out.width = canvasW;
   out.height = targetH;
   const ctx = out.getContext("2d");
   if (!ctx) return source;
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.fillRect(0, 0, canvasW, targetH);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(source, 0, 0, targetW, targetH);
+  const offsetX = centerOnLineWidth ? Math.max(0, Math.floor((maxWidthDots - targetW) / 2)) : 0;
+  ctx.drawImage(source, offsetX, 0, targetW, targetH);
   return out;
 }

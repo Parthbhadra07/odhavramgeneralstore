@@ -60,6 +60,14 @@ export interface Product {
   featured: boolean;
   is_bestseller?: boolean | null;
   is_new_arrival?: boolean | null;
+  auto_refill_enabled?: boolean | null;
+  auto_refill_quantity?: number | null;
+  auto_refill_time?: string | null;
+  last_auto_refilled_date?: string | null;
+  auto_refill_slot2_enabled?: boolean | null;
+  auto_refill_slot2_quantity?: number | null;
+  auto_refill_slot2_time?: string | null;
+  last_auto_refilled_slot2_date?: string | null;
   created_at: string;
   categories?: Category | null;
 }

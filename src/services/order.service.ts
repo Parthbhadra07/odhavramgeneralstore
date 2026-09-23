@@ -725,23 +725,65 @@ export const orderService = {
 
     const { data: orders } = await supabase
       .from("orders")
-      .select("total_amount, order_status, created_at, payment_status, tracking_notes")
+      .select("id, order_number, customer_name, customer_phone, total_amount, delivery_charge, order_status, created_at, payment_status, tracking_notes")
       .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER");
 
     const all = orders ?? [];
     const active = (o: { order_status: string }) =>
       !["delivered", "cancelled"].includes(o.order_status);
 
+    const todayOrders = all
+      .filter((o) => new Date(o.created_at) >= today && o.order_status !== "cancelled")
+      .map((o) => {
+        const del = Math.max(0, Number(o.delivery_charge ?? 0));
+        const tot = Number(o.total_amount ?? 0);
+        const sub = Math.max(0, tot - del);
+        return {
+          id: o.id,
+          order_number: o.order_number || o.id?.slice(0, 8),
+          customer_name: o.customer_name || "Customer",
+          customer_phone: o.customer_phone || "",
+          order_status: o.order_status,
+          created_at: o.created_at,
+          payment_status: o.payment_status,
+          subtotal: sub,
+          delivery_charge: del,
+          total_amount: tot,
+        };
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const monthOrders = all
+      .filter((o) => new Date(o.created_at) >= monthStart && o.order_status !== "cancelled")
+      .map((o) => {
+        const del = Math.max(0, Number(o.delivery_charge ?? 0));
+        const tot = Number(o.total_amount ?? 0);
+        return {
+          subtotal: Math.max(0, tot - del),
+          delivery_charge: del,
+          total_amount: tot,
+        };
+      });
+
+    const todaySales = todayOrders.reduce((s, o) => s + o.total_amount, 0);
+    const todayDeliveryCharges = todayOrders.reduce((s, o) => s + o.delivery_charge, 0);
+    const todayItemsSubtotal = todayOrders.reduce((s, o) => s + o.subtotal, 0);
+
+    const monthlySales = monthOrders.reduce((s, o) => s + o.total_amount, 0);
+    const monthlyDeliveryCharges = monthOrders.reduce((s, o) => s + o.delivery_charge, 0);
+    const monthlyItemsSubtotal = monthOrders.reduce((s, o) => s + o.subtotal, 0);
+
     return {
       totalOrders: all.length,
       pendingOrders: all.filter(active).length,
       deliveredOrders: all.filter((o) => o.order_status === "delivered").length,
-      todaySales: all
-        .filter((o) => new Date(o.created_at) >= today && o.order_status !== "cancelled")
-        .reduce((s, o) => s + Number(o.total_amount), 0),
-      monthlySales: all
-        .filter((o) => new Date(o.created_at) >= monthStart && o.order_status !== "cancelled")
-        .reduce((s, o) => s + Number(o.total_amount), 0),
+      todaySales,
+      todayItemsSubtotal,
+      todayDeliveryCharges,
+      todayOrders,
+      monthlySales,
+      monthlyItemsSubtotal,
+      monthlyDeliveryCharges,
       newOrders: all.filter(
         (o) => o.order_status === "received" || o.order_status === "pending"
       ).length,

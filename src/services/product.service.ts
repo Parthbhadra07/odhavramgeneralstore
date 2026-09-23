@@ -27,13 +27,12 @@ function isColumnMissingError(
     msg.includes("schema cache") ||
     msg.includes("box_selling_price") ||
     msg.includes("packet_selling_price") ||
-    msg.includes("box_price") ||
-    msg.includes("packet_price") ||
+    msg.includes("auto_refill") ||
     msg.includes("pieces_per_packet") ||
     msg.includes("packets_per_box") ||
     details.includes("column") ||
     details.includes("schema cache") ||
-    details.includes("box_selling_price")
+    details.includes("auto_refill")
   );
 }
 
@@ -72,6 +71,14 @@ function toProductRow(
     max_stock_level: product.max_stock_level ?? null,
     expiry_date: product.expiry_date || null,
     batch_number: product.batch_number?.trim() || null,
+    auto_refill_enabled: product.auto_refill_enabled ?? false,
+    auto_refill_quantity: product.auto_refill_quantity ? Number(product.auto_refill_quantity) : 0,
+    auto_refill_time: product.auto_refill_time?.trim() || "06:00",
+    last_auto_refilled_date: product.last_auto_refilled_date || null,
+    auto_refill_slot2_enabled: product.auto_refill_slot2_enabled ?? false,
+    auto_refill_slot2_quantity: product.auto_refill_slot2_quantity ? Number(product.auto_refill_slot2_quantity) : 0,
+    auto_refill_slot2_time: product.auto_refill_slot2_time?.trim() || "16:00",
+    last_auto_refilled_slot2_date: product.last_auto_refilled_slot2_date || null,
   };
 }
 
@@ -185,13 +192,21 @@ export const productService = {
       error = res.error;
 
       if (error && isColumnMissingError(error)) {
-        // Column does not exist yet (migration 023 not run). Strip packaging fields and retry
+        // Column does not exist yet (migration 023/025 not run). Strip packaging & auto-refill fields and retry
         delete row.pieces_per_packet;
         delete row.packets_per_box;
         delete row.packet_selling_price;
         delete row.box_selling_price;
         delete row.box_price;
         delete row.packet_price;
+        delete row.auto_refill_enabled;
+        delete row.auto_refill_quantity;
+        delete row.auto_refill_time;
+        delete row.last_auto_refilled_date;
+        delete row.auto_refill_slot2_enabled;
+        delete row.auto_refill_slot2_quantity;
+        delete row.auto_refill_slot2_time;
+        delete row.last_auto_refilled_slot2_date;
         const retry = await supabase.from("products").insert(row).select().single();
         data = retry.data;
         error = retry.error;
@@ -287,6 +302,14 @@ export const productService = {
     if (product.gst_percentage !== undefined) row.gst_percentage = product.gst_percentage;
     if (product.reorder_level !== undefined) row.reorder_level = product.reorder_level;
     if (product.min_stock_level !== undefined) row.min_stock_level = product.min_stock_level;
+    if (product.auto_refill_enabled !== undefined) row.auto_refill_enabled = product.auto_refill_enabled;
+    if (product.auto_refill_quantity !== undefined) row.auto_refill_quantity = product.auto_refill_quantity;
+    if (product.auto_refill_time !== undefined) row.auto_refill_time = product.auto_refill_time;
+    if (product.last_auto_refilled_date !== undefined) row.last_auto_refilled_date = product.last_auto_refilled_date;
+    if (product.auto_refill_slot2_enabled !== undefined) row.auto_refill_slot2_enabled = product.auto_refill_slot2_enabled;
+    if (product.auto_refill_slot2_quantity !== undefined) row.auto_refill_slot2_quantity = product.auto_refill_slot2_quantity;
+    if (product.auto_refill_slot2_time !== undefined) row.auto_refill_slot2_time = product.auto_refill_slot2_time;
+    if (product.last_auto_refilled_slot2_date !== undefined) row.last_auto_refilled_slot2_date = product.last_auto_refilled_slot2_date;
 
     let { data, error } = await supabase
       .from("products")
@@ -296,7 +319,7 @@ export const productService = {
       .single();
 
     if (error && isColumnMissingError(error)) {
-      // Column does not exist yet (migration 023 not run). Strip packaging fields and retry
+      // Column does not exist yet (migration 023/025 not run). Strip packaging & auto-refill fields and retry
       const cleanRow: Record<string, unknown> = { ...row };
       delete cleanRow.pieces_per_packet;
       delete cleanRow.packets_per_box;
@@ -304,6 +327,14 @@ export const productService = {
       delete cleanRow.box_selling_price;
       delete cleanRow.box_price;
       delete cleanRow.packet_price;
+      delete cleanRow.auto_refill_enabled;
+      delete cleanRow.auto_refill_quantity;
+      delete cleanRow.auto_refill_time;
+      delete cleanRow.last_auto_refilled_date;
+      delete cleanRow.auto_refill_slot2_enabled;
+      delete cleanRow.auto_refill_slot2_quantity;
+      delete cleanRow.auto_refill_slot2_time;
+      delete cleanRow.last_auto_refilled_slot2_date;
       const retry = await supabase.from("products").update(cleanRow).eq("id", id).select().single();
       data = retry.data;
       error = retry.error;

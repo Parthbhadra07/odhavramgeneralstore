@@ -1,5 +1,6 @@
 import type {
   BarcodeFontFamily,
+  BarcodeFormat,
   BarcodeLabelConfig,
   BarcodePaperType,
   PrintDensity,
@@ -13,6 +14,11 @@ export type BarcodePrinterPrefs = Pick<
   "paperType" | "printDensity" | "fontFamily" | "printerType" | "fontSize"
 > & {
   receiptFontSize: number;
+  labelWidthMm?: number;
+  labelHeightMm?: number;
+  barcodeHeight?: number;
+  sizePreset?: string;
+  format?: BarcodeFormat;
 };
 
 const DEFAULT_BARCODE_PREFS: BarcodePrinterPrefs = {
@@ -22,6 +28,11 @@ const DEFAULT_BARCODE_PREFS: BarcodePrinterPrefs = {
   printerType: DEFAULT_LABEL_CONFIG.printerType,
   fontSize: DEFAULT_LABEL_CONFIG.fontSize,
   receiptFontSize: 11,
+  labelWidthMm: DEFAULT_LABEL_CONFIG.labelWidthMm,
+  labelHeightMm: DEFAULT_LABEL_CONFIG.labelHeightMm,
+  barcodeHeight: DEFAULT_LABEL_CONFIG.barcodeHeight,
+  sizePreset: "50x25",
+  format: DEFAULT_LABEL_CONFIG.format,
 };
 
 export const BARCODE_PAPER_OPTIONS: { value: BarcodePaperType; label: string }[] = [
@@ -81,11 +92,17 @@ export function mergeBarcodeConfig(
 ): BarcodeLabelConfig {
   const prefs = getBarcodePrinterPrefs();
   return {
+    ...DEFAULT_LABEL_CONFIG,
+    ...prefs,
     ...config,
-    paperType: prefs.paperType ?? config.paperType,
-    printDensity: prefs.printDensity ?? config.printDensity,
-    fontFamily: prefs.fontFamily ?? config.fontFamily,
-    printerType: prefs.printerType ?? config.printerType,
-    fontSize: prefs.fontSize ?? config.fontSize,
+    paperType: config.paperType ?? prefs.paperType ?? DEFAULT_LABEL_CONFIG.paperType,
+    labelWidthMm: config.labelWidthMm ?? prefs.labelWidthMm ?? DEFAULT_LABEL_CONFIG.labelWidthMm,
+    labelHeightMm: config.labelHeightMm ?? prefs.labelHeightMm ?? DEFAULT_LABEL_CONFIG.labelHeightMm,
+    barcodeHeight: config.barcodeHeight ?? prefs.barcodeHeight ?? DEFAULT_LABEL_CONFIG.barcodeHeight,
+    printDensity: config.printDensity ?? prefs.printDensity ?? DEFAULT_LABEL_CONFIG.printDensity,
+    fontFamily: config.fontFamily ?? prefs.fontFamily ?? DEFAULT_LABEL_CONFIG.fontFamily,
+    printerType: config.printerType ?? prefs.printerType ?? DEFAULT_LABEL_CONFIG.printerType,
+    fontSize: config.fontSize ?? prefs.fontSize ?? DEFAULT_LABEL_CONFIG.fontSize,
+    format: config.format ?? prefs.format ?? DEFAULT_LABEL_CONFIG.format,
   };
 }

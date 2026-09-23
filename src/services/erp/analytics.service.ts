@@ -3,6 +3,7 @@ import { posService } from "./pos.service";
 import { orderService } from "@/services/order.service";
 import { inventoryService } from "./inventory.service";
 import { erpReportsService } from "./reports.service";
+import { creditService } from "./credit.service";
 
 function dayKey(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -34,6 +35,7 @@ export const analyticsService = {
       todayPl,
       monthPl,
       posSalesToday,
+      creditStats,
     ] = await Promise.all([
       orderService.getDashboardStats(),
       posService.getTodayStats(),
@@ -42,23 +44,43 @@ export const analyticsService = {
       erpReportsService.dailyProfit(dayKey(today)),
       erpReportsService.profitLoss(monthStart, monthEnd),
       posService.list({ dateFrom: todayIso }),
+      creditService.getDashboardStats().catch(() => null),
     ]);
 
-    const cashCollection = posSalesToday
+    const posCashSales = posSalesToday
       .filter((s) => s.sale_status === "completed" && s.payment_method === "cash")
       .reduce((sum, s) => sum + Number(s.total_amount), 0);
-    const upiCollection = posSalesToday
+    const posUpiSales = posSalesToday
       .filter((s) => s.sale_status === "completed" && s.payment_method === "upi")
       .reduce((sum, s) => sum + Number(s.total_amount), 0);
 
+    const creditCashCollection = creditStats?.todaysCashCollection ?? 0;
+    const creditUpiCollection = creditStats?.todaysUpiCollection ?? 0;
+
+    const totalCashCollection = posCashSales + creditCashCollection;
+    const totalUpiCollection = posUpiSales + creditUpiCollection;
+
     return {
       todayOnlineSales: orderStats.todaySales,
+      todayOnlineItemsSubtotal: orderStats.todayItemsSubtotal,
+      todayOnlineDeliveryCharges: orderStats.todayDeliveryCharges,
+      todayOnlineOrders: orderStats.todayOrders,
+      monthlyOnlineItemsSubtotal: orderStats.monthlyItemsSubtotal,
+      monthlyOnlineDeliveryCharges: orderStats.monthlyDeliveryCharges,
       todayPosSales: posToday.total,
       totalOrders: orderStats.totalOrders,
       pendingOrders: orderStats.pendingOrders,
       deliveredOrders: orderStats.deliveredOrders,
-      cashCollection,
-      upiCollection,
+      cashCollection: totalCashCollection,
+      posCashSales,
+      creditCashCollection,
+      upiCollection: totalUpiCollection,
+      posUpiSales,
+      creditUpiCollection,
+      todayCreditGiven: creditStats?.todaysCreditGiven ?? 0,
+      todayCreditCollected: creditStats?.todaysCollection ?? 0,
+      outstandingCredit: creditStats?.outstandingBalance ?? 0,
+      activeCreditCustomers: creditStats?.activeCreditCustomers ?? 0,
       inventoryValue,
       todayProfit: todayPl.netProfit,
       monthlyProfit: monthPl.netProfit,

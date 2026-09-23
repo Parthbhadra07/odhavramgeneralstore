@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 
 interface UpiQrProps {
@@ -10,23 +10,51 @@ interface UpiQrProps {
 }
 
 export function UpiQr({ upiUrl, size = 120, className }: UpiQrProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [dataUrl, setDataUrl] = useState<string>("");
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !upiUrl) return;
-    QRCode.toCanvas(canvas, upiUrl, {
-      width: size,
+    if (!upiUrl) {
+      setDataUrl("");
+      return;
+    }
+    // High-resolution rendering for sharp 203/300 DPI thermal printing
+    QRCode.toDataURL(upiUrl, {
+      width: Math.max(160, size * 2),
       margin: 1,
       color: { dark: "#000000", light: "#ffffff" },
-    }).catch(() => {});
+      errorCorrectionLevel: "M",
+    })
+      .then(setDataUrl)
+      .catch((err) => {
+        console.warn("Failed to generate UPI QR data URL", err);
+      });
   }, [upiUrl, size]);
 
+  if (!dataUrl) {
+    return (
+      <div
+        className={`receipt-qr-wrap ${className ?? ""}`}
+        style={{ width: size, height: size, background: "#ffffff" }}
+      />
+    );
+  }
+
   return (
-    <canvas
-      ref={canvasRef}
-      className={className}
-      style={{ width: size, height: size }}
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={dataUrl}
+      alt="UPI QR Code"
+      data-upi-url={upiUrl}
+      className={`receipt-qr-img mx-auto block bg-white ${className ?? ""}`}
+      style={{
+        width: size,
+        height: size,
+        display: "block",
+        margin: "0 auto",
+        imageRendering: "pixelated",
+        background: "#ffffff",
+      }}
     />
   );
 }
+

@@ -16,8 +16,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   Package,
+  RefreshCw,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import { productService } from "@/services/product.service";
+import { autoRefillService } from "@/services/auto-refill.service";
 import { categoryService } from "@/services/category.service";
 import { uploadProductImage } from "@/services/storage.service";
 import { productSchema, type ProductInput } from "@/lib/validators";
@@ -38,8 +42,9 @@ export default function AdminProductsPage() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [filterTab, setFilterTab] = useState<"active" | "archived" | "all">("active");
+  const [filterTab, setFilterTab] = useState<"active" | "archived" | "autorefill" | "all">("active");
   const [searchQuery, setSearchQuery] = useState("");
+  const [runningRefill, setRunningRefill] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<{
     id: string;
     name: string;
@@ -70,6 +75,13 @@ export default function AdminProductsPage() {
   const watchPktsPerBox = Number(watch("packets_per_box") || 12);
   const watchTotalPcsInBox = (watchPcsPerPkt || 12) * (watchPktsPerBox || 12);
 
+  const watchAutoRefillEnabled = Boolean(watch("auto_refill_enabled"));
+  const watchAutoRefillQty = Number(watch("auto_refill_quantity") || 0);
+  const watchAutoRefillTime = watch("auto_refill_time") || "06:00";
+  const watchSlot2Enabled = Boolean(watch("auto_refill_slot2_enabled"));
+  const watchSlot2Qty = Number(watch("auto_refill_slot2_quantity") || 0);
+  const watchSlot2Time = watch("auto_refill_slot2_time") || "16:00";
+
   const load = () => {
     productService.getAll({ includeInactive: true }).then(setProducts);
     categoryService.getAll().then(setCategories);
@@ -94,6 +106,12 @@ export default function AdminProductsPage() {
       packets_per_box: 12,
       packet_selling_price: undefined,
       box_selling_price: undefined,
+      auto_refill_enabled: false,
+      auto_refill_quantity: 50,
+      auto_refill_time: "06:00",
+      auto_refill_slot2_enabled: false,
+      auto_refill_slot2_quantity: 30,
+      auto_refill_slot2_time: "16:00",
     });
     setShowForm(true);
   };
@@ -121,6 +139,12 @@ export default function AdminProductsPage() {
       gst_percentage: product.gst_percentage ?? 0,
       reorder_level: product.reorder_level ?? 10,
       min_stock_level: product.min_stock_level ?? 5,
+      auto_refill_enabled: product.auto_refill_enabled ?? false,
+      auto_refill_quantity: product.auto_refill_quantity ?? 50,
+      auto_refill_time: product.auto_refill_time ?? "06:00",
+      auto_refill_slot2_enabled: product.auto_refill_slot2_enabled ?? false,
+      auto_refill_slot2_quantity: product.auto_refill_slot2_quantity ?? 30,
+      auto_refill_slot2_time: product.auto_refill_slot2_time ?? "16:00",
     });
     setShowForm(true);
   };
@@ -171,6 +195,12 @@ export default function AdminProductsPage() {
         reorder_level: data.reorder_level ?? 10,
         min_stock_level: data.min_stock_level ?? 5,
         selling_price: data.price,
+        auto_refill_enabled: Boolean(data.auto_refill_enabled),
+        auto_refill_quantity: data.auto_refill_quantity ? Number(data.auto_refill_quantity) : 0,
+        auto_refill_time: data.auto_refill_time?.trim() || "06:00",
+        auto_refill_slot2_enabled: Boolean(data.auto_refill_slot2_enabled),
+        auto_refill_slot2_quantity: data.auto_refill_slot2_quantity ? Number(data.auto_refill_slot2_quantity) : 0,
+        auto_refill_slot2_time: data.auto_refill_slot2_time?.trim() || "16:00",
       };
 
       if (editing) {
@@ -197,6 +227,10 @@ export default function AdminProductsPage() {
     () => products.filter((p) => p.is_active === false),
     [products]
   );
+  const autoRefillProducts = useMemo(
+    () => products.filter((p) => p.is_active !== false && (p.auto_refill_enabled || p.auto_refill_slot2_enabled)),
+    [products]
+  );
 
   const displayedProducts = useMemo(() => {
     let list =
@@ -204,6 +238,8 @@ export default function AdminProductsPage() {
         ? activeProducts
         : filterTab === "archived"
         ? archivedProducts
+        : filterTab === "autorefill"
+        ? autoRefillProducts
         : products;
 
     if (searchQuery.trim()) {
@@ -216,7 +252,24 @@ export default function AdminProductsPage() {
       );
     }
     return list;
-  }, [filterTab, activeProducts, archivedProducts, products, searchQuery]);
+  }, [filterTab, activeProducts, archivedProducts, autoRefillProducts, products, searchQuery]);
+
+  const handleRunAutoRefill = async () => {
+    setRunningRefill(true);
+    try {
+      const res = await autoRefillService.processDailyAutoRefills();
+      if (res.length > 0) {
+        toast.success(`Daily Auto-Refill complete! Updated ${res.length} products with fresh stock.`);
+      } else {
+        toast.info("Auto-refill check complete. All scheduled daily products are currently up to date.");
+      }
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to run auto-refill");
+    } finally {
+      setRunningRefill(false);
+    }
+  };
 
   const handleRestore = async (id: string, name?: string) => {
     try {
@@ -278,10 +331,25 @@ export default function AdminProductsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="admin-page-title">Products</h1>
-        <Button onClick={openCreate} className="hidden lg:inline-flex">
-          <Plus className="h-4 w-4" /> Add Product
-        </Button>
+        <div>
+          <h1 className="admin-page-title">Products</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Manage catalog, multi-unit packaging & daily automated refills</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            loading={runningRefill}
+            onClick={handleRunAutoRefill}
+            className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+            title="Checks and replenishes stock for items like milk and bread scheduled for today"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Run Auto-Refill Check
+          </Button>
+          <Button onClick={openCreate} className="hidden lg:inline-flex">
+            <Plus className="h-4 w-4" /> Add Product
+          </Button>
+        </div>
       </div>
 
       <AdminFab label="Add Product" icon={Plus} onClick={openCreate} />
@@ -413,6 +481,147 @@ export default function AdminProductsPage() {
             </div>
           </div>
 
+          {/* Daily Auto-Refill (Milk, Bread, Daily Essentials) */}
+          <div className="sm:col-span-2 rounded-xl border border-emerald-300 bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-white p-4 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+                  <Clock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                    Daily Auto-Refill <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Daily Essentials: Milk, Bread, Dairy</span>
+                  </h3>
+                  <p className="text-xs text-gray-600">
+                    Automatically replenishes fresh stock every day at user-fixed times without manual purchase entry.
+                  </p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  {...register("auto_refill_enabled")}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                <span className="ml-2 text-xs font-bold text-gray-800">
+                  {watchAutoRefillEnabled ? "Auto-Refill Active" : "Disabled"}
+                </span>
+              </label>
+            </div>
+
+            {watchAutoRefillEnabled && (
+              <div className="mt-4 space-y-4">
+                {/* Summary calculation pill */}
+                <div className="rounded-lg bg-white border border-emerald-200 p-3 text-xs shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-emerald-900 flex items-center gap-1">
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                      Daily Refill Schedule:
+                    </span>
+                    <span className="font-semibold text-emerald-800">
+                      Total Daily Stock In: +{watchAutoRefillQty + (watchSlot2Enabled ? watchSlot2Qty : 0)} units/day
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 mt-1">
+                    Slot 1 (Morning): +{watchAutoRefillQty || 0} units @ {watchAutoRefillTime}
+                    {watchSlot2Enabled ? ` · Slot 2 (Afternoon): +${watchSlot2Qty || 0} units @ ${watchSlot2Time}` : " (1 refill per day)"}
+                  </p>
+                </div>
+
+                {/* SLOT 1 (Morning Refill) */}
+                <div className="rounded-lg border border-gray-200 bg-white/90 p-3.5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                      🌅 Slot 1 — Morning Batch (e.g. Morning Milk)
+                    </span>
+                    <span className="text-[11px] text-emerald-700 font-medium">Primary Refill</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Input
+                      label="Refill Quantity (Units to add)"
+                      type="number"
+                      min={1}
+                      step="1"
+                      placeholder="50"
+                      error={errors.auto_refill_quantity?.message}
+                      {...register("auto_refill_quantity")}
+                    />
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Refill Time (24h)</label>
+                      <input
+                        type="time"
+                        {...register("auto_refill_time")}
+                        className="w-full rounded-lg border px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      />
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {["05:00", "06:00", "07:00", "08:00"].map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setValue("auto_refill_time", t)}
+                            className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-emerald-100 hover:text-emerald-800"
+                          >
+                            {t === "05:00" ? "5 AM" : t === "06:00" ? "6 AM" : t === "07:00" ? "7 AM" : "8 AM"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SLOT 2 (Afternoon / Evening Refill) */}
+                <div className="rounded-lg border border-gray-200 bg-white/90 p-3.5">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-900 uppercase tracking-wider">
+                      <input
+                        type="checkbox"
+                        {...register("auto_refill_slot2_enabled")}
+                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      🌇 Slot 2 — Afternoon / Evening Batch (Optional 2nd Refill)
+                    </label>
+                    <span className="text-[11px] text-gray-500">2 times a day</span>
+                  </div>
+
+                  {watchSlot2Enabled && (
+                    <div className="grid gap-3 sm:grid-cols-2 mt-3 pt-3 border-t border-gray-100 animate-in fade-in duration-150">
+                      <Input
+                        label="Afternoon Refill Quantity"
+                        type="number"
+                        min={1}
+                        step="1"
+                        placeholder="30"
+                        error={errors.auto_refill_slot2_quantity?.message}
+                        {...register("auto_refill_slot2_quantity")}
+                      />
+                      <div>
+                        <label className="mb-1 block text-sm font-medium">Afternoon Time (24h)</label>
+                        <input
+                          type="time"
+                          {...register("auto_refill_slot2_time")}
+                          className="w-full rounded-lg border px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {["15:00", "16:00", "17:00", "18:00"].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setValue("auto_refill_slot2_time", t)}
+                              className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-emerald-100 hover:text-emerald-800"
+                            >
+                              {t === "15:00" ? "3 PM" : t === "16:00" ? "4 PM" : t === "17:00" ? "5 PM" : "6 PM"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="sm:col-span-2">
             <label className="mb-1 block text-sm font-medium">Product Image</label>
             <div className="flex flex-wrap items-center gap-3">
@@ -537,6 +746,28 @@ export default function AdminProductsPage() {
 
           <button
             type="button"
+            onClick={() => setFilterTab("autorefill")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+              filterTab === "autorefill"
+                ? "bg-emerald-700 text-white shadow-xs"
+                : "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+            )}
+          >
+            <Clock className="h-4 w-4" />
+            Daily Auto-Refill
+            <span
+              className={cn(
+                "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
+                filterTab === "autorefill" ? "bg-white/25 text-white" : "bg-emerald-200 text-emerald-900"
+              )}
+            >
+              {autoRefillProducts.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setFilterTab("all")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
@@ -643,6 +874,14 @@ export default function AdminProductsPage() {
                         {isArchived && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 border border-amber-300 shrink-0">
                             <Archive className="h-3 w-3" /> Archived
+                          </span>
+                        )}
+                        {(p.auto_refill_enabled || p.auto_refill_slot2_enabled) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 border border-emerald-300 shrink-0" title={`Refill: Morning (+${p.auto_refill_quantity || 0} @ ${p.auto_refill_time || "06:00"})${p.auto_refill_slot2_enabled ? `, Afternoon (+${p.auto_refill_slot2_quantity || 0} @ ${p.auto_refill_slot2_time || "16:00"})` : ""}`}>
+                            <Clock className="h-3 w-3 text-emerald-600" />
+                            {p.auto_refill_slot2_enabled
+                              ? `2x Daily: +${p.auto_refill_quantity || 0} (M) / +${p.auto_refill_slot2_quantity || 0} (A)`
+                              : `Daily: +${p.auto_refill_quantity || 0} @ ${p.auto_refill_time || "06:00"}`}
                           </span>
                         )}
                       </div>

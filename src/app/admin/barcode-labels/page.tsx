@@ -25,7 +25,7 @@ import {
 import { categoryService } from "@/services/category.service";
 import { useStoreSettings } from "@/hooks/use-store-settings";
 import type { BarcodeFormat, BarcodeLabelConfig, ErpProduct } from "@/types/erp";
-import { BarcodeLabel } from "@/components/erp/barcode-label";
+import { BarcodeLabel, printBarcodeLabels } from "@/components/erp/barcode-label";
 import {
   downloadBarcodePdf,
   printBarcodeLabelsFromElement,
@@ -96,6 +96,8 @@ export default function BarcodeLabelsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [previewZoom, setPreviewZoom] = useState<number>(1);
+
   const shopName = settings?.store_name ?? "Odhavram General Store";
 
   const loadStats = useCallback(() => {
@@ -112,12 +114,19 @@ export default function BarcodeLabelsPage() {
     const prefs = getBarcodePrinterPrefs();
     setConfig((c) => ({
       ...c,
-      paperType: prefs.paperType,
-      printDensity: prefs.printDensity,
-      fontFamily: prefs.fontFamily,
-      printerType: prefs.printerType,
-      fontSize: prefs.fontSize,
+      paperType: prefs.paperType ?? c.paperType,
+      printDensity: prefs.printDensity ?? c.printDensity,
+      fontFamily: prefs.fontFamily ?? c.fontFamily,
+      printerType: prefs.printerType ?? c.printerType,
+      fontSize: prefs.fontSize ?? c.fontSize,
+      labelWidthMm: prefs.labelWidthMm ?? c.labelWidthMm,
+      labelHeightMm: prefs.labelHeightMm ?? c.labelHeightMm,
+      barcodeHeight: prefs.barcodeHeight ?? c.barcodeHeight,
+      format: prefs.format ?? c.format,
     }));
+    if (prefs.sizePreset) {
+      setSizePreset(prefs.sizePreset);
+    }
   }, []);
 
   useEffect(() => {
@@ -129,19 +138,47 @@ export default function BarcodeLabelsPage() {
     ]).finally(() => setLoading(false));
   }, [loadStats, loadProducts]);
 
-  const saveBarcodePrinterPrefs = (patch: Partial<typeof config>) => {
+  const saveBarcodePrinterPrefs = (patch: Partial<BarcodeLabelConfig & { sizePreset?: string }>) => {
     setConfig((c) => {
       const next = { ...c, ...patch };
+      const nextPreset = patch.sizePreset !== undefined ? patch.sizePreset : sizePreset;
+      if (patch.sizePreset !== undefined) {
+        setSizePreset(patch.sizePreset);
+      }
       setBarcodePrinterPrefs({
         paperType: next.paperType,
         printDensity: next.printDensity,
         fontFamily: next.fontFamily,
         printerType: next.printerType,
         fontSize: next.fontSize,
+        labelWidthMm: next.labelWidthMm,
+        labelHeightMm: next.labelHeightMm,
+        barcodeHeight: next.barcodeHeight,
+        sizePreset: nextPreset,
+        format: next.format,
         receiptFontSize: getBarcodePrinterPrefs().receiptFontSize,
       });
       return next;
     });
+  };
+
+  const applySizePreset = (presetId: string) => {
+    setSizePreset(presetId);
+    const preset = LABEL_SIZE_PRESETS.find((p) => p.id === presetId);
+    if (preset && presetId !== "custom") {
+      const paperType: BarcodeLabelConfig["paperType"] =
+        presetId === "roll80" ? "roll80" : presetId === "roll58" ? "roll58" : "label";
+      saveBarcodePrinterPrefs({
+        labelWidthMm: preset.width,
+        labelHeightMm: preset.height,
+        barcodeHeight: preset.barcodeHeight,
+        fontSize: preset.fontSize,
+        paperType,
+        sizePreset: presetId,
+      });
+    } else {
+      saveBarcodePrinterPrefs({ sizePreset: "custom" });
+    }
   };
 
   const selectProduct = (p: ErpProduct) => {
@@ -182,17 +219,6 @@ export default function BarcodeLabelsPage() {
     toast.success(`Generated: ${code}`);
   };
 
-  const applySizePreset = (presetId: string) => {
-    setSizePreset(presetId);
-    const preset = LABEL_SIZE_PRESETS.find((p) => p.id === presetId);
-    if (preset && presetId !== "custom") {
-      setConfig((c) => ({
-        ...c,
-        labelWidthMm: preset.width,
-        labelHeightMm: preset.height,
-      }));
-    }
-  };
 
   const saveProduct = async () => {
     if (!form.productName.trim()) {
@@ -244,26 +270,15 @@ export default function BarcodeLabelsPage() {
       toast.error("Enter or generate a barcode first");
       return;
     }
+    setPrintQty(qty);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
     try {
-      if (isBluetoothPrinterConnected()) {
-        await printBarcodeLabelsBluetooth(
-          {
-            value: form.barcode,
-            productName: form.productName || "Product",
-            shopName,
-            sellingPrice: form.sellingPrice ? Number(form.sellingPrice) : undefined,
-            mrp: form.mrp ? Number(form.mrp) : undefined,
-            showBarcodeNumber: config.showBarcodeNumber,
-          },
-          qty
-        );
-      } else {
-        await printBarcodeLabelsFromElement(
-          "barcode-labels-print",
-          `${shopName} — Barcodes`,
-          mergeBarcodeConfig(config)
-        );
-      }
+      await printBarcodeLabels(
+        `${shopName} — Barcodes`,
+        mergeBarcodeConfig(config),
+        "barcode-labels-print"
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Print failed");
       return;
@@ -439,11 +454,45 @@ export default function BarcodeLabelsPage() {
         {/* Center — Live Preview */}
         <div className="xl:col-span-4">
           <div className="admin-card flex min-h-[400px] flex-col p-4 sm:p-5">
-            <h2 className="admin-section-title mb-4">Live Preview</h2>
-            <div className="flex flex-1 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 p-6">
-              <BarcodeLabel {...labelData} config={config} />
-              <p className="mt-4 text-xs text-gray-500">
-                {config.labelWidthMm}×{config.labelHeightMm} mm · {config.format}
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="admin-section-title">Live Preview</h2>
+              <div className="flex items-center gap-1 rounded bg-gray-100 p-0.5 text-xs font-medium text-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setPreviewZoom(1)}
+                  className={`rounded px-2 py-0.5 transition ${previewZoom === 1 ? "bg-white font-bold shadow-xs text-black" : "text-gray-500 hover:text-black"}`}
+                >
+                  1× Actual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewZoom(1.5)}
+                  className={`rounded px-2 py-0.5 transition ${previewZoom === 1.5 ? "bg-white font-bold shadow-xs text-black" : "text-gray-500 hover:text-black"}`}
+                >
+                  1.5×
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewZoom(2)}
+                  className={`rounded px-2 py-0.5 transition ${previewZoom === 2 ? "bg-white font-bold shadow-xs text-black" : "text-gray-500 hover:text-black"}`}
+                >
+                  2× Zoom
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col items-center justify-center overflow-auto rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 p-4">
+              <div
+                style={{
+                  transform: previewZoom !== 1 ? `scale(${previewZoom})` : undefined,
+                  transformOrigin: "center center",
+                  transition: "transform 0.15s ease",
+                }}
+              >
+                <BarcodeLabel {...labelData} config={config} />
+              </div>
+              <p className="mt-4 text-xs font-medium text-gray-500">
+                {config.labelWidthMm}×{config.labelHeightMm} mm · {config.format} · Barcode: {config.barcodeHeight}px high
               </p>
             </div>
 
@@ -496,14 +545,15 @@ export default function BarcodeLabelsPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  const canvas = document.querySelector(
-                    "#barcode-labels-print canvas[data-barcode-value]"
+                  const el = document.querySelector(
+                    "#barcode-labels-print svg[data-barcode-value], #barcode-labels-print canvas[data-barcode-value]"
                   );
-                  if (canvas) {
+                  if (el) {
                     import("@/components/erp/barcode-label-utils").then(({ downloadBarcodePng }) =>
                       downloadBarcodePng(
-                        canvas as HTMLCanvasElement,
-                        `barcode-${form.barcode || "label"}.png`
+                        el as SVGSVGElement,
+                        `barcode-${form.barcode || "label"}.png`,
+                        config
                       )
                     );
                   }
@@ -524,7 +574,7 @@ export default function BarcodeLabelsPage() {
               <SelectField
                 label="Barcode Type"
                 value={config.format}
-                onChange={(v) => setConfig((c) => ({ ...c, format: v as BarcodeFormat }))}
+                onChange={(v) => saveBarcodePrinterPrefs({ format: v as BarcodeFormat })}
                 options={BARCODE_FORMATS.map((f) => ({ value: f.value, label: f.label }))}
                 placeholder=""
               />
@@ -541,8 +591,8 @@ export default function BarcodeLabelsPage() {
                     type="number"
                     value={config.labelWidthMm}
                     onChange={(e) => {
-                      setSizePreset("custom");
-                      setConfig((c) => ({ ...c, labelWidthMm: Number(e.target.value) }));
+                      const val = Number(e.target.value);
+                      saveBarcodePrinterPrefs({ labelWidthMm: val, sizePreset: "custom" });
                     }}
                   />
                 </FormField>
@@ -551,8 +601,8 @@ export default function BarcodeLabelsPage() {
                     type="number"
                     value={config.labelHeightMm}
                     onChange={(e) => {
-                      setSizePreset("custom");
-                      setConfig((c) => ({ ...c, labelHeightMm: Number(e.target.value) }));
+                      const val = Number(e.target.value);
+                      saveBarcodePrinterPrefs({ labelHeightMm: val, sizePreset: "custom" });
                     }}
                   />
                 </FormField>
@@ -560,7 +610,10 @@ export default function BarcodeLabelsPage() {
                   <Input
                     type="number"
                     value={config.barcodeHeight}
-                    onChange={(e) => setConfig((c) => ({ ...c, barcodeHeight: Number(e.target.value) }))}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      saveBarcodePrinterPrefs({ barcodeHeight: val });
+                    }}
                   />
                 </FormField>
                 <FormField label="Font Size (px)">
