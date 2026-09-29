@@ -9,6 +9,8 @@ import {
   History,
   Sparkles,
   Search,
+  ScanBarcode,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { inventoryService, lotService } from "@/services/erp";
@@ -125,12 +127,26 @@ export default function InventoryPage() {
             Items that need a purchase are listed first. Suggestions follow recent sales.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/admin/inventory/quick-stock">
+            <Button className="bg-emerald-700 hover:bg-emerald-800 text-white">
+              <ScanBarcode className="mr-1.5 h-4 w-4" />
+              Quick Stock In (Scanner)
+            </Button>
+          </Link>
+          <Link href="/admin/products/import">
+            <Button variant="outline">
+              <FileSpreadsheet className="mr-1.5 h-4 w-4 text-emerald-600" />
+              Bulk CSV Import
+            </Button>
+          </Link>
           <Button variant="outline" href="/admin/reorder">
             <Sparkles className="mr-1 h-4 w-4" />
             Smart reorder
           </Button>
-          <Button href="/admin/products">Add / Edit Products</Button>
+          <Button variant="outline" href="/admin/products">
+            Add / Edit Products
+          </Button>
         </div>
       </div>
 

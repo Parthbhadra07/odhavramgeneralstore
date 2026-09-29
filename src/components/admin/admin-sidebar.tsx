@@ -38,6 +38,8 @@ import {
   Database,
   Printer,
   Tag,
+  ScanBarcode,
+  FileSpreadsheet,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -76,6 +78,7 @@ const navGroups = [
     label: "Inventory",
     links: [
       { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
+      { href: "/admin/inventory/quick-stock", label: "Quick Stock Inward", icon: ScanBarcode },
       { href: "/admin/inventory/price-checker", label: "Price & Stock Check", icon: Tag },
       { href: "/admin/stock-history", label: "Stock History", icon: History },
       { href: "/admin/stock-adjustment", label: "Stock Adjustment", icon: SlidersHorizontal },
@@ -97,6 +100,7 @@ const navGroups = [
     label: "Catalog",
     links: [
       { href: "/admin/products", label: "Products", icon: Package },
+      { href: "/admin/products/import", label: "Bulk Import (CSV)", icon: FileSpreadsheet },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
     ],
   },

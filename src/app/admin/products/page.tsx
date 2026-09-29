@@ -19,7 +19,11 @@ import {
   RefreshCw,
   Clock,
   Sparkles,
+  FileSpreadsheet,
+  ScanBarcode,
+  Download,
 } from "lucide-react";
+import Link from "next/link";
 import { productService } from "@/services/product.service";
 import { autoRefillService } from "@/services/auto-refill.service";
 import { categoryService } from "@/services/category.service";
@@ -32,6 +36,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ProductBarcodeField } from "@/components/admin/product-barcode-field";
 import { AdminFab } from "@/components/admin/admin-fab";
+import { BulkProductImportModal } from "@/components/admin/bulk-product-import-modal";
+import { exportProductsToCSV, downloadCSVFile } from "@/utils/csv-helper";
 import type { Product, Category } from "@/types/database";
 
 export default function AdminProductsPage() {
@@ -53,6 +59,7 @@ export default function AdminProductsPage() {
   const [deleting, setDeleting] = useState(false);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } =
     useForm<ProductInput>({
@@ -328,6 +335,16 @@ export default function AdminProductsPage() {
     load();
   };
 
+  const handleExportCSV = () => {
+    if (products.length === 0) {
+      toast.info("No products to export");
+      return;
+    }
+    const csv = exportProductsToCSV(products);
+    downloadCSVFile(`odhavram_products_${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    toast.success(`Exported ${products.length} products to CSV`);
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -335,18 +352,46 @@ export default function AdminProductsPage() {
           <h1 className="admin-page-title">Products</h1>
           <p className="text-xs text-gray-500 mt-0.5">Manage catalog, multi-unit packaging & daily automated refills</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/admin/inventory/quick-stock">
+            <Button
+              type="button"
+              variant="outline"
+              className="text-xs border-indigo-200 text-indigo-800 hover:bg-indigo-50"
+              title="Quickly add stock or audit inventory shelf-by-shelf with a barcode scanner gun"
+            >
+              <ScanBarcode className="h-3.5 w-3.5 mr-1 text-indigo-600" /> Quick Stock In
+            </Button>
+          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowImportModal(true)}
+            className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+            title="Import hundreds of products and stock at once from Excel / CSV"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Import CSV / Excel
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleExportCSV}
+            className="text-xs border-gray-200 text-gray-700 hover:bg-gray-50"
+            title="Export all products to CSV spreadsheet"
+          >
+            <Download className="h-3.5 w-3.5 mr-1 text-gray-500" /> Export CSV
+          </Button>
           <Button
             type="button"
             variant="outline"
             loading={runningRefill}
             onClick={handleRunAutoRefill}
-            className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+            className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 hidden sm:inline-flex"
             title="Checks and replenishes stock for items like milk and bread scheduled for today"
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Run Auto-Refill Check
+            <RefreshCw className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Auto-Refill
           </Button>
-          <Button onClick={openCreate} className="hidden lg:inline-flex">
+          <Button onClick={openCreate} className="hidden lg:inline-flex bg-emerald-700 hover:bg-emerald-800">
             <Plus className="h-4 w-4" /> Add Product
           </Button>
         </div>
@@ -1063,6 +1108,16 @@ export default function AdminProductsPage() {
           </div>
         </div>
       )}
+
+      {/* Bulk Product & Stock Import Modal */}
+      <BulkProductImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          setShowImportModal(false);
+          load();
+        }}
+      />
     </div>
   );
 }
