@@ -87,6 +87,7 @@ export interface ErpProduct {
   is_bestseller?: boolean;
   is_new_arrival?: boolean;
   is_active: boolean | null;
+  is_loose?: boolean | null;
   created_at: string;
   categories?: { id: string; name: string; slug: string } | null;
 }
@@ -302,6 +303,7 @@ export interface PosSale {
   loyalty_points_redeemed: number;
   loyalty_discount: number;
   total_amount: number;
+  round_off?: number;
   payment_method: PosPaymentMethod;
   payment_status: string;
   sale_status: PosSaleStatus;
@@ -401,6 +403,7 @@ export interface PosCartLine {
   discountAmount?: number;
   gstPercentage: number;
   quantity: number;
+  isLoose?: boolean;
 }
 
 export interface StoreSettings {
@@ -531,6 +534,7 @@ export interface ReceiptData {
   taxSgst?: number;
   taxIgst?: number;
   grandTotal: number;
+  roundOff?: number;
   notes?: string | null;
   /** Amount charged on credit this bill */
   creditDue?: number;

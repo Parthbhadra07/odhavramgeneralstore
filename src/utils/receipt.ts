@@ -28,6 +28,15 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
     };
   });
 
+  const totalDiscount = Number(sale.discount) + Number(sale.loyalty_discount ?? 0);
+  const expectedRawTotal = Math.max(0, Math.round((Number(sale.subtotal) - totalDiscount) * 100) / 100);
+  const roundOff =
+    sale.round_off !== undefined && sale.round_off !== null
+      ? Number(sale.round_off)
+      : Math.abs(Number(sale.total_amount) - expectedRawTotal) > 0.001
+      ? Math.round((Number(sale.total_amount) - expectedRawTotal) * 100) / 100
+      : undefined;
+
   return {
     orderId: sale.bill_number,
     date: format(created, "dd/MM/yyyy"),
@@ -43,8 +52,9 @@ export function receiptFromPosSale(sale: PosSale): ReceiptData {
     orderStatus: sale.sale_status,
     items,
     subtotal: Number(sale.subtotal),
-    discount: Number(sale.discount) + Number(sale.loyalty_discount ?? 0),
+    discount: totalDiscount,
     grandTotal: Number(sale.total_amount),
+    roundOff,
     notes: sale.notes,
   };
 }

@@ -22,6 +22,8 @@ import {
   FileSpreadsheet,
   ScanBarcode,
   Download,
+  Scale,
+  Printer,
 } from "lucide-react";
 import Link from "next/link";
 import { productService } from "@/services/product.service";
@@ -37,6 +39,8 @@ import { Button } from "@/components/ui/button";
 import { ProductBarcodeField } from "@/components/admin/product-barcode-field";
 import { AdminFab } from "@/components/admin/admin-fab";
 import { BulkProductImportModal } from "@/components/admin/bulk-product-import-modal";
+import { MultiProductSpreadsheet } from "@/components/admin/multi-product-spreadsheet";
+import { StockVerificationModal } from "@/components/admin/stock-verification-modal";
 import { exportProductsToCSV, downloadCSVFile } from "@/utils/csv-helper";
 import type { Product, Category } from "@/types/database";
 
@@ -60,6 +64,8 @@ export default function AdminProductsPage() {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showSpreadsheet, setShowSpreadsheet] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } =
     useForm<ProductInput>({
@@ -73,6 +79,7 @@ export default function AdminProductsPage() {
         description: "",
         category_id: "",
         featured: false,
+        is_loose: false,
       },
     });
 
@@ -119,6 +126,7 @@ export default function AdminProductsPage() {
       auto_refill_slot2_enabled: false,
       auto_refill_slot2_quantity: 30,
       auto_refill_slot2_time: "16:00",
+      is_loose: false,
     });
     setShowForm(true);
   };
@@ -152,6 +160,7 @@ export default function AdminProductsPage() {
       auto_refill_slot2_enabled: product.auto_refill_slot2_enabled ?? false,
       auto_refill_slot2_quantity: product.auto_refill_slot2_quantity ?? 30,
       auto_refill_slot2_time: product.auto_refill_slot2_time ?? "16:00",
+      is_loose: product.is_loose ?? false,
     });
     setShowForm(true);
   };
@@ -202,6 +211,7 @@ export default function AdminProductsPage() {
         reorder_level: data.reorder_level ?? 10,
         min_stock_level: data.min_stock_level ?? 5,
         selling_price: data.price,
+        is_loose: Boolean(data.is_loose),
         auto_refill_enabled: Boolean(data.auto_refill_enabled),
         auto_refill_quantity: data.auto_refill_quantity ? Number(data.auto_refill_quantity) : 0,
         auto_refill_time: data.auto_refill_time?.trim() || "06:00",
@@ -384,12 +394,29 @@ export default function AdminProductsPage() {
           <Button
             type="button"
             variant="outline"
+            onClick={() => setShowVerificationModal(true)}
+            className="text-xs border-blue-200 text-blue-800 hover:bg-blue-50"
+            title="Print a physical inventory verification and audit sheet"
+          >
+            <Printer className="h-3.5 w-3.5 mr-1 text-blue-600" /> Stock Audit Sheet
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             loading={runningRefill}
             onClick={handleRunAutoRefill}
             className="text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 hidden sm:inline-flex"
             title="Checks and replenishes stock for items like milk and bread scheduled for today"
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Auto-Refill
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setShowSpreadsheet((s) => !s)}
+            className="hidden sm:inline-flex bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold gap-1.5 shadow-sm"
+            title="Add multiple products at once in an Excel spreadsheet grid"
+          >
+            <FileSpreadsheet className="h-4 w-4" /> Add Multiple (Excel Grid)
           </Button>
           <Button onClick={openCreate} className="hidden lg:inline-flex bg-emerald-700 hover:bg-emerald-800">
             <Plus className="h-4 w-4" /> Add Product
@@ -398,6 +425,20 @@ export default function AdminProductsPage() {
       </div>
 
       <AdminFab label="Add Product" icon={Plus} onClick={openCreate} />
+
+      {/* Excel Spreadsheet Mode */}
+      {showSpreadsheet && (
+        <div className="mb-6">
+          <MultiProductSpreadsheet
+            categoriesList={categories}
+            onSuccess={() => {
+              load();
+              setShowSpreadsheet(false);
+            }}
+            onCancel={() => setShowSpreadsheet(false)}
+          />
+        </div>
+      )}
 
       {showForm && (
         <form
@@ -524,6 +565,54 @@ export default function AdminProductsPage() {
                 No different barcode needed for packets or boxes — uses the same product barcode. In POS, packets and boxes will be automatically calculated as per the quantity entered or scanned!
               </div>
             </div>
+          </div>
+
+          {/* Loose Item (Sold by Weight / Scale) */}
+          <div className="sm:col-span-2 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/70 via-purple-50/30 to-white p-4 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
+                  <Scale className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                    Loose Item (Sold by Weight / Scale)
+                    <span className="text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                      Weight Scale Item
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-600">
+                    For loose sugar, grains, pulses, flour, oil, etc. In POS, scanning or searching this product prompts for weight (grams/kg) or rupee value and calculates the price automatically.
+                  </p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  {...register("is_loose", {
+                    onChange: (e) => {
+                      if (e.target.checked) {
+                        const currentUnit = watch("unit");
+                        if (!currentUnit || currentUnit === "pcs") {
+                          setValue("unit", "kg");
+                        }
+                      }
+                    },
+                  })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                <span className="ml-2 text-xs font-bold text-gray-800">
+                  {watch("is_loose") ? "Loose Item (Active)" : "Standard Item"}
+                </span>
+              </label>
+            </div>
+            {watch("is_loose") && (
+              <div className="mt-3 rounded-lg bg-indigo-50 border border-indigo-200 p-2.5 text-xs text-indigo-900">
+                <span className="font-bold block mb-0.5">⚖️ POS Weight Dialog Enabled</span>
+                Price specified above (₹{watchPrice || 0}) is treated as <strong>Rate per {watch("unit") || "kg"}</strong>. When scanned in Quick POS or Invoice Billing, a weight entry popup will allow entering in grams (e.g. 250g, 500g) or target rupee amount (e.g. ₹50 worth).
+              </div>
+            )}
           </div>
 
           {/* Daily Auto-Refill (Milk, Bread, Daily Essentials) */}
@@ -929,6 +1018,14 @@ export default function AdminProductsPage() {
                               : `Daily: +${p.auto_refill_quantity || 0} @ ${p.auto_refill_time || "06:00"}`}
                           </span>
                         )}
+                        {p.is_loose && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 border border-indigo-200 shrink-0"
+                            title="Sold by weight (loose scale item in POS)"
+                          >
+                            <Scale className="h-3 w-3 text-indigo-600" /> Loose ({p.unit || "kg"})
+                          </span>
+                        )}
                       </div>
                       {p.barcode && (
                         <p className="text-xs text-gray-400 font-mono mt-0.5">Barcode: {p.barcode}</p>
@@ -1117,6 +1214,13 @@ export default function AdminProductsPage() {
           setShowImportModal(false);
           load();
         }}
+      />
+
+      <StockVerificationModal
+        open={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        products={products}
+        categories={categories}
       />
     </div>
   );

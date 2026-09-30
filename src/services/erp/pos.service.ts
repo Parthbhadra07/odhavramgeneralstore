@@ -23,7 +23,12 @@ function clientBillNumber(fyCode?: string): string {
   return `POS/${code}/${Date.now().toString().slice(-6)}`;
 }
 
-function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount = 0) {
+function computeCartTotals(
+  lines: PosCartLine[],
+  discount = 0,
+  loyaltyDiscount = 0,
+  roundOff = false
+) {
   let subtotal = 0;
   let cgst = 0;
   let sgst = 0;
@@ -68,10 +73,12 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
   });
 
   const totalDiscount = Math.round((totalItemDiscounts + (discount || 0)) * 100) / 100;
-  const total = Math.max(
+  const rawTotal = Math.max(
     0,
     Math.round((subtotal - totalDiscount - loyaltyDiscount) * 100) / 100
   );
+  const total = roundOff ? Math.round(rawTotal) : rawTotal;
+  const roundOffAmount = roundOff ? Math.round((total - rawTotal) * 100) / 100 : 0;
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,
@@ -80,6 +87,8 @@ function computeCartTotals(lines: PosCartLine[], discount = 0, loyaltyDiscount =
     igst: 0,
     discount: totalDiscount,
     itemDiscounts: totalItemDiscounts,
+    rawTotal,
+    roundOffAmount,
     total,
     items,
   };
@@ -116,6 +125,7 @@ export const posService = {
     notes?: string;
     splitPayments?: { method: PosPaymentMethod; amount: number }[];
     isSyncUpload?: boolean;
+    roundOff?: boolean;
   }): Promise<PosSale> {
     // 1. If currently offline and not an internal sync attempt, queue directly in IndexedDB
     if (typeof navigator !== "undefined" && !navigator.onLine && !params.isSyncUpload) {
@@ -166,12 +176,14 @@ export const posService = {
         sgst,
         igst,
         total,
+        roundOffAmount,
         discount: totalDiscount,
         items,
       } = computeCartTotals(
         params.lines,
         params.discount ?? 0,
-        loyaltyDiscount
+        loyaltyDiscount,
+        params.roundOff ?? false
       );
 
       const billNumber = await this.generateBillNumber();
@@ -179,29 +191,44 @@ export const posService = {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const { data: sale, error: saleErr } = await supabase
+      const salePayload: any = {
+        bill_number: billNumber,
+        customer_id: customerId ?? null,
+        customer_name: customer?.name ?? params.customerName ?? null,
+        customer_mobile: customer?.mobile ?? params.customerMobile ?? null,
+        subtotal,
+        cgst,
+        sgst,
+        igst,
+        discount: totalDiscount,
+        loyalty_points_redeemed: pointsRedeemed,
+        loyalty_discount: loyaltyDiscount,
+        total_amount: total,
+        round_off: roundOffAmount,
+        payment_method: params.paymentMethod,
+        sale_status: params.saleStatus ?? "completed",
+        payment_status: isCreditSale ? "pending" : "paid",
+        cashier_id: user?.id ?? null,
+        notes: params.notes ?? null,
+      };
+
+      let { data: sale, error: saleErr } = await supabase
         .from("pos_sales")
-        .insert({
-          bill_number: billNumber,
-          customer_id: customerId ?? null,
-          customer_name: customer?.name ?? params.customerName ?? null,
-          customer_mobile: customer?.mobile ?? params.customerMobile ?? null,
-          subtotal,
-          cgst,
-          sgst,
-          igst,
-          discount: totalDiscount,
-          loyalty_points_redeemed: pointsRedeemed,
-          loyalty_discount: loyaltyDiscount,
-          total_amount: total,
-          payment_method: params.paymentMethod,
-          sale_status: params.saleStatus ?? "completed",
-          payment_status: isCreditSale ? "pending" : "paid",
-          cashier_id: user?.id ?? null,
-          notes: params.notes ?? null,
-        })
+        .insert(salePayload)
         .select("*")
         .single();
+
+      if (
+        saleErr &&
+        (saleErr.message?.includes("round_off") ||
+          (saleErr as any).code === "PGRST204" ||
+          (saleErr as any).code === "42703")
+      ) {
+        delete salePayload.round_off;
+        const retry = await supabase.from("pos_sales").insert(salePayload).select("*").single();
+        sale = retry.data;
+        saleErr = retry.error;
+      }
       if (saleErr) throw saleErr;
 
       const saleId = (sale as PosSale).id;

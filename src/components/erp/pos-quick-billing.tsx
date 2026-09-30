@@ -14,6 +14,7 @@ import {
   Tag,
   Globe,
   Settings,
+  Scale,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,12 @@ import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
 import { PosCreateOnlineAccountModal } from "@/components/erp/pos-create-online-account-modal";
+import {
+  PosLooseWeightModal,
+  type LooseWeightConfirmResult,
+  type LooseModalProduct,
+  type LooseModalLot,
+} from "@/components/erp/pos-loose-weight-modal";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
 import { useStoreSettings } from "@/hooks/use-store-settings";
@@ -77,6 +84,7 @@ export function PosQuickBilling() {
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [discountPercent, setDiscountPercent] = useState(0);
   const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
+  const [roundOff, setRoundOff] = useState(true);
   const [billNotes, setBillNotes] = useState("");
   const [processing, setProcessing] = useState(false);
   const [printWidth, setPrintWidth] = useState<ReceiptWidth>("80mm");
@@ -87,6 +95,12 @@ export function PosQuickBilling() {
   const [searchSelectIndex, setSearchSelectIndex] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [looseModalItem, setLooseModalItem] = useState<{
+    product: LooseModalProduct;
+    lot?: LooseModalLot;
+    targetUnit?: "pcs" | "pkt" | "box";
+    initialWeight?: number;
+  } | null>(null);
   const [splitPayment, setSplitPayment] = useState(false);
   const [splitCash, setSplitCash] = useState(0);
   const [splitUpi, setSplitUpi] = useState(0);
@@ -233,7 +247,7 @@ export function PosQuickBilling() {
     setCart((prev) =>
       prev.map((l) =>
         cartLineKey(l) === key
-          ? { ...l, quantity: Math.max(1, nextQty) }
+          ? { ...l, quantity: l.isLoose ? Math.max(0.001, nextQty) : Math.max(1, nextQty) }
           : l
       )
     );
@@ -336,6 +350,9 @@ export function PosQuickBilling() {
             }
 
             // In pcs mode: auto-calculate boxes or packets
+            if (l.isLoose) {
+              return { ...l, quantity: Math.max(0.001, num) };
+            }
             if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
               const boxes = num / totalPcsInBox;
               const rate = Number(l.boxSellingPrice) || (baseRate * totalPcsInBox);
@@ -417,14 +434,23 @@ export function PosQuickBilling() {
     (
       product: ErpProduct,
       lot?: { id: string; barcode: string; current_stock: number; selling_price: number | null } | null,
-      initialUnit: "pcs" | "pkt" | "box" = "pcs",
-      initialQty = 1
+      initialUnit: "pcs" | "pkt" | "box" | string = "pcs",
+      initialQty = 1,
+      overrideIsLoose?: boolean
     ) => {
       const stock = lot ? lot.current_stock : product.stock;
       if (stock <= 0) {
         toast.error(`${product.name} is out of stock`);
         return;
       }
+
+      const isLoose =
+        overrideIsLoose ??
+        Boolean(
+          product.is_loose ||
+            product.unit?.toLowerCase() === "kg" ||
+            product.unit?.toLowerCase() === "loose"
+        );
 
       const piecesPerPkt = Number(product.pieces_per_packet) || 12;
       const pktsPerBox = Number(product.packets_per_box) || 12;
@@ -434,33 +460,39 @@ export function PosQuickBilling() {
         lot?.selling_price ?? product.selling_price ?? product.price
       );
 
-      let unit: "pcs" | "pkt" | "box" = initialUnit;
+      let unit: "pcs" | "pkt" | "box" | string = initialUnit;
       let packMultiplier = 1;
       let rate = baseRate;
 
-      // Auto-calculate packet or box from initial piece quantity
-      if (initialUnit === "pcs") {
-        if (initialQty >= totalPcsInBox && initialQty % totalPcsInBox === 0) {
-          unit = "box";
-          packMultiplier = totalPcsInBox;
-          rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
-          initialQty = initialQty / totalPcsInBox;
-          toast.info(`Auto-calculated: ${initialQty} Box`);
-        } else if (initialQty >= piecesPerPkt && initialQty % piecesPerPkt === 0) {
-          unit = "pkt";
+      if (isLoose) {
+        unit = product.unit || "kg";
+        packMultiplier = 1;
+        rate = baseRate;
+      } else {
+        // Auto-calculate packet or box from initial piece quantity
+        if (initialUnit === "pcs") {
+          if (initialQty >= totalPcsInBox && initialQty % totalPcsInBox === 0) {
+            unit = "box";
+            packMultiplier = totalPcsInBox;
+            rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
+            initialQty = initialQty / totalPcsInBox;
+            toast.info(`Auto-calculated: ${initialQty} Box`);
+          } else if (initialQty >= piecesPerPkt && initialQty % piecesPerPkt === 0) {
+            unit = "pkt";
+            packMultiplier = piecesPerPkt;
+            rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
+            initialQty = initialQty / piecesPerPkt;
+            toast.info(`Auto-calculated: ${initialQty} Packet`);
+          }
+        }
+
+        if (unit === "pkt") {
           packMultiplier = piecesPerPkt;
           rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
-          initialQty = initialQty / piecesPerPkt;
-          toast.info(`Auto-calculated: ${initialQty} Packet`);
+        } else if (unit === "box") {
+          packMultiplier = totalPcsInBox;
+          rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
         }
-      }
-
-      if (unit === "pkt") {
-        packMultiplier = piecesPerPkt;
-        rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
-      } else if (unit === "box") {
-        packMultiplier = totalPcsInBox;
-        rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
       }
 
       const lotId = lot?.id ?? null;
@@ -481,6 +513,17 @@ export function PosQuickBilling() {
           if (newTotalPieces > stock) {
             toast.error("Not enough stock available");
             return prev;
+          }
+
+          if (isLoose) {
+            return prev.map((l, i) =>
+              i === existingIdx
+                ? {
+                    ...l,
+                    quantity: Math.round((l.quantity + initialQty) * 1000) / 1000,
+                  }
+                : l
+            );
           }
 
           // If current line is in loose pcs, check if repeated scanning reaches packet or box
@@ -573,6 +616,29 @@ export function PosQuickBilling() {
 
       const resolved = await inventoryService.resolveByBarcode(barcode);
       if (resolved) {
+        const isLoose = Boolean(
+          resolved.product.is_loose ||
+            resolved.product.unit?.toLowerCase() === "kg" ||
+            resolved.product.unit?.toLowerCase() === "loose"
+        );
+        if (isLoose) {
+          setLooseModalItem({
+            product: resolved.product,
+            lot: resolved.lot
+              ? {
+                  id: resolved.lot.id,
+                  barcode: resolved.lot.barcode,
+                  current_stock: resolved.lot.current_stock,
+                  selling_price: resolved.lot.selling_price,
+                }
+              : null,
+            targetUnit,
+          });
+          setProductSearch("");
+          setSearchResults([]);
+          return;
+        }
+
         addLineToCart(
           resolved.product,
           resolved.lot
@@ -590,6 +656,22 @@ export function PosQuickBilling() {
       }
       const products = await inventoryService.listProducts({ search: barcode });
       if (products[0]) {
+        const isLoose = Boolean(
+          products[0].is_loose ||
+            products[0].unit?.toLowerCase() === "kg" ||
+            products[0].unit?.toLowerCase() === "loose"
+        );
+        if (isLoose) {
+          setLooseModalItem({
+            product: products[0],
+            lot: null,
+            targetUnit,
+          });
+          setProductSearch("");
+          setSearchResults([]);
+          return;
+        }
+
         addLineToCart(products[0], null, targetUnit || "pcs", multiplier);
         return;
       }
@@ -738,6 +820,19 @@ export function PosQuickBilling() {
       }
 
       if (searchResults.length > 0 && searchResults[searchSelectIndex]) {
+        const pick = searchResults[searchSelectIndex];
+        const isLoose = Boolean(
+          pick.is_loose ||
+            pick.unit?.toLowerCase() === "kg" ||
+            pick.unit?.toLowerCase() === "loose"
+        );
+        if (isLoose) {
+          setLooseModalItem({ product: pick, lot: null });
+          setProductSearch("");
+          setSearchResults([]);
+          return;
+        }
+
         let multiplier = 1;
         let targetUnit: "pcs" | "pkt" | "box" = "pcs";
         const starMatch = query.match(/^(\d+)([pkb])?\s*\*\s*(.+)$/i);
@@ -774,7 +869,9 @@ export function PosQuickBilling() {
   const pointValue = Number(settings?.loyalty_point_value ?? 1.0);
   const loyaltyPointsRate = Number(settings?.loyalty_points_per_100 ?? 1.0);
   const loyaltyDiscountAmount = loyaltyEnabled ? Math.round(loyaltyRedeem * pointValue * 100) / 100 : 0;
-  const total = Math.max(0, grossSubtotal - totalDiscount - loyaltyDiscountAmount);
+  const rawTotal = Math.max(0, grossSubtotal - totalDiscount - loyaltyDiscountAmount);
+  const roundOffAmount = roundOff ? Math.round((Math.round(rawTotal) - rawTotal) * 100) / 100 : 0;
+  const total = roundOff ? Math.round(rawTotal) : Math.round(rawTotal * 100) / 100;
   const pointsToEarn =
     selectedCustomer && total > 0 && loyaltyEnabled
       ? Math.floor(total / 100) * loyaltyPointsRate
@@ -838,7 +935,12 @@ export function PosQuickBilling() {
       prev
         .map((l) =>
           cartLineKey(l) === key
-            ? { ...l, quantity: Math.max(1, l.quantity + delta) }
+            ? {
+                ...l,
+                quantity: l.isLoose
+                  ? Math.max(0.001, Math.round((l.quantity + delta) * 1000) / 1000)
+                  : Math.max(1, l.quantity + delta),
+              }
             : l
         )
         .filter((l) => l.quantity > 0)
@@ -893,6 +995,7 @@ export function PosQuickBilling() {
         discount: computedBillDiscount,
         loyaltyPointsRedeemed: loyaltyRedeem,
         notes: billNotes.trim() || undefined,
+        roundOff,
       });
       setLastSale(sale);
       if (autoPrint && getAutoPrintPreference()) autoPrintSaleIdRef.current = sale.id;
@@ -1146,7 +1249,20 @@ export function PosQuickBilling() {
                   <button
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => addLineToCart(p)}
+                    onClick={() => {
+                      const isLoose = Boolean(
+                        p.is_loose ||
+                          p.unit?.toLowerCase() === "kg" ||
+                          p.unit?.toLowerCase() === "loose"
+                      );
+                      if (isLoose) {
+                        setLooseModalItem({ product: p, lot: null });
+                        setProductSearch("");
+                        setSearchResults([]);
+                      } else {
+                        addLineToCart(p);
+                      }
+                    }}
                     className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm transition-colors ${
                       idx === searchSelectIndex ? "bg-green-100 font-semibold text-green-900" : "hover:bg-green-50"
                     }`}
@@ -1229,65 +1345,114 @@ export function PosQuickBilling() {
                       </button>
                     </div>
 
-                    {/* Packaging Unit Pills (Pcs / Packet / Box) */}
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unit:</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          activeLineIndexRef.current = idx;
-                          setLineUnit(key, "pcs");
-                        }}
-                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                          (line.unit || "pcs") === "pcs"
-                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                        title="Sell loose pieces (Shortcut: Alt+P or P)"
-                      >
-                        Pcs (1 pc)
-                      </button>
+                    {/* Packaging Unit Pills or Loose Item Indicator */}
+                    {line.isLoose ? (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-indigo-100 bg-indigo-50/60 -mx-3 -mb-1 px-3 py-1.5 rounded-b-lg">
+                        <div className="flex items-center gap-1.5 text-xs text-indigo-900 font-semibold">
+                          <Scale className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                          <span>
+                            Sold by Weight: <strong>{line.quantity} {line.unit || "kg"}</strong> @ ₹{line.rate}/{line.unit || "kg"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prod: LooseModalProduct = {
+                              id: line.productId,
+                              name: line.name,
+                              slug: "",
+                              sku: null,
+                              barcode: line.barcode,
+                              brand: null,
+                              unit: line.unit ?? "kg",
+                              price: line.rate,
+                              selling_price: line.rate,
+                              stock: 9999,
+                              image_url: null,
+                              category_id: null,
+                              featured: false,
+                              is_active: true,
+                              created_at: "",
+                              is_loose: true,
+                            };
+                            setLooseModalItem({
+                              product: prod,
+                              lot: line.lotId
+                                ? {
+                                    id: line.lotId,
+                                    barcode: line.barcode || "",
+                                    current_stock: 9999,
+                                    selling_price: line.rate,
+                                  }
+                                : null,
+                              initialWeight: line.quantity,
+                            });
+                          }}
+                          className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 underline"
+                        >
+                          Adjust Weight
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unit:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            activeLineIndexRef.current = idx;
+                            setLineUnit(key, "pcs");
+                          }}
+                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                            (line.unit || "pcs") === "pcs"
+                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          }`}
+                          title="Sell loose pieces (Shortcut: Alt+P or P)"
+                        >
+                          Pcs (1 pc)
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          activeLineIndexRef.current = idx;
-                          setLineUnit(key, "pkt");
-                        }}
-                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                          line.unit === "pkt"
-                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                        title={`Sell 1 packet = ${line.piecesPerPacket || 12} pcs (Shortcut: Alt+K or K)`}
-                      >
-                        Pkt ({line.piecesPerPacket || 12} pcs)
-                        {line.packetSellingPrice ? ` · ₹${line.packetSellingPrice}` : ""}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            activeLineIndexRef.current = idx;
+                            setLineUnit(key, "pkt");
+                          }}
+                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                            line.unit === "pkt"
+                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          }`}
+                          title={`Sell 1 packet = ${line.piecesPerPacket || 12} pcs (Shortcut: Alt+K or K)`}
+                        >
+                          Pkt ({line.piecesPerPacket || 12} pcs)
+                          {line.packetSellingPrice ? ` · ₹${line.packetSellingPrice}` : ""}
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          activeLineIndexRef.current = idx;
-                          setLineUnit(key, "box");
-                        }}
-                        className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                          line.unit === "box"
-                            ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                        title={`Sell 1 box = ${(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs (Shortcut: Alt+B or B)`}
-                      >
-                        Box ({(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs)
-                        {line.boxSellingPrice ? ` · ₹${line.boxSellingPrice}` : ""}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            activeLineIndexRef.current = idx;
+                            setLineUnit(key, "box");
+                          }}
+                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                            line.unit === "box"
+                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                          }`}
+                          title={`Sell 1 box = ${(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs (Shortcut: Alt+B or B)`}
+                        >
+                          Box ({(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs)
+                          {line.boxSellingPrice ? ` · ₹${line.boxSellingPrice}` : ""}
+                        </button>
 
-                      {line.unit && line.unit !== "pcs" && (
-                        <span className="ml-auto text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                          Deducts {line.quantity * (line.packMultiplier || 1)} base pcs
-                        </span>
-                      )}
-                    </div>
+                        {line.unit && line.unit !== "pcs" && (
+                          <span className="ml-auto text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                            Deducts {line.quantity * (line.packMultiplier || 1)} base pcs
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* 4 Keyboard-navigable inputs: Qty, Rate, Disc %, Amount */}
                     <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 items-center text-xs">
@@ -1790,9 +1955,26 @@ export function PosQuickBilling() {
               <span>- {formatPrice(loyaltyDiscountAmount)}</span>
             </div>
           )}
+          <div className="mt-2 flex items-center justify-between border-t border-green-200/70 pt-2 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none font-medium text-slate-700">
+              <input
+                type="checkbox"
+                id="quick-round-off"
+                checked={roundOff}
+                onChange={(e) => setRoundOff(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-green-300 text-green-700 focus:ring-green-600"
+              />
+              <span>Round Off</span>
+            </label>
+            {roundOff && (
+              <span className="font-semibold tabular-nums text-slate-600">
+                {roundOffAmount >= 0 ? `+${formatPrice(roundOffAmount)}` : `- ${formatPrice(Math.abs(roundOffAmount))}`}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-xs italic text-gray-600">(Inclusive of GST)</p>
           <div className="mt-2 flex justify-between text-xl font-bold text-green-900 border-t border-green-200 pt-2">
-            <span>Total</span>
+            <span>Total Payable</span>
             <span>{formatPrice(total)}</span>
           </div>
         </div>
@@ -1918,7 +2100,42 @@ export function PosQuickBilling() {
       <ProductDetailsLookupModal
         open={showProductLookup}
         onClose={() => setShowProductLookup(false)}
-        onAddToCart={addLineToCart}
+        onAddToCart={(p) => {
+          const isLoose = Boolean(
+            p.is_loose ||
+              p.unit?.toLowerCase() === "kg" ||
+              p.unit?.toLowerCase() === "loose"
+          );
+          if (isLoose) {
+            setLooseModalItem({ product: p, lot: null });
+          } else {
+            addLineToCart(p);
+          }
+        }}
+      />
+
+      {/* Loose Item Weight Input Popup */}
+      <PosLooseWeightModal
+        isOpen={Boolean(looseModalItem)}
+        product={looseModalItem?.product ?? null}
+        lot={looseModalItem?.lot}
+        initialWeight={looseModalItem?.initialWeight}
+        onConfirm={(res: LooseWeightConfirmResult) => {
+          if (!looseModalItem) return;
+          addLineToCart(
+            looseModalItem.product as ErpProduct,
+            looseModalItem.lot as any,
+            res.unit,
+            res.weightInKg,
+            true
+          );
+          setLooseModalItem(null);
+          focusField("pos-quick-search", 80);
+        }}
+        onClose={() => {
+          setLooseModalItem(null);
+          focusField("pos-quick-search", 80);
+        }}
       />
     </div>
   );

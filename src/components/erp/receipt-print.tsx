@@ -252,6 +252,12 @@ export function ReceiptPrint({
             Total Credit Due: {formatPrice(data.creditBalance)}
           </p>
         )}
+        {data.roundOff !== undefined && data.roundOff !== 0 && (
+          <div className="receipt-row" style={{ fontSize: "0.9em", color: "#333", padding: "1px 0" }}>
+            <span>Round Off</span>
+            <span>{data.roundOff > 0 ? `+${formatPrice(data.roundOff)}` : `- ${formatPrice(Math.abs(data.roundOff))}`}</span>
+          </div>
+        )}
       </div>
 
       <div className="receipt-line-solid" />

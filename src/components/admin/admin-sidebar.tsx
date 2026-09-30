@@ -100,6 +100,7 @@ const navGroups = [
     label: "Catalog",
     links: [
       { href: "/admin/products", label: "Products", icon: Package },
+      { href: "/admin/products/spreadsheet", label: "Excel Grid Product Add", icon: FileSpreadsheet },
       { href: "/admin/products/import", label: "Bulk Import (CSV)", icon: FileSpreadsheet },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
     ],
@@ -234,6 +235,14 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
           )}
           {soundEnabled ? "Order sound on" : "Order sound off"}
         </button>
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700"
+        >
+          <UserCircle className="h-4 w-4 text-green-600" />
+          My Profile &amp; Password
+        </Link>
         <Link
           href="/"
           onClick={onNavigate}

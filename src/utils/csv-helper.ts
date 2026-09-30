@@ -21,6 +21,7 @@ export interface ParsedProductRow {
   packetsPerBox?: number;
   packetSellingPrice?: number;
   boxSellingPrice?: number;
+  isLoose?: boolean;
   errors: string[];
   warnings: string[];
 }
@@ -108,6 +109,7 @@ export function normalizeHeader(header: string): string {
   if (["packetsperbox", "pktsperbox", "packetperbox"].includes(h)) return "packets_per_box";
   if (["packetsellingprice", "packetprice", "pktsellingprice", "pktprice"].includes(h)) return "packet_selling_price";
   if (["boxsellingprice", "boxprice"].includes(h)) return "box_selling_price";
+  if (["loose", "isloose", "is_loose", "byweight", "weightitem", "scaleitem"].includes(h)) return "is_loose";
   return h;
 }
 
@@ -188,6 +190,14 @@ export function processProductRows(rawRows: string[][]): {
     const rawBoxPrice = getVal("box_selling_price").replace(/[^0-9.-]/g, "");
     const boxSellingPrice = rawBoxPrice ? parseFloat(rawBoxPrice) : undefined;
 
+    const rawLoose = getVal("is_loose").toLowerCase();
+    const isLoose =
+      rawLoose === "true" ||
+      rawLoose === "1" ||
+      rawLoose === "yes" ||
+      rawLoose === "y" ||
+      unit.toLowerCase() === "loose";
+
     // Validation
     if (!name) {
       errors.push("Product Name is missing");
@@ -229,6 +239,7 @@ export function processProductRows(rawRows: string[][]): {
       packetsPerBox,
       packetSellingPrice,
       boxSellingPrice,
+      isLoose,
       errors,
       warnings,
     });
@@ -301,6 +312,7 @@ export function exportProductsToCSV(products: Array<Record<string, any>>): strin
     "Purchase Price",
     "MRP",
     "Stock",
+    "Loose (Yes/No)",
     "GST %",
     "Reorder Level",
     "Pieces Per Packet",
@@ -326,6 +338,7 @@ export function exportProductsToCSV(products: Array<Record<string, any>>): strin
     p.purchase_price ?? "",
     p.mrp ?? "",
     p.stock ?? 0,
+    p.is_loose ? "Yes" : "No",
     p.gst_percentage ?? 0,
     p.reorder_level ?? 10,
     p.pieces_per_packet ?? 12,

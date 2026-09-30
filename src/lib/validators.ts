@@ -26,6 +26,18 @@ export const forgotPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
 });
 
+export const resetPasswordSchema = z
+  .object({
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
 export const addressSchema = z.object({
   address_line: z.string().min(5, "Address is required"),
   city: z.string().min(2, "City is required"),
@@ -74,6 +86,7 @@ export type ProductInput = {
   auto_refill_slot2_enabled?: boolean;
   auto_refill_slot2_quantity?: number;
   auto_refill_slot2_time?: string;
+  is_loose?: boolean;
 };
 
 export const productSchema = z.object({
@@ -87,7 +100,8 @@ export const productSchema = z.object({
     ),
   description: z.string().optional(),
   price: z.coerce.number().min(0, "Price must be 0 or more"),
-  stock: z.coerce.number().int().min(0, "Stock must be 0 or more"),
+  stock: z.coerce.number().min(0, "Stock must be 0 or more"),
+  is_loose: z.boolean().optional(),
   image_url: z
     .string()
     .refine(

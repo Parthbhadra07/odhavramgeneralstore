@@ -159,6 +159,7 @@ export const bulkImportService = {
             packets_per_box: row.packetsPerBox ?? existing.packets_per_box,
             packet_selling_price: row.packetSellingPrice ?? existing.packet_selling_price,
             box_selling_price: row.boxSellingPrice ?? existing.box_selling_price,
+            is_loose: row.isLoose !== undefined ? row.isLoose : existing.is_loose,
           });
 
           // If stock changed and stock movement tracking is desired
@@ -208,6 +209,7 @@ export const bulkImportService = {
             reorder_level: row.reorderLevel || 10,
             min_stock_level: row.minStockLevel || 5,
             selling_price: row.sellingPrice,
+            is_loose: Boolean(row.isLoose),
           });
 
           // Add to memory map so future lines in the same CSV with same barcode/slug are handled

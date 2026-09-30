@@ -30,9 +30,11 @@ function isColumnMissingError(
     msg.includes("auto_refill") ||
     msg.includes("pieces_per_packet") ||
     msg.includes("packets_per_box") ||
+    msg.includes("is_loose") ||
     details.includes("column") ||
     details.includes("schema cache") ||
-    details.includes("auto_refill")
+    details.includes("auto_refill") ||
+    details.includes("is_loose")
   );
 }
 
@@ -79,6 +81,7 @@ function toProductRow(
     auto_refill_slot2_quantity: product.auto_refill_slot2_quantity ? Number(product.auto_refill_slot2_quantity) : 0,
     auto_refill_slot2_time: product.auto_refill_slot2_time?.trim() || "16:00",
     last_auto_refilled_slot2_date: product.last_auto_refilled_slot2_date || null,
+    is_loose: product.is_loose ?? false,
   };
 }
 
@@ -207,6 +210,7 @@ export const productService = {
         delete row.auto_refill_slot2_quantity;
         delete row.auto_refill_slot2_time;
         delete row.last_auto_refilled_slot2_date;
+        delete row.is_loose;
         const retry = await supabase.from("products").insert(row).select().single();
         data = retry.data;
         error = retry.error;
@@ -335,6 +339,7 @@ export const productService = {
       delete cleanRow.auto_refill_slot2_quantity;
       delete cleanRow.auto_refill_slot2_time;
       delete cleanRow.last_auto_refilled_slot2_date;
+      delete cleanRow.is_loose;
       const retry = await supabase.from("products").update(cleanRow).eq("id", id).select().single();
       data = retry.data;
       error = retry.error;

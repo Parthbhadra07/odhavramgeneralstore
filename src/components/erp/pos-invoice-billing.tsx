@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle, Globe } from "lucide-react";
+import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle, Globe, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { openWhatsAppShare, posBillWhatsAppMessage } from "@/utils/whatsapp";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,12 @@ import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { printReceipt } from "@/components/erp/receipt-print";
 import { ProductDetailsLookupModal } from "@/components/erp/product-details-lookup-modal";
 import { PosCreateOnlineAccountModal } from "@/components/erp/pos-create-online-account-modal";
+import {
+  PosLooseWeightModal,
+  type LooseWeightConfirmResult,
+  type LooseModalProduct,
+  type LooseModalLot,
+} from "@/components/erp/pos-loose-weight-modal";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
 import { normalizeScannedBarcode } from "@/lib/barcode-scan-formats";
 import { customerService, inventoryService, posService, settingsService } from "@/services/erp";
@@ -47,6 +53,7 @@ type InvoiceRow = {
   gstPercentage: number;
   barcode: string | null;
   lotId: string | null;
+  isLoose?: boolean;
 };
 
 function newRow(): InvoiceRow {
@@ -63,6 +70,7 @@ function newRow(): InvoiceRow {
     gstPercentage: 0,
     barcode: null,
     lotId: null,
+    isLoose: false,
   };
 }
 
@@ -101,6 +109,7 @@ export function PosInvoiceBilling() {
   const [showOnlineAccountModal, setShowOnlineAccountModal] = useState(false);
   const [loyaltyRedeem, setLoyaltyRedeem] = useState(0);
   const [discount, setDiscount] = useState(0);
+  const [roundOff, setRoundOff] = useState(true);
   const [received, setReceived] = useState(0);
   const [billNotes, setBillNotes] = useState("");
   const [processing, setProcessing] = useState(false);
@@ -112,6 +121,12 @@ export function PosInvoiceBilling() {
   const [scanCode, setScanCode] = useState("");
   const [showCameraScan, setShowCameraScan] = useState(false);
   const [showProductLookup, setShowProductLookup] = useState(false);
+  const [looseModalItem, setLooseModalItem] = useState<{
+    product: LooseModalProduct;
+    lot?: LooseModalLot;
+    rowId?: string;
+    initialWeight?: number;
+  } | null>(null);
   const [checkoutStep, setCheckoutStep] = useState<"idle" | "payment" | "save">("idle");
   const [payOptionIndex, setPayOptionIndex] = useState(0);
   const [saveBillHighlight, setSaveBillHighlight] = useState(false);
@@ -143,7 +158,9 @@ export function PosInvoiceBilling() {
     const gst = lineItemInclusiveGst(unitRate, r.quantity, r.gstPercentage);
     return s + gst.totalGst;
   }, 0);
-  const total = Math.max(0, Math.round((grossSubtotal - totalAllDiscounts) * 100) / 100);
+  const rawTotal = Math.max(0, Math.round((grossSubtotal - totalAllDiscounts) * 100) / 100);
+  const roundOffAmount = roundOff ? Math.round((Math.round(rawTotal) - rawTotal) * 100) / 100 : 0;
+  const total = roundOff ? Math.round(rawTotal) : rawTotal;
   const balance = Math.round((received - total) * 100) / 100;
   const invoiceDate = useMemo(
     () =>
@@ -341,6 +358,9 @@ export function PosInvoiceBilling() {
             }
 
             // In pcs mode: auto-calculate boxes or packets
+            if (r.isLoose) {
+              return { ...r, quantity: Math.max(0.001, num) };
+            }
             if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
               const boxes = num / totalPcsInBox;
               const rate = Number(r.boxSellingPrice) || (baseRate * totalPcsInBox);
@@ -383,6 +403,19 @@ export function PosInvoiceBilling() {
   ) => {
     if (product.stock <= 0) {
       toast.error(`${product.name} is out of stock`);
+      return;
+    }
+
+    const isLoose = Boolean(
+      product.is_loose ||
+        product.unit?.toLowerCase() === "kg" ||
+        product.unit?.toLowerCase() === "loose"
+    );
+
+    if (isLoose) {
+      setShowSuggest(false);
+      setSuggestions([]);
+      setLooseModalItem({ product, lot: null, rowId });
       return;
     }
     const piecesPerPkt = Number(product.pieces_per_packet) || 12;
@@ -467,6 +500,31 @@ export function PosInvoiceBilling() {
         if (stock <= 0) {
           toast.error(`${product.name} is out of stock`);
           return false;
+        }
+
+        const isLoose = Boolean(
+          product.is_loose ||
+            product.unit?.toLowerCase() === "kg" ||
+            product.unit?.toLowerCase() === "loose"
+        );
+
+        if (isLoose) {
+          setLooseModalItem({
+            product,
+            lot: lot
+              ? {
+                  id: lot.id,
+                  barcode: lot.barcode,
+                  current_stock: lot.current_stock,
+                  selling_price: lot.selling_price,
+                }
+              : null,
+            rowId: options?.clearRowId,
+          });
+          setShowSuggest(false);
+          setSuggestions([]);
+          setScanCode("");
+          return true;
         }
 
         const piecesPerPkt = Number(product.pieces_per_packet) || 12;
@@ -664,6 +722,7 @@ export function PosInvoiceBilling() {
       discountPercent: r.discountPercent || 0,
       gstPercentage: r.gstPercentage,
       quantity: r.quantity,
+      isLoose: r.isLoose,
     }));
 
   const completeSale = async (autoPrint = false, method?: PosPaymentMethod) => {
@@ -690,6 +749,7 @@ export function PosInvoiceBilling() {
         discount,
         loyaltyPointsRedeemed: loyaltyEnabled && loyaltyRedeem > 0 ? loyaltyRedeem : undefined,
         notes: billNotes.trim() || undefined,
+        roundOff,
       });
       setLastSale(sale);
       if (autoPrint) autoPrintSaleIdRef.current = sale.id;
@@ -846,12 +906,20 @@ export function PosInvoiceBilling() {
     setActiveRowId(row.id);
     if (e.key === "ArrowUp" || e.key === "+") {
       e.preventDefault();
-      updateRow(row.id, { quantity: (row.quantity || 0) + 1 });
+      updateRow(row.id, {
+        quantity: row.isLoose
+          ? Math.round(((row.quantity || 0) + 0.25) * 1000) / 1000
+          : (row.quantity || 0) + 1,
+      });
       return;
     }
     if (e.key === "ArrowDown" || e.key === "-") {
       e.preventDefault();
-      updateRow(row.id, { quantity: Math.max(1, (row.quantity || 1) - 1) });
+      updateRow(row.id, {
+        quantity: row.isLoose
+          ? Math.max(0.001, Math.round(((row.quantity || 1) - 0.25) * 1000) / 1000)
+          : Math.max(1, (row.quantity || 1) - 1),
+      });
       return;
     }
     if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey) {
@@ -1208,7 +1276,48 @@ export function PosInvoiceBilling() {
                   />
                 </td>
                 <td className="px-1 py-0.5">
-                  {row.productId ? (
+                  {row.isLoose ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prod: LooseModalProduct = {
+                          id: row.productId || "",
+                          name: row.name,
+                          slug: "",
+                          sku: null,
+                          barcode: row.barcode,
+                          brand: null,
+                          unit: row.unit || "kg",
+                          price: row.rate,
+                          selling_price: row.rate,
+                          stock: 9999,
+                          image_url: null,
+                          category_id: null,
+                          featured: false,
+                          is_active: true,
+                          created_at: "",
+                          is_loose: true,
+                        };
+                        setLooseModalItem({
+                          product: prod,
+                          lot: row.lotId
+                            ? {
+                                id: row.lotId,
+                                barcode: row.barcode || "",
+                                current_stock: 9999,
+                                selling_price: row.rate,
+                              }
+                            : null,
+                          rowId: row.id,
+                          initialWeight: row.quantity,
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 rounded bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-200 transition"
+                      title="Click to adjust weight in grams / kg"
+                    >
+                      <Scale className="h-3.5 w-3.5 text-indigo-600" /> Loose ({row.unit || "kg"})
+                    </button>
+                  ) : row.productId ? (
                     <select
                       value={row.unit || "pcs"}
                       onChange={(e) => switchRowUnit(row.id, e.target.value as any)}
@@ -1222,7 +1331,7 @@ export function PosInvoiceBilling() {
                   ) : (
                     <span className="text-xs text-slate-400">{row.unit || "pcs"}</span>
                   )}
-                  {row.unit && row.unit !== "pcs" && (
+                  {row.unit && row.unit !== "pcs" && !row.isLoose && (
                     <div className="text-[10px] text-amber-700 font-medium whitespace-nowrap">
                       ={row.quantity * (row.packMultiplier || 1)} pcs
                     </div>
@@ -1472,7 +1581,24 @@ export function PosInvoiceBilling() {
               <span className="tabular-nums">- {formatPrice(totalAllDiscounts)}</span>
             </div>
           )}
-          <div className="mt-2 flex justify-between border-t pt-2 text-base font-bold text-[#1a365d]">
+          <div className="mt-2 flex items-center justify-between border-t pt-2 text-xs text-slate-600">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none font-medium text-slate-700">
+              <input
+                type="checkbox"
+                id="invoice-round-off"
+                checked={roundOff}
+                onChange={(e) => setRoundOff(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-green-700 focus:ring-green-600"
+              />
+              <span>Round Off</span>
+            </label>
+            {roundOff && (
+              <span className="font-semibold tabular-nums text-slate-600">
+                {roundOffAmount >= 0 ? `+${formatPrice(roundOffAmount)}` : `- ${formatPrice(Math.abs(roundOffAmount))}`}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 text-base font-bold text-[#1a365d]">
             <span>Grand Total</span>
             <span className="tabular-nums">{formatPrice(total)}</span>
           </div>
@@ -1564,6 +1690,56 @@ export function PosInvoiceBilling() {
             applyProduct(nextR.id, p);
           }
         }}
+      />
+
+      {/* Loose Item Weight Input Popup */}
+      <PosLooseWeightModal
+        isOpen={Boolean(looseModalItem)}
+        product={looseModalItem?.product ?? null}
+        lot={looseModalItem?.lot}
+        initialWeight={looseModalItem?.initialWeight}
+        onConfirm={(res: LooseWeightConfirmResult) => {
+          if (!looseModalItem) return;
+          const { product, lot, rowId } = looseModalItem;
+
+          setRows((prev) => {
+            const targetId =
+              rowId && prev.some((r) => r.id === rowId)
+                ? rowId
+                : prev.find((r) => !r.productId)?.id;
+
+            const filled: Omit<InvoiceRow, "id"> = {
+              productId: product.id ?? null,
+              name: product.name,
+              hsn: product.hsn_code ?? "",
+              unit: res.unit || product.unit || "kg",
+              packMultiplier: 1,
+              piecesPerPacket: 1,
+              packetsPerBox: 1,
+              packetSellingPrice: null,
+              boxSellingPrice: null,
+              baseRate: res.rate,
+              quantity: res.weightInKg,
+              rate: res.rate,
+              discountPercent: Number(product.discount_percent ?? 0),
+              gstPercentage: Number(product.gst_percentage ?? 0),
+              barcode: lot?.barcode ?? product.barcode ?? null,
+              lotId: lot?.id ?? null,
+              isLoose: true,
+            };
+
+            let next = targetId
+              ? prev.map((r) => (r.id === targetId ? { ...r, ...filled } : r))
+              : [...prev, { ...newRow(), ...filled }];
+
+            if (next.every((r) => r.productId)) next = [...next, newRow()];
+            return next;
+          });
+
+          toast.success(`Added: ${product.name} (${res.weightInKg} kg)`);
+          setLooseModalItem(null);
+        }}
+        onClose={() => setLooseModalItem(null)}
       />
     </div>
   );

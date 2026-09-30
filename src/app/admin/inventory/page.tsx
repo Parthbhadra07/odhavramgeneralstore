@@ -11,6 +11,7 @@ import {
   Search,
   ScanBarcode,
   FileSpreadsheet,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { inventoryService, lotService } from "@/services/erp";
@@ -19,6 +20,7 @@ import { formatPrice, formatDate } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BarcodeLabel, printBarcodeLabels } from "@/components/erp/barcode-label";
+import { StockVerificationModal } from "@/components/admin/stock-verification-modal";
 import { STOCK_MOVEMENT_LABELS } from "@/lib/erp/constants";
 import { cn } from "@/utils/cn";
 import {
@@ -45,6 +47,7 @@ export default function InventoryPage() {
   const [adjustQty, setAdjustQty] = useState(0);
   const [filter, setFilter] = useState<AttentionFilter>("needs_action");
   const [loading, setLoading] = useState(true);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -140,6 +143,14 @@ export default function InventoryPage() {
               Bulk CSV Import
             </Button>
           </Link>
+          <Button
+            variant="outline"
+            onClick={() => setShowVerificationModal(true)}
+            className="border-blue-200 text-blue-800 hover:bg-blue-50"
+          >
+            <Printer className="mr-1.5 h-4 w-4 text-blue-600" />
+            Stock Audit Sheet
+          </Button>
           <Button variant="outline" href="/admin/reorder">
             <Sparkles className="mr-1 h-4 w-4" />
             Smart reorder
@@ -479,6 +490,12 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
+
+      <StockVerificationModal
+        open={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        products={products}
+      />
     </div>
   );
 }

@@ -130,11 +130,65 @@ export const authService = {
   },
 
   async resetPassword(email: string) {
+    const origin =
+      typeof window !== "undefined" && window.location.origin
+        ? window.location.origin
+        : (process.env.NEXT_PUBLIC_APP_URL || "");
+    const redirectTo = origin ? `${origin.replace(/\/$/, "")}/auth/reset-password/` : undefined;
+
+    // Call server-side API using admin.generateLink to bypass Supabase's SMTP email rate limits
+    try {
+      const res = await fetch("/api/auth/request-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), origin }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        return {
+          success: true,
+          via: "direct" as const,
+          directLink: json.directLink as string,
+          emailOtp: json.emailOtp as string,
+        };
+      }
+      if (json.error && !json.error.toLowerCase().includes("service role")) {
+        throw new Error(json.error);
+      }
+    } catch (apiErr: unknown) {
+      console.warn("[AuthService] Direct reset API failed, falling back to standard reset:", apiErr);
+    }
+
+    // Fallback: standard resetPasswordForEmail
     const supabase = requireClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password`,
+      redirectTo,
     });
     if (error) throw error;
+    return {
+      success: true,
+      via: "email" as const,
+      directLink: undefined,
+      emailOtp: undefined,
+    };
+  },
+
+  async verifyRecoveryOtp(email: string, token: string) {
+    const supabase = requireClient();
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: "recovery",
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  async updatePassword(password: string) {
+    const supabase = requireClient();
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
+    return data;
   },
 
   async getSession() {
