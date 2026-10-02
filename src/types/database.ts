@@ -69,6 +69,8 @@ export interface Product {
   auto_refill_slot2_time?: string | null;
   last_auto_refilled_slot2_date?: string | null;
   is_loose?: boolean | null;
+  offer_start_date?: string | null;
+  offer_end_date?: string | null;
   created_at: string;
   categories?: Category | null;
 }

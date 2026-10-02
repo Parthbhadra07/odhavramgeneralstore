@@ -4,6 +4,7 @@ import {
   saveProductCatalog,
   removeProductFromCatalog,
 } from "@/lib/offline/product-cache";
+import { getProductOfferDates, embedOfferDatesIntoDescription } from "@/utils/offer-helper";
 import type { Product, ProductFilters } from "@/types/database";
 
 function isOfflineError(err: unknown): boolean {
@@ -82,6 +83,8 @@ function toProductRow(
     auto_refill_slot2_time: product.auto_refill_slot2_time?.trim() || "16:00",
     last_auto_refilled_slot2_date: product.last_auto_refilled_slot2_date || null,
     is_loose: product.is_loose ?? false,
+    offer_start_date: product.offer_start_date || null,
+    offer_end_date: product.offer_end_date || null,
   };
 }
 
@@ -174,6 +177,15 @@ export const productService = {
         }
       }
 
+      products = products.map((p) => {
+        const { startDate, endDate } = getProductOfferDates(p);
+        return {
+          ...p,
+          offer_start_date: p.offer_start_date || startDate,
+          offer_end_date: p.offer_end_date || endDate,
+        };
+      });
+
       saveProductCatalog(products);
       return products;
     } catch (err) {
@@ -255,6 +267,8 @@ export const productService = {
         delete row.auto_refill_slot2_time;
         delete row.last_auto_refilled_slot2_date;
         delete row.is_loose;
+        delete row.offer_start_date;
+        delete row.offer_end_date;
         const retry = await supabase.from("products").insert(row).select().single();
         data = retry.data;
         error = retry.error;
@@ -358,6 +372,14 @@ export const productService = {
     if (product.auto_refill_slot2_quantity !== undefined) row.auto_refill_slot2_quantity = product.auto_refill_slot2_quantity;
     if (product.auto_refill_slot2_time !== undefined) row.auto_refill_slot2_time = product.auto_refill_slot2_time;
     if (product.last_auto_refilled_slot2_date !== undefined) row.last_auto_refilled_slot2_date = product.last_auto_refilled_slot2_date;
+    if (product.offer_start_date !== undefined) row.offer_start_date = product.offer_start_date;
+    if (product.offer_end_date !== undefined) row.offer_end_date = product.offer_end_date;
+    if (product.offer_start_date !== undefined || product.offer_end_date !== undefined) {
+      row.description = embedOfferDatesIntoDescription(
+        (product.description !== undefined ? product.description : (row.description as string)) || "",
+        { startDate: product.offer_start_date, endDate: product.offer_end_date }
+      );
+    }
 
     let { data, error } = await supabase
       .from("products")
@@ -384,6 +406,8 @@ export const productService = {
       delete cleanRow.auto_refill_slot2_time;
       delete cleanRow.last_auto_refilled_slot2_date;
       delete cleanRow.is_loose;
+      delete cleanRow.offer_start_date;
+      delete cleanRow.offer_end_date;
       const retry = await supabase.from("products").update(cleanRow).eq("id", id).select().single();
       data = retry.data;
       error = retry.error;

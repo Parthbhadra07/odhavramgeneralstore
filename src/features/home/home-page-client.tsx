@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { HeroBanner } from "@/features/home/hero-banner";
+import { DealsAdvertisementBanner } from "@/components/home/deals-advertisement-banner";
 import { PromoOffers } from "@/features/home/promo-offers";
 import { ProductCard } from "@/components/product-card";
 import { CategoryCard } from "@/components/category-card";
@@ -46,6 +47,7 @@ export function HomePageClient() {
         </p>
       )}
       <HeroBanner />
+      <DealsAdvertisementBanner />
       <PromoOffers />
 
       {categories.length > 0 && (

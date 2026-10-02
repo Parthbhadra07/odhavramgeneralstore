@@ -46,6 +46,8 @@ import { BulkProductImportModal } from "@/components/admin/bulk-product-import-m
 import { MultiProductSpreadsheet } from "@/components/admin/multi-product-spreadsheet";
 import { StockVerificationModal } from "@/components/admin/stock-verification-modal";
 import { exportProductsToCSV, downloadCSVFile } from "@/utils/csv-helper";
+import { getOfferTimeRemaining, isOfferActive, getProductOfferDates } from "@/utils/offer-helper";
+import { dealBannerService, type DealBannerConfig } from "@/services/deal-banner.service";
 import type { Product, Category } from "@/types/database";
 
 export default function AdminProductsPage() {
@@ -67,8 +69,15 @@ export default function AdminProductsPage() {
   const [offerMrp, setOfferMrp] = useState<number>(0);
   const [offerPrice, setOfferPrice] = useState<number>(0);
   const [offerFeatured, setOfferFeatured] = useState<boolean>(true);
+  const [offerStartDate, setOfferStartDate] = useState<string>("");
+  const [offerEndDate, setOfferEndDate] = useState<string>("");
   const [selectedOfferProductManualId, setSelectedOfferProductManualId] = useState<string>("");
   const [savingOffer, setSavingOffer] = useState(false);
+
+  // Home Page Deal Banner Config Modal State
+  const [showBannerModal, setShowBannerModal] = useState(false);
+  const [bannerConfig, setBannerConfig] = useState<DealBannerConfig>(dealBannerService.getDefaults());
+  const [savingBanner, setSavingBanner] = useState(false);
 
   const [runningRefill, setRunningRefill] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<{
@@ -354,11 +363,33 @@ export default function AdminProductsPage() {
     setOfferMrp(mrpVal);
     setOfferPrice(Number(product.price));
     setOfferFeatured(Boolean(product.featured));
+
+    const { startDate, endDate } = getProductOfferDates(product);
+    const toLocalISO = (dStr?: string | null) => {
+      if (!dStr) return "";
+      const d = new Date(dStr);
+      if (isNaN(d.getTime())) return "";
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const nowLocal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    setOfferStartDate(toLocalISO(startDate || product.offer_start_date) || nowLocal);
+    setOfferEndDate(toLocalISO(endDate || product.offer_end_date));
     setShowOfferModal(true);
   };
 
   const openOfferModalForNew = () => {
     setOfferModalProduct(null);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setOfferStartDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`);
+    const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    setOfferEndDate(`${in3Days.getFullYear()}-${pad(in3Days.getMonth() + 1)}-${pad(in3Days.getDate())}T${pad(in3Days.getHours())}:${pad(in3Days.getMinutes())}`);
+
     const firstP = activeProducts[0];
     if (firstP) {
       setSelectedOfferProductManualId(firstP.id);
@@ -375,6 +406,33 @@ export default function AdminProductsPage() {
       const discounted = Math.round(offerMrp * (1 - percent / 100));
       setOfferPrice(discounted);
     }
+  };
+
+  const applyValidityPreset = (duration: "24h" | "3d" | "7d" | "eom" | "none") => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const toLocal = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    setOfferStartDate(toLocal(now));
+
+    if (duration === "none") {
+      setOfferEndDate("");
+      return;
+    }
+
+    const end = new Date(now);
+    if (duration === "24h") {
+      end.setHours(end.getHours() + 24);
+    } else if (duration === "3d") {
+      end.setDate(end.getDate() + 3);
+    } else if (duration === "7d") {
+      end.setDate(end.getDate() + 7);
+    } else if (duration === "eom") {
+      end.setMonth(end.getMonth() + 1, 0);
+      end.setHours(23, 59, 0);
+    }
+    setOfferEndDate(toLocal(end));
   };
 
   const handleSaveOffer = async () => {
@@ -399,6 +457,8 @@ export default function AdminProductsPage() {
         selling_price: offerPrice,
         mrp: offerMrp > 0 ? offerMrp : null,
         featured: offerFeatured,
+        offer_start_date: offerStartDate ? new Date(offerStartDate).toISOString() : null,
+        offer_end_date: offerEndDate ? new Date(offerEndDate).toISOString() : null,
       });
       toast.success(`Offer updated for "${targetProduct.name}"!`);
       setShowOfferModal(false);
@@ -419,6 +479,8 @@ export default function AdminProductsPage() {
       await productService.update(targetProduct.id, {
         mrp: null,
         featured: false,
+        offer_start_date: null,
+        offer_end_date: null,
       });
       toast.success(`Offer removed from "${targetProduct.name}".`);
       setShowOfferModal(false);
@@ -427,6 +489,19 @@ export default function AdminProductsPage() {
       toast.error(err instanceof Error ? err.message : "Failed to remove offer");
     } finally {
       setSavingOffer(false);
+    }
+  };
+
+  const handleSaveBanner = async () => {
+    setSavingBanner(true);
+    try {
+      await dealBannerService.save(bannerConfig);
+      toast.success("Home page Deals Advertisement Banner updated successfully!");
+      setShowBannerModal(false);
+    } catch {
+      toast.error("Failed to save banner configuration");
+    } finally {
+      setSavingBanner(false);
     }
   };
 
@@ -1183,18 +1258,33 @@ export default function AdminProductsPage() {
               <div>
                 <h4 className="font-bold text-rose-950">Store Offers & Promotional Deals</h4>
                 <p className="mt-0.5 text-xs text-rose-800">
-                  Manage discounted prices, crossed-out MRPs, and featured deals shown to customers on the website &amp; mobile app catalog.
+                  Manage discounted prices, start &amp; end validity time periods, and customize the Deals Advertisement Banner on the home page.
                 </p>
               </div>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={openOfferModalForNew}
-              className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shrink-0"
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" /> Create Offer on Product
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  dealBannerService.get().then(setBannerConfig);
+                  setShowBannerModal(true);
+                }}
+                className="border-rose-300 text-rose-800 bg-white hover:bg-rose-50 text-xs font-semibold shadow-2xs"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1 text-amber-500" />
+                📢 Home Page Deals Banner
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={openOfferModalForNew}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-2xs"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Create Offer on Product
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -1362,6 +1452,17 @@ export default function AdminProductsPage() {
                                   </span>
                                 )}
                               </div>
+                              {p.offer_end_date && (() => {
+                                const remaining = getOfferTimeRemaining(p.offer_end_date);
+                                return (
+                                  <div className="flex items-center gap-1 text-[11px]">
+                                    <Clock className={cn("h-3 w-3 shrink-0", remaining.isExpired ? "text-gray-400" : "text-amber-600")} />
+                                    <span className={cn("font-medium", remaining.isExpired ? "text-gray-500 line-through" : "text-amber-800")}>
+                                      {remaining.text}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                               <div className="flex items-center gap-2 text-[11px] text-gray-500">
                                 <span>Saves {formatPrice(p.mrp! - p.price)}</span>
                                 <button
@@ -1795,6 +1896,80 @@ export default function AdminProductsPage() {
                 </div>
               )}
 
+              {/* Offer Time Period / Validity Duration */}
+              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-800">
+                    <Clock className="h-4 w-4 text-amber-600" />
+                    Offer Validity Time Period
+                  </label>
+                  {offerEndDate && (() => {
+                    const remaining = getOfferTimeRemaining(offerEndDate);
+                    return (
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-[11px] font-bold border",
+                        remaining.isExpired
+                          ? "bg-gray-200 text-gray-700 border-gray-300"
+                          : "bg-amber-100 text-amber-900 border-amber-300 animate-pulse"
+                      )}>
+                        ⏱️ {remaining.text}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Quick Validity Presets */}
+                <div>
+                  <span className="block text-[11px] font-semibold text-gray-500 mb-1.5">
+                    Quick Validity Presets:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { key: "24h", label: "24 Hours (Flash)" },
+                      { key: "3d", label: "3 Days" },
+                      { key: "7d", label: "7 Days (1 Wk)" },
+                      { key: "eom", label: "End of Month" },
+                      { key: "none", label: "No Expiry" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => applyValidityPreset(item.key as any)}
+                        className="rounded-lg border border-amber-300 bg-amber-50/80 px-2.5 py-1 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 hover:border-amber-400 active:scale-95"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <span className="block text-[11px] font-medium text-gray-600 mb-1">
+                      Offer Start Date &amp; Time
+                    </span>
+                    <Input
+                      type="datetime-local"
+                      value={offerStartDate}
+                      onChange={(e) => setOfferStartDate(e.target.value)}
+                      className="text-xs h-9 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="block text-[11px] font-medium text-gray-600 mb-1">
+                      Offer End Date &amp; Time (Expiry)
+                    </span>
+                    <Input
+                      type="datetime-local"
+                      value={offerEndDate}
+                      onChange={(e) => setOfferEndDate(e.target.value)}
+                      className="text-xs h-9 bg-white border-amber-300 focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Featured deal checkbox */}
               <label className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 cursor-pointer select-none">
                 <input
@@ -1847,6 +2022,193 @@ export default function AdminProductsPage() {
                   Apply &amp; Save Offer
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Home Page Deals Advertisement Banner Modal */}
+      {showBannerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-2xs">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    Home Page Deals Advertisement Banner
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Customize promotional banner, countdown timer, and headlines on home page
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBannerModal(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Enable toggle */}
+              <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3 cursor-pointer">
+                <div>
+                  <span className="text-sm font-bold text-gray-900">Display Banner on Home Page</span>
+                  <p className="text-xs text-gray-500">
+                    Show the animated Deals Advertisement Banner right below Hero banner
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={bannerConfig.enabled}
+                  onChange={(e) => setBannerConfig({ ...bannerConfig, enabled: e.target.checked })}
+                  className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+              </label>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                  Banner Headline Title
+                </label>
+                <Input
+                  value={bannerConfig.title}
+                  onChange={(e) => setBannerConfig({ ...bannerConfig, title: e.target.value })}
+                  placeholder="e.g. ⚡ Mega Savings & Flash Grocery Deals!"
+                  className="text-sm font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                  Subtitle / Description
+                </label>
+                <Input
+                  value={bannerConfig.subtitle}
+                  onChange={(e) => setBannerConfig({ ...bannerConfig, subtitle: e.target.value })}
+                  placeholder="e.g. Save big on daily groceries, snacks & household essentials."
+                  className="text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Promotional Badge
+                  </label>
+                  <Input
+                    value={bannerConfig.badgeText}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, badgeText: e.target.value })}
+                    placeholder="e.g. LIMITED TIME DEALS"
+                    className="text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Discount Highlight Pill
+                  </label>
+                  <Input
+                    value={bannerConfig.discountHighlight}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, discountHighlight: e.target.value })}
+                    placeholder="e.g. UP TO 50% OFF"
+                    className="text-xs font-bold text-amber-700"
+                  />
+                </div>
+              </div>
+
+              {/* Banner Expiry / Countdown Timer */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                  Banner Countdown End Date &amp; Time
+                </label>
+                <Input
+                  type="datetime-local"
+                  value={bannerConfig.endDate ? bannerConfig.endDate.slice(0, 16) : ""}
+                  onChange={(e) => setBannerConfig({ ...bannerConfig, endDate: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+                  className="text-xs"
+                />
+                <span className="text-[11px] text-gray-500 mt-0.5 block">
+                  The live countdown clock on the home page will count down to this date and time.
+                </span>
+              </div>
+
+              {/* Theme Selector */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Banner Color Theme
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { id: "flame", label: "Flame Red", bg: "bg-gradient-to-r from-rose-600 to-amber-600" },
+                    { id: "royal", label: "Royal Blue", bg: "bg-gradient-to-r from-blue-900 to-indigo-800" },
+                    { id: "emerald", label: "Emerald", bg: "bg-gradient-to-r from-emerald-800 to-teal-700" },
+                    { id: "amber", label: "Amber Sun", bg: "bg-gradient-to-r from-amber-600 to-rose-600" },
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setBannerConfig({ ...bannerConfig, theme: t.id as any })}
+                      className={cn(
+                        "rounded-xl p-2 text-center text-xs font-bold text-white transition border-2",
+                        t.bg,
+                        bannerConfig.theme === t.id ? "border-black ring-2 ring-blue-500 scale-105" : "border-transparent opacity-80 hover:opacity-100"
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Button Label
+                  </label>
+                  <Input
+                    value={bannerConfig.buttonText}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, buttonText: e.target.value })}
+                    placeholder="e.g. Shop Deals Now"
+                    className="text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Button Target Link
+                  </label>
+                  <Input
+                    value={bannerConfig.buttonLink}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, buttonLink: e.target.value })}
+                    placeholder="e.g. /products?deals=true"
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={savingBanner}
+                onClick={() => setShowBannerModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                loading={savingBanner}
+                onClick={handleSaveBanner}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+              >
+                Save &amp; Publish Banner
+              </Button>
             </div>
           </div>
         </div>

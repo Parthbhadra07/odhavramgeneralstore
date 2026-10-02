@@ -51,14 +51,14 @@ export function Navbar() {
       <header
         data-main-navbar="true"
         className={cn(
-          "main-website-header sticky top-0 z-40 bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 text-white shadow-md border-b border-blue-950/40",
+          "main-website-header sticky top-0 z-40 border-b border-green-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80",
           isCatalogPage && "hidden md:block"
         )}
       >
         <div className="container mx-auto px-4">
           <div className="flex h-16 items-center justify-between gap-4">
             <Link href="/" className="group flex shrink-0 items-center gap-2.5">
-              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/40 bg-white p-0.5 shadow-sm transition-transform group-hover:scale-105">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-green-200 bg-white p-0.5 shadow-sm transition-transform group-hover:scale-105">
                 <Image
                   src="/logo.png"
                   alt={APP_NAME}
@@ -69,9 +69,9 @@ export function Navbar() {
                 />
               </div>
               <div className="flex flex-col">
-                <span className="hidden text-base font-bold leading-tight text-white sm:inline">{APP_NAME}</span>
-                <span className="text-sm font-bold text-white sm:hidden">OGS</span>
-                <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-blue-200 sm:inline">Fresh &amp; Daily Grocery</span>
+                <span className="hidden text-base font-bold leading-tight text-green-900 sm:inline">{APP_NAME}</span>
+                <span className="text-sm font-bold text-green-900 sm:hidden">OGS</span>
+                <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-green-600 sm:inline">Fresh &amp; Daily Grocery</span>
               </div>
             </Link>
 
@@ -84,7 +84,7 @@ export function Navbar() {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="text-sm font-medium text-blue-100 hover:text-white px-2 py-1 rounded-lg hover:bg-blue-800/60 transition"
+                  className="text-sm font-medium text-gray-700 hover:text-green-700 transition"
                 >
                   {link.label}
                 </Link>
@@ -94,19 +94,19 @@ export function Navbar() {
             <div className="flex items-center gap-2">
               <a
                 href={STORE_PHONE_TEL}
-                className="hidden items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/80 border border-blue-600/60 md:flex transition"
+                className="hidden items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 border border-green-200 md:flex transition"
               >
                 {STORE_PHONE}
               </a>
               <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="relative rounded-lg p-2 text-blue-100 hover:text-white hover:bg-blue-800/60 transition"
+                className="relative rounded-lg p-2 text-gray-700 hover:bg-green-50 transition"
                 aria-label="Open cart"
               >
                 <ShoppingCart className="h-5 w-5" />
                 {itemCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-xs font-black text-blue-950 shadow-xs border border-white">
+                  <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 text-xs font-bold text-white shadow-xs">
                     {itemCount > 9 ? "9+" : itemCount}
                   </span>
                 )}
@@ -116,14 +116,14 @@ export function Navbar() {
                 <div className="hidden items-center gap-1 sm:flex">
                   <Link
                     href="/dashboard/wishlist"
-                    className="rounded-lg p-2 text-blue-100 hover:text-white hover:bg-blue-800/60 transition"
+                    className="rounded-lg p-2 text-gray-700 hover:bg-green-50 transition"
                     aria-label="Wishlist"
                   >
                     <Heart className="h-5 w-5" />
                   </Link>
                   <Link
                     href="/dashboard"
-                    className="rounded-lg p-2 text-blue-100 hover:text-white hover:bg-blue-800/60 transition"
+                    className="rounded-lg p-2 text-gray-700 hover:bg-green-50 transition"
                     aria-label="Account"
                   >
                     <User className="h-5 w-5" />
@@ -131,7 +131,7 @@ export function Navbar() {
                   {isAdmin && (
                     <Link
                       href="/admin"
-                      className="rounded-lg p-2 text-blue-100 hover:text-white hover:bg-blue-800/60 transition"
+                      className="rounded-lg p-2 text-gray-700 hover:bg-green-50 transition"
                       aria-label="Admin"
                     >
                       <LayoutDashboard className="h-5 w-5" />
@@ -141,7 +141,7 @@ export function Navbar() {
               ) : (
                 <Link
                   href="/auth/login"
-                  className="hidden rounded-lg bg-white px-4 py-2 text-sm font-bold text-blue-900 shadow-sm hover:bg-blue-50 transition sm:block"
+                  className="hidden rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-green-700 transition sm:block"
                 >
                   Sign In
                 </Link>
@@ -149,7 +149,7 @@ export function Navbar() {
 
               <button
                 type="button"
-                className="rounded-lg p-2 text-blue-100 hover:text-white hover:bg-blue-800/60 lg:hidden"
+                className="rounded-lg p-2 text-gray-700 hover:bg-green-50 lg:hidden transition"
                 onClick={() => setMobileOpen(!mobileOpen)}
                 aria-label="Toggle menu"
               >
@@ -167,7 +167,7 @@ export function Navbar() {
 
         <div
           className={cn(
-            "border-t border-blue-800 bg-blue-900/95 backdrop-blur-md lg:hidden",
+            "border-t border-green-100 bg-white lg:hidden",
             mobileOpen ? "block" : "hidden"
           )}
         >
@@ -176,7 +176,7 @@ export function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-lg px-3 py-2 text-blue-100 hover:text-white hover:bg-blue-800"
+                className="rounded-lg px-3 py-2 text-gray-700 hover:bg-green-50"
                 onClick={() => setMobileOpen(false)}
               >
                 {link.label}
@@ -185,7 +185,7 @@ export function Navbar() {
             {!profile && (
               <Link
                 href="/auth/login"
-                className="rounded-lg px-3 py-2 font-bold text-amber-300 hover:bg-blue-800"
+                className="rounded-lg px-3 py-2 font-bold text-green-700 hover:bg-green-50"
                 onClick={() => setMobileOpen(false)}
               >
                 Sign In
@@ -195,7 +195,7 @@ export function Navbar() {
               <>
                 <Link
                   href="/dashboard"
-                  className="rounded-lg px-3 py-2 text-blue-100 hover:text-white hover:bg-blue-800"
+                  className="rounded-lg px-3 py-2 text-gray-700 hover:bg-green-50"
                   onClick={() => setMobileOpen(false)}
                 >
                   My Account
@@ -203,7 +203,7 @@ export function Navbar() {
                 {isAdmin && (
                   <Link
                     href="/admin"
-                    className="rounded-lg px-3 py-2 text-blue-100 hover:text-white hover:bg-blue-800"
+                    className="rounded-lg px-3 py-2 text-gray-700 hover:bg-green-50"
                     onClick={() => setMobileOpen(false)}
                   >
                     Admin Panel
