@@ -573,9 +573,12 @@ export function MobileCatalogView({
   };
 
   return (
-    <div data-mobile-catalog="true" className="flex flex-col min-h-screen bg-slate-50 text-gray-800 pb-24 select-none">
-      {/* 1. TOP HEADER: ROYAL BLUE THEME MATCHING NAVBAR */}
-      <header className="sticky top-0 z-30 bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 text-white px-3.5 pt-2.5 pb-2.5 shadow-md">
+    <div
+      data-mobile-catalog="true"
+      className="fixed inset-0 z-20 flex flex-col h-[100dvh] max-h-[100dvh] w-full overflow-hidden bg-slate-50 text-gray-800 select-none"
+    >
+      {/* 1. TOP HEADER: FIXED AT TOP */}
+      <header className="shrink-0 z-30 bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 text-white px-3.5 pt-2.5 pb-2.5 shadow-md">
         {/* Top row: Store Logo + User Delivery Address + Account Avatar */}
         <div className="flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -660,7 +663,7 @@ export function MobileCatalogView({
       </header>
 
       {/* 2. CATEGORY SWITCHER TABS (Clean blue & gray tokens) */}
-      <div className="bg-white border-b border-gray-200/80 px-3 py-1.5 flex items-center justify-between gap-2">
+      <div className="shrink-0 z-20 bg-white border-b border-gray-200/80 px-3 py-1.5 flex items-center justify-between gap-2 shadow-2xs">
         <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-xl">
           <button
             type="button"
@@ -708,9 +711,9 @@ export function MobileCatalogView({
 
       {/* 3. SPLIT-SCREEN CATALOG VIEW (Left Rail + Right 2-Column Product Cards) */}
       {activeView === "catalog" && (
-        <div className="flex flex-1 overflow-hidden" style={{ minHeight: "calc(100vh - 165px)" }}>
-          {/* LEFT CATEGORY RAIL (Vertical quick switcher) */}
-          <aside className="w-[78px] shrink-0 border-r border-gray-200 bg-gray-50/80 overflow-y-auto overflow-x-hidden flex flex-col py-1.5 scrollbar-none">
+        <div className="flex flex-1 min-h-0 h-full overflow-hidden">
+          {/* LEFT CATEGORY RAIL (Vertical quick switcher - scrolls independently) */}
+          <aside className="w-[78px] shrink-0 h-full overflow-y-auto overflow-x-hidden overscroll-contain border-r border-gray-200 bg-gray-50/80 flex flex-col py-1.5 scrollbar-none pb-28 touch-pan-y">
             {/* Deals / Specials Tab */}
             <button
               type="button"
@@ -794,8 +797,8 @@ export function MobileCatalogView({
             })}
           </aside>
 
-          {/* RIGHT PRODUCT FEED */}
-          <main className="flex-1 overflow-y-auto px-2 pt-2 pb-24 bg-gray-50/40">
+          {/* RIGHT PRODUCT FEED (Scrolls independently) */}
+          <main className="flex-1 h-full min-w-0 overflow-y-auto overscroll-contain px-2 pt-2 pb-28 bg-gray-50/40 touch-pan-y">
             {/* Top filter strip: [ Filters ] [ Brands ⌄ ] [ Sort ☰ ] */}
             <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-xs pb-2 pt-0.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none text-xs border-b border-gray-100 mb-1.5">
               {/* Filters Button */}
@@ -1078,9 +1081,9 @@ export function MobileCatalogView({
         </div>
       )}
 
-      {/* 4. GROUPED CATEGORIES GRID VIEW (Unified with store branding) */}
+      {/* 4. GROUPED CATEGORIES GRID VIEW (Scrolls independently) */}
       {activeView === "categories" && (
-        <div className="flex-1 px-3 py-3 overflow-y-auto pb-24 bg-gray-50/30">
+        <div className="flex-1 h-full min-h-0 overflow-y-auto overscroll-contain px-3 py-3 pb-28 bg-gray-50/30 touch-pan-y">
           <div className="space-y-6">
             {groupedCategories.map((group) => {
               if (group.items.length === 0) return null;

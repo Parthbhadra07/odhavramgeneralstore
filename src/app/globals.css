@@ -151,4 +151,13 @@ body {
   body:has([data-mobile-catalog="true"]) .main-website-header {
     display: none !important;
   }
+
+  /* Prevent whole page from scrolling on mobile catalog; products & categories scroll independently */
+  html:has([data-mobile-catalog="true"]),
+  body:has([data-mobile-catalog="true"]) {
+    overflow: hidden !important;
+    height: 100% !important;
+    height: 100dvh !important;
+    overscroll-behavior: none !important;
+  }
 }
