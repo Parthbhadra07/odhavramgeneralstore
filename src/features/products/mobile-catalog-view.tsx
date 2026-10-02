@@ -27,6 +27,7 @@ import {
   Building,
   Navigation,
   CheckCircle2,
+  Tag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore } from "@/store/cart-store";
@@ -430,8 +431,9 @@ export function MobileCatalogView({
       });
     }
 
-    // Featured / Deals filter
-    if (isFeatured) {
+    // Featured / Deals filter: if active deals exist, filter to them; otherwise show all products with banner
+    const hasCatalogDeals = products.some((p) => p.featured || (p.mrp && p.mrp > p.price));
+    if (isFeatured && hasCatalogDeals) {
       list = list.filter((p) => p.featured || (p.mrp && p.mrp > p.price));
     }
 
@@ -864,14 +866,42 @@ export function MobileCatalogView({
               )}
             </div>
 
+            {/* If deals mode is active but there are no active deals, show friendly fallback message */}
+            {isFeatured && !products.some((p) => p.featured || (p.mrp && p.mrp > p.price)) && (
+              <div className="mb-2.5 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 p-3 shadow-xs">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-white shadow-2xs shrink-0 mt-0.5">
+                    <Tag className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-gray-900">
+                      ⚡ There are no deals at the moment
+                    </h4>
+                    <p className="text-[11px] text-gray-600 mt-0.5">
+                      Showing all other fresh products &amp; daily groceries below!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Product Count & Active Category Badge */}
             <div className="flex items-center justify-between px-1 py-1 text-[11px] text-gray-500">
               <span>
                 <b>{filteredProducts.length}</b> products available
               </span>
               {isFeatured && (
-                <span className="text-amber-800 font-bold bg-amber-100 px-2 py-0.5 rounded-full">
-                  🔥 Deals Active
+                <span
+                  className={cn(
+                    "font-bold px-2 py-0.5 rounded-full text-[10px]",
+                    !products.some((p) => p.featured || (p.mrp && p.mrp > p.price))
+                      ? "bg-gray-100 text-gray-700 border border-gray-200"
+                      : "bg-amber-100 text-amber-900"
+                  )}
+                >
+                  {!products.some((p) => p.featured || (p.mrp && p.mrp > p.price))
+                    ? "📦 All Products"
+                    : "🔥 Deals Active"}
                 </span>
               )}
             </div>
@@ -989,7 +1019,7 @@ export function MobileCatalogView({
                           {product.unit ? `1 ${product.unit}` : "pcs"}
                         </span>
 
-                        {/* ADD BUTTON OR STEPPER (Branded Website Green) */}
+                        {/* ADD BUTTON OR STEPPER (Branded Website Green/Blue) */}
                         {product.stock <= 0 ? (
                           <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-400">
                             Out of Stock
@@ -998,6 +1028,10 @@ export function MobileCatalogView({
                           <button
                             type="button"
                             onClick={() => {
+                              if (product.stock <= 0) {
+                                toast.error(`"${product.name}" is currently out of stock`);
+                                return;
+                              }
                               addItem(product);
                               toast.success(`Added ${product.name} to cart`);
                             }}
@@ -1027,11 +1061,28 @@ export function MobileCatalogView({
                             </span>
                             <button
                               type="button"
+                              disabled={inCartQty >= product.stock}
                               onClick={() => {
+                                if (inCartQty >= product.stock) {
+                                  toast.error(
+                                    `Only ${product.stock} items available in stock!`
+                                  );
+                                  return;
+                                }
                                 updateQuantity(product.id, inCartQty + 1);
                               }}
-                              className="p-1 hover:bg-blue-800 rounded transition"
+                              className={cn(
+                                "p-1 rounded transition",
+                                inCartQty >= product.stock
+                                  ? "opacity-40 cursor-not-allowed"
+                                  : "hover:bg-blue-800"
+                              )}
                               aria-label="Increase"
+                              title={
+                                inCartQty >= product.stock
+                                  ? `Maximum stock limit reached (${product.stock})`
+                                  : "Add one more"
+                              }
                             >
                               <Plus className="h-3 w-3 stroke-[3]" />
                             </button>

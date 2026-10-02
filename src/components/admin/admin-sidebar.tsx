@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   Package,
@@ -106,6 +106,13 @@ const navGroups = [
     ],
   },
   {
+    label: "Offers & Banners",
+    links: [
+      { href: "/admin/products?tab=offers", label: "Deals & Offers", icon: Tag },
+      { href: "/admin/products?tab=banners", label: "Home Page Banners", icon: Sparkles },
+    ],
+  },
+  {
     label: "People & Finance",
     links: [
       { href: "/admin/customers", label: "Customers", icon: UserCircle },
@@ -131,6 +138,7 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { soundEnabled, setSoundEnabled, newOrderCount, testNotification } =
     useAdminOrderNotifications();
@@ -172,7 +180,14 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
             </p>
             <div className="space-y-0.5">
               {group.links.map(({ href, label, icon: Icon }) => {
-                const isActive = pathname === href;
+                const tabParam = searchParams?.get("tab");
+                const isLinkWithTab = href.includes("?tab=");
+                let isActive = false;
+                if (isLinkWithTab) {
+                  isActive = pathname === "/admin/products" && href.includes(`tab=${tabParam}`);
+                } else {
+                  isActive = pathname === href && (!tabParam || href !== "/admin/products");
+                }
                 const showBadge = href === "/admin/orders" && newOrderCount > 0;
                 return (
                   <Link

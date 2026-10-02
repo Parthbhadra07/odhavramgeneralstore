@@ -71,19 +71,36 @@ export const useCartStore = create<CartState>()(
         clearCartClearedAfterOrderFlag();
         const items = get().items;
         const existing = items.find((i) => i.productId === product.id);
+        const maxStock =
+          typeof product.stock === "number" && !isNaN(product.stock)
+            ? product.stock
+            : Infinity;
+
+        if (maxStock <= 0) {
+          return;
+        }
+
+        const currentQty = existing ? existing.quantity : 0;
+        if (currentQty >= maxStock) {
+          return;
+        }
+
+        const allowedQty = Math.min(quantity, Math.max(0, maxStock - currentQty));
+        if (allowedQty <= 0) {
+          return;
+        }
+
         if (existing) {
           set({
             items: items.map((i) =>
               i.productId === product.id
-                ? { ...i, quantity: i.quantity + quantity }
+                ? { ...i, quantity: i.quantity + allowedQty }
                 : i
             ),
-            isOpen: true,
           });
         } else {
           set({
-            items: [...items, { productId: product.id, quantity, product }],
-            isOpen: true,
+            items: [...items, { productId: product.id, quantity: allowedQty, product }],
           });
         }
       },
@@ -96,9 +113,22 @@ export const useCartStore = create<CartState>()(
           get().removeItem(productId);
           return;
         }
+        const existing = get().items.find((i) => i.productId === productId);
+        let finalQty = quantity;
+        if (
+          existing?.product &&
+          typeof existing.product.stock === "number" &&
+          !isNaN(existing.product.stock)
+        ) {
+          finalQty = Math.min(quantity, Math.max(0, existing.product.stock));
+          if (finalQty <= 0) {
+            get().removeItem(productId);
+            return;
+          }
+        }
         set({
           items: get().items.map((i) =>
-            i.productId === productId ? { ...i, quantity } : i
+            i.productId === productId ? { ...i, quantity: finalQty } : i
           ),
         });
       },

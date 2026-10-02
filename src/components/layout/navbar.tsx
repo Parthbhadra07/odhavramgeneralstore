@@ -24,6 +24,7 @@ import { cn } from "@/utils/cn";
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/products", label: "Shop" },
+  { href: "/products?deals=true", label: "Offers & Deals" },
   { href: "/track-order", label: "Track Order" },
   { href: "/contact", label: "Contact" },
 ];

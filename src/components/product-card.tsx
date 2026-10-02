@@ -27,6 +27,13 @@ export function ProductCard({ product, className }: ProductCardProps) {
       toast.error("Out of stock");
       return;
     }
+    const currentItems = useCartStore.getState().items;
+    const existing = currentItems.find((i) => i.productId === product.id);
+    const inCartQty = existing ? existing.quantity : 0;
+    if (inCartQty >= product.stock) {
+      toast.error(`Only ${product.stock} items available in stock!`);
+      return;
+    }
     addItem(product);
     toast.success("Added to cart");
   };

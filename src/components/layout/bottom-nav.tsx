@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Home, Search, Grid, RotateCcw, ShoppingBag } from "lucide-react";
+import { Home, Search, Grid, Tag, ShoppingBag } from "lucide-react";
 import { useCartStore } from "@/store/cart-store";
 import { useMounted } from "@/hooks/use-mounted";
+import { productService } from "@/services/product.service";
+import { isOfferActive } from "@/utils/offer-helper";
 import { formatPrice } from "@/utils/format";
 import { cn } from "@/utils/cn";
 
@@ -15,8 +18,31 @@ export function BottomNav() {
   const mounted = useMounted();
   const { getItemCount, getTotal, setOpen } = useCartStore();
 
+  const [activeDealsCount, setActiveDealsCount] = useState<number | null>(null);
+
   const itemCount = mounted ? getItemCount() : 0;
   const total = mounted ? getTotal() : 0;
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkDeals = async () => {
+      try {
+        const prods = await productService.getAll({ includeInactive: false });
+        if (!isMounted) return;
+        const activeDeals = prods.filter((p) => isOfferActive(p));
+        setActiveDealsCount(activeDeals.length);
+      } catch {
+        if (isMounted) setActiveDealsCount(0);
+      }
+    };
+
+    checkDeals();
+    window.addEventListener("deal-banner-updated", checkDeals);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("deal-banner-updated", checkDeals);
+    };
+  }, []);
 
   // Don't show in admin area
   if (pathname?.startsWith("/admin")) {
@@ -25,9 +51,12 @@ export function BottomNav() {
 
   const isHome = pathname === "/";
   const isProducts = pathname === "/products";
-  const isOrders = pathname === "/dashboard/orders" || pathname === "/track-order";
   const isCategoriesView = isProducts && searchParams.get("view") === "categories";
-  const isSearchActive = isProducts && !isCategoriesView;
+  const isDealsView =
+    isProducts &&
+    (searchParams.get("deals") === "true" || searchParams.get("featured") === "true");
+  const isOrders = pathname === "/dashboard/orders" || pathname === "/track-order";
+  const isSearchActive = isProducts && !isCategoriesView && !isDealsView;
 
   const handleSearchClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -52,10 +81,17 @@ export function BottomNav() {
       } else {
         p.set("view", "categories");
       }
+      p.delete("deals");
+      p.delete("featured");
       router.push(`/products?${p.toString()}`);
     } else {
       router.push("/products?view=categories");
     }
+  };
+
+  const handleOffersClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    router.push("/products?deals=true");
   };
 
   return (
@@ -105,19 +141,28 @@ export function BottomNav() {
           <span className="text-[10px] mt-0.5 font-medium leading-none">Categories</span>
         </button>
 
-        {/* Orders / Buy Again */}
-        <Link
-          href="/dashboard/orders"
+        {/* Offers Tab (Shows deals page; if no deals, deals page shows friendly banner + all products) */}
+        <button
+          type="button"
+          onClick={handleOffersClick}
           className={cn(
-            "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
-            isOrders
+            "relative flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
+            isDealsView
               ? "text-blue-700 font-bold"
               : "text-gray-500 hover:text-gray-800"
           )}
+          aria-label="Deals & Offers"
         >
-          <RotateCcw className="h-5 w-5" />
-          <span className="text-[10px] mt-0.5 font-medium leading-none">Orders</span>
-        </Link>
+          <div className="relative">
+            <Tag className="h-5 w-5" />
+            {activeDealsCount !== null && activeDealsCount > 0 && (
+              <span className="absolute -top-1 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-600 px-1 text-[8px] font-black text-white shadow-xs animate-pulse">
+                {activeDealsCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] mt-0.5 font-medium leading-none">Offers</span>
+        </button>
 
         {/* Floating Cart Button */}
         <button

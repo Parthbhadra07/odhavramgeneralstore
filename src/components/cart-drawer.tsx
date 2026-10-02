@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { X, Minus, Plus, ShoppingBag } from "lucide-react";
+import { toast } from "sonner";
 import { ProductImage } from "@/components/product-image";
 import { useCartStore } from "@/store/cart-store";
 import { formatPrice } from "@/utils/format";
@@ -67,57 +68,74 @@ export function CartDrawer() {
             </div>
           ) : (
             <ul className="space-y-4">
-              {items.map((item) => (
-                <li
-                  key={item.productId}
-                  className="flex gap-3 border-b border-gray-100 pb-4"
-                >
-                  <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-50">
-                    <ProductImage
-                      src={item.product?.image_url}
-                      alt={item.product?.name ?? "Product"}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {item.product?.name}
-                    </p>
-                    <p className="text-sm font-semibold text-green-700">
-                      {formatPrice((item.product?.price ?? 0) * item.quantity)}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateQuantity(item.productId, item.quantity - 1)
-                        }
-                        className="rounded border p-1 hover:bg-gray-50"
-                      >
-                        <Minus className="h-3 w-3" />
-                      </button>
-                      <span className="w-6 text-center text-sm">{item.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateQuantity(item.productId, item.quantity + 1)
-                        }
-                        className="rounded border p-1 hover:bg-gray-50"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.productId)}
-                        className="ml-auto text-xs text-red-600 hover:underline"
-                      >
-                        Remove
-                      </button>
+              {items.map((item) => {
+                const maxStock =
+                  item.product && typeof item.product.stock === "number"
+                    ? item.product.stock
+                    : Infinity;
+                const isMaxReached = item.quantity >= maxStock;
+
+                return (
+                  <li
+                    key={item.productId}
+                    className="flex gap-3 border-b border-gray-100 pb-4"
+                  >
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-50">
+                      <ProductImage
+                        src={item.product?.image_url}
+                        alt={item.product?.name ?? "Product"}
+                        fill
+                        className="object-cover"
+                      />
                     </div>
-                  </div>
-                </li>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {item.product?.name}
+                      </p>
+                      <p className="text-sm font-semibold text-green-700">
+                        {formatPrice((item.product?.price ?? 0) * item.quantity)}
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQuantity(item.productId, item.quantity - 1)
+                          }
+                          className="rounded border p-1 hover:bg-gray-50"
+                        >
+                          <Minus className="h-3 w-3" />
+                        </button>
+                        <span className="w-6 text-center text-sm">{item.quantity}</span>
+                        <button
+                          type="button"
+                          disabled={isMaxReached}
+                          onClick={() => {
+                            if (isMaxReached) {
+                              toast.error(`Only ${maxStock} items available in stock!`);
+                              return;
+                            }
+                            updateQuantity(item.productId, item.quantity + 1);
+                          }}
+                          className={cn(
+                            "rounded border p-1 transition",
+                            isMaxReached ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50"
+                          )}
+                          title={isMaxReached ? `Only ${maxStock} in stock` : "Increase"}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.productId)}
+                          className="ml-auto text-xs text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

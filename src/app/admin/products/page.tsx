@@ -28,8 +28,13 @@ import {
   FolderTree,
   X,
   Percent,
+  ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { productService } from "@/services/product.service";
 import { autoRefillService } from "@/services/auto-refill.service";
 import { categoryService } from "@/services/category.service";
@@ -47,7 +52,7 @@ import { MultiProductSpreadsheet } from "@/components/admin/multi-product-spread
 import { StockVerificationModal } from "@/components/admin/stock-verification-modal";
 import { exportProductsToCSV, downloadCSVFile } from "@/utils/csv-helper";
 import { getOfferTimeRemaining, isOfferActive, getProductOfferDates } from "@/utils/offer-helper";
-import { dealBannerService, type DealBannerConfig } from "@/services/deal-banner.service";
+import { dealBannerService, type DealBannerConfig, type DealBannerItem } from "@/services/deal-banner.service";
 import type { Product, Category } from "@/types/database";
 
 export default function AdminProductsPage() {
@@ -77,6 +82,8 @@ export default function AdminProductsPage() {
   // Home Page Deal Banner Config Modal State
   const [showBannerModal, setShowBannerModal] = useState(false);
   const [bannerConfig, setBannerConfig] = useState<DealBannerConfig>(dealBannerService.getDefaults());
+  const [activeBannerIndex, setActiveBannerIndex] = useState<number>(0);
+  const [uploadingBannerImage, setUploadingBannerImage] = useState(false);
   const [savingBanner, setSavingBanner] = useState(false);
 
   const [runningRefill, setRunningRefill] = useState(false);
@@ -127,6 +134,20 @@ export default function AdminProductsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "offers") {
+      setFilterTab("offers");
+    } else if (tab === "banners") {
+      dealBannerService.get().then((cfg) => {
+        setBannerConfig(cfg);
+        setActiveBannerIndex(0);
+      });
+      setShowBannerModal(true);
+    }
+  }, [searchParams]);
 
   const openCreate = (defaultCategoryId?: string | React.MouseEvent) => {
     const catId = typeof defaultCategoryId === "string" ? defaultCategoryId : "";
@@ -474,15 +495,25 @@ export default function AdminProductsPage() {
     const targetProduct = offerModalProduct || products.find((p) => p.id === selectedOfferProductManualId);
     if (!targetProduct) return;
 
+    // When offer is removed, revert price and selling_price back to original MRP
+    const originalPrice =
+      targetProduct.mrp && Number(targetProduct.mrp) > 0
+        ? Number(targetProduct.mrp)
+        : Number(targetProduct.price);
+
     setSavingOffer(true);
     try {
       await productService.update(targetProduct.id, {
+        price: originalPrice,
+        selling_price: originalPrice,
         mrp: null,
         featured: false,
         offer_start_date: null,
         offer_end_date: null,
       });
-      toast.success(`Offer removed from "${targetProduct.name}".`);
+      toast.success(
+        `Offer removed from "${targetProduct.name}". Price reverted to ${formatPrice(originalPrice)}.`
+      );
       setShowOfferModal(false);
       load();
     } catch (err: unknown) {
@@ -492,11 +523,82 @@ export default function AdminProductsPage() {
     }
   };
 
+  const handleAddBanner = (type: "deal" | "photo") => {
+    const newBanner = dealBannerService.createBanner(type);
+    const updated = [...(bannerConfig.banners || []), newBanner];
+    setBannerConfig({ ...bannerConfig, banners: updated });
+    setActiveBannerIndex(updated.length - 1);
+    toast.success(`Added new ${type === "photo" ? "Photo Advertising" : "Deals"} banner!`);
+  };
+
+  const handleDeleteBanner = (indexToDelete: number) => {
+    const list = bannerConfig.banners || [];
+    if (list.length <= 1) {
+      setBannerConfig({ ...bannerConfig, banners: [], enabled: false });
+      setActiveBannerIndex(0);
+      toast.info("Banner deleted. No banners currently on home page.");
+      return;
+    }
+    const updated = list.filter((_, idx) => idx !== indexToDelete);
+    setBannerConfig({ ...bannerConfig, banners: updated });
+    setActiveBannerIndex((prev) => (prev >= updated.length ? Math.max(0, updated.length - 1) : prev));
+    toast.success("Banner deleted.");
+  };
+
+  const handleMoveBanner = (index: number, direction: "up" | "down") => {
+    const list = [...bannerConfig.banners];
+    const targetIdx = direction === "up" ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+    const temp = list[index];
+    list[index] = list[targetIdx];
+    list[targetIdx] = temp;
+    setBannerConfig({ ...bannerConfig, banners: list });
+    setActiveBannerIndex(targetIdx);
+  };
+
+  const updateCurrentBanner = (patch: Partial<DealBannerItem>) => {
+    const list = [...(bannerConfig.banners || [])];
+    if (!list[activeBannerIndex]) return;
+    list[activeBannerIndex] = {
+      ...list[activeBannerIndex],
+      ...patch,
+    };
+    setBannerConfig({ ...bannerConfig, banners: list });
+  };
+
+  const handleBannerImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file (PNG, JPG, WebP)");
+      return;
+    }
+
+    setUploadingBannerImage(true);
+    try {
+      const publicUrl = await uploadProductImage(file);
+      updateCurrentBanner({ imageUrl: publicUrl });
+      toast.success("Banner photo uploaded successfully!");
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          updateCurrentBanner({ imageUrl: reader.result });
+          toast.success("Banner photo loaded!");
+        }
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setUploadingBannerImage(false);
+    }
+  };
+
   const handleSaveBanner = async () => {
     setSavingBanner(true);
     try {
       await dealBannerService.save(bannerConfig);
-      toast.success("Home page Deals Advertisement Banner updated successfully!");
+      toast.success("Home page Deals & Advertising Banners saved successfully!");
       setShowBannerModal(false);
     } catch {
       toast.error("Failed to save banner configuration");
@@ -597,6 +699,21 @@ export default function AdminProductsPage() {
           <p className="text-xs text-gray-500 mt-0.5">Manage catalog, multi-unit packaging & daily automated refills</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              dealBannerService.get().then((cfg) => {
+                setBannerConfig(cfg);
+                setActiveBannerIndex(0);
+              });
+              setShowBannerModal(true);
+            }}
+            className="text-xs border-amber-300 text-amber-900 hover:bg-amber-50 font-semibold bg-amber-50/50"
+            title="Manage Home Page Promotion Banners and Advertisements"
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1 text-amber-600" /> Home Page Banners
+          </Button>
           <Link href="/admin/inventory/quick-stock">
             <Button
               type="button"
@@ -1102,7 +1219,7 @@ export default function AdminProductsPage() {
               )}
             >
               <Tag className="h-4 w-4 text-rose-500" />
-              🔥 Offers & Deals
+              🔥 Offers &amp; Deals
               <span
                 className={cn(
                   "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
@@ -1110,6 +1227,24 @@ export default function AdminProductsPage() {
                 )}
               >
                 {offerProducts.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                dealBannerService.get().then((cfg) => {
+                  setBannerConfig(cfg);
+                  setActiveBannerIndex(0);
+                });
+                setShowBannerModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 shadow-2xs"
+            >
+              <Sparkles className="h-4 w-4 text-amber-600" />
+              📢 Home Page Banners
+              <span className="ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold bg-amber-200 text-amber-900">
+                {(bannerConfig.banners || []).length}
               </span>
             </button>
 
@@ -1268,13 +1403,16 @@ export default function AdminProductsPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  dealBannerService.get().then(setBannerConfig);
+                  dealBannerService.get().then((cfg) => {
+                    setBannerConfig(cfg);
+                    setActiveBannerIndex(0);
+                  });
                   setShowBannerModal(true);
                 }}
                 className="border-rose-300 text-rose-800 bg-white hover:bg-rose-50 text-xs font-semibold shadow-2xs"
               >
                 <Sparkles className="h-3.5 w-3.5 mr-1 text-amber-500" />
-                📢 Home Page Deals Banner
+                📢 Home Page Deals &amp; Banners
               </Button>
               <Button
                 type="button"
@@ -1744,9 +1882,10 @@ export default function AdminProductsPage() {
 
       {/* Create / Edit Product Offer Modal */}
       {showOfferModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b p-4 sm:p-5 pb-3.5 shrink-0 bg-white z-10">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600 shadow-2xs">
                   <Tag className="h-5 w-5" />
@@ -1769,7 +1908,8 @@ export default function AdminProductsPage() {
               </button>
             </div>
 
-            <div className="mt-4 space-y-4">
+            {/* Scrollable Form Body with dedicated scrollbar */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400">
               {/* Product selection or selected product summary */}
               {offerModalProduct ? (
                 <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
@@ -1987,7 +2127,8 @@ export default function AdminProductsPage() {
               </label>
             </div>
 
-            <div className="mt-6 flex items-center justify-between gap-3 border-t pt-4">
+            {/* Sticky Modal Footer */}
+            <div className="flex items-center justify-between gap-3 border-t p-4 sm:p-5 shrink-0 bg-gray-50/95 backdrop-blur-xs z-10">
               {offerModalProduct &&
               ((offerModalProduct.mrp && offerModalProduct.mrp > offerModalProduct.price) ||
                 offerModalProduct.featured) ? (
@@ -2027,21 +2168,22 @@ export default function AdminProductsPage() {
         </div>
       )}
 
-      {/* Home Page Deals Advertisement Banner Modal */}
+      {/* Home Page Deals & Advertising Banners Modal */}
       {showBannerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-2xs">
-                  <Sparkles className="h-5 w-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header (Fixed) */}
+            <div className="flex items-center justify-between border-b p-4 sm:p-5 pb-3.5 shrink-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-2xs">
+                  <Sparkles className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
-                    Home Page Deals Advertisement Banner
+                  <h3 className="text-base sm:text-lg font-bold text-gray-900">
+                    Home Page Deals &amp; Advertising Banners
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Customize promotional banner, countdown timer, and headlines on home page
+                    Manage multiple rotating promotional banners, graphic photo advertisements &amp; countdown deals
                   </p>
                 </div>
               </div>
@@ -2054,165 +2196,602 @@ export default function AdminProductsPage() {
               </button>
             </div>
 
-            <div className="mt-4 space-y-4">
-              {/* Enable toggle */}
-              <label className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3 cursor-pointer">
-                <div>
-                  <span className="text-sm font-bold text-gray-900">Display Banner on Home Page</span>
-                  <p className="text-xs text-gray-500">
-                    Show the animated Deals Advertisement Banner right below Hero banner
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={bannerConfig.enabled}
-                  onChange={(e) => setBannerConfig({ ...bannerConfig, enabled: e.target.checked })}
-                  className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </label>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                  Banner Headline Title
-                </label>
-                <Input
-                  value={bannerConfig.title}
-                  onChange={(e) => setBannerConfig({ ...bannerConfig, title: e.target.value })}
-                  placeholder="e.g. ⚡ Mega Savings & Flash Grocery Deals!"
-                  className="text-sm font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                  Subtitle / Description
-                </label>
-                <Input
-                  value={bannerConfig.subtitle}
-                  onChange={(e) => setBannerConfig({ ...bannerConfig, subtitle: e.target.value })}
-                  placeholder="e.g. Save big on daily groceries, snacks & household essentials."
-                  className="text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                    Promotional Badge
-                  </label>
-                  <Input
-                    value={bannerConfig.badgeText}
-                    onChange={(e) => setBannerConfig({ ...bannerConfig, badgeText: e.target.value })}
-                    placeholder="e.g. LIMITED TIME DEALS"
-                    className="text-xs"
+            {/* Top Toolbar: Master Visibility Switch & Add Banner Buttons (Fixed) */}
+            <div className="shrink-0 px-4 sm:px-5 pt-3.5 pb-2.5 border-b bg-gray-50/70 space-y-3 z-10">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bannerConfig.enabled}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, enabled: e.target.checked })}
+                    className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                    Discount Highlight Pill
-                  </label>
-                  <Input
-                    value={bannerConfig.discountHighlight}
-                    onChange={(e) => setBannerConfig({ ...bannerConfig, discountHighlight: e.target.value })}
-                    placeholder="e.g. UP TO 50% OFF"
-                    className="text-xs font-bold text-amber-700"
-                  />
-                </div>
-              </div>
-
-              {/* Banner Expiry / Countdown Timer */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                  Banner Countdown End Date &amp; Time
+                  <div>
+                    <span className="text-sm font-bold text-gray-900">Display Banners on Home Page</span>
+                    <p className="text-[11px] text-gray-600">
+                      Show the animated carousel banner on the store home page
+                    </p>
+                  </div>
                 </label>
-                <Input
-                  type="datetime-local"
-                  value={bannerConfig.endDate ? bannerConfig.endDate.slice(0, 16) : ""}
-                  onChange={(e) => setBannerConfig({ ...bannerConfig, endDate: e.target.value ? new Date(e.target.value).toISOString() : "" })}
-                  className="text-xs"
-                />
-                <span className="text-[11px] text-gray-500 mt-0.5 block">
-                  The live countdown clock on the home page will count down to this date and time.
-                </span>
-              </div>
 
-              {/* Theme Selector */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
-                  Banner Color Theme
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { id: "flame", label: "Flame Red", bg: "bg-gradient-to-r from-rose-600 to-amber-600" },
-                    { id: "royal", label: "Royal Blue", bg: "bg-gradient-to-r from-blue-900 to-indigo-800" },
-                    { id: "emerald", label: "Emerald", bg: "bg-gradient-to-r from-emerald-800 to-teal-700" },
-                    { id: "amber", label: "Amber Sun", bg: "bg-gradient-to-r from-amber-600 to-rose-600" },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setBannerConfig({ ...bannerConfig, theme: t.id as any })}
-                      className={cn(
-                        "rounded-xl p-2 text-center text-xs font-bold text-white transition border-2",
-                        t.bg,
-                        bannerConfig.theme === t.id ? "border-black ring-2 ring-blue-500 scale-105" : "border-transparent opacity-80 hover:opacity-100"
-                      )}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleAddBanner("deal")}
+                    className="bg-white hover:bg-rose-50 border-rose-200 text-rose-700 text-xs font-semibold shadow-2xs"
+                  >
+                    <Tag className="h-3.5 w-3.5 mr-1" /> + Add Deals Banner
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => handleAddBanner("photo")}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xs"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5 mr-1" /> + Add Photo Banner
+                  </Button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Banner Tabs Strip */}
+              {(bannerConfig.banners || []).length > 0 && (
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                    Button Label
-                  </label>
-                  <Input
-                    value={bannerConfig.buttonText}
-                    onChange={(e) => setBannerConfig({ ...bannerConfig, buttonText: e.target.value })}
-                    placeholder="e.g. Shop Deals Now"
-                    className="text-xs"
-                  />
-                </div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-600">
+                      Configured Banners ({(bannerConfig.banners || []).length})
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      Click a tab to edit or reorder
+                    </span>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
-                    Button Target Link
-                  </label>
-                  <Input
-                    value={bannerConfig.buttonLink}
-                    onChange={(e) => setBannerConfig({ ...bannerConfig, buttonLink: e.target.value })}
-                    placeholder="e.g. /products?deals=true"
-                    className="text-xs"
-                  />
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
+                    {(bannerConfig.banners || []).map((banner, index) => {
+                      const isSelected = index === activeBannerIndex;
+                      return (
+                        <div
+                          key={banner.id || index}
+                          className={cn(
+                            "group relative flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition shrink-0 cursor-pointer",
+                            isSelected
+                              ? "border-blue-600 bg-blue-50/80 text-blue-900 shadow-2xs ring-1 ring-blue-500"
+                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          )}
+                          onClick={() => setActiveBannerIndex(index)}
+                        >
+                          {banner.type === "photo" ? (
+                            <ImageIcon className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          ) : (
+                            <Tag className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                          )}
+
+                          <span className="truncate max-w-[120px] font-bold">
+                            {banner.title || `Banner #${index + 1}`}
+                          </span>
+
+                          {/* Active indicator dot */}
+                          <span
+                            className={cn(
+                              "h-2 w-2 rounded-full shrink-0",
+                              banner.enabled ? "bg-emerald-500" : "bg-gray-300"
+                            )}
+                            title={banner.enabled ? "Active" : "Disabled"}
+                          />
+
+                          {/* Move & Delete buttons on tab */}
+                          {isSelected && (
+                            <div className="ml-1 flex items-center gap-0.5 border-l border-gray-200 pl-1.5" onClick={(e) => e.stopPropagation()}>
+                              {(bannerConfig.banners || []).length > 1 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={index === 0}
+                                    onClick={() => handleMoveBanner(index, "up")}
+                                    className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                                    title="Move Left"
+                                  >
+                                    <ChevronLeft className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={index === (bannerConfig.banners || []).length - 1}
+                                    onClick={() => handleMoveBanner(index, "down")}
+                                    className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                                    title="Move Right"
+                                  >
+                                    <ChevronRight className="h-3 w-3" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBanner(index)}
+                                className="p-0.5 text-red-500 hover:text-red-700 transition"
+                                title="Delete this banner"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-2 border-t pt-4">
+            {/* Scrollable Form Body with dedicated visible scrollbar */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400">
+              {/* Empty state when 0 banners exist */}
+              {(bannerConfig.banners || []).length === 0 ? (
+                <div className="rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50/60 p-8 text-center space-y-3 my-4">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 shadow-2xs">
+                    <Sparkles className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900">No Banners Configured</h4>
+                    <p className="text-xs text-gray-600 max-w-md mx-auto mt-1">
+                      There are currently no banners configured for the home page. Add a Deals Countdown Banner or a Photo Advertising Graphic Banner to get started!
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleAddBanner("deal")}
+                      className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs"
+                    >
+                      <Tag className="h-3.5 w-3.5 mr-1" /> + Create Deals Banner
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleAddBanner("photo")}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5 mr-1" /> + Create Photo Banner
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                (() => {
+                  const currentBanner = (bannerConfig.banners || [])[activeBannerIndex];
+              if (!currentBanner) return null;
+
+              return (
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50/50 p-4 sm:p-5 space-y-4">
+                  {/* Banner Header & Type Selector */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                        Banner Type:
+                      </span>
+                      <div className="flex items-center gap-1 rounded-xl bg-gray-200/70 p-1">
+                        <button
+                          type="button"
+                          onClick={() => updateCurrentBanner({ type: "deal" })}
+                          className={cn(
+                            "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition",
+                            currentBanner.type === "deal"
+                              ? "bg-white text-gray-900 shadow-xs"
+                              : "text-gray-600 hover:text-gray-900"
+                          )}
+                        >
+                          <Tag className="h-3.5 w-3.5 text-rose-600" />
+                          🏷️ Deals Banner
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateCurrentBanner({ type: "photo" })}
+                          className={cn(
+                            "flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition",
+                            currentBanner.type === "photo"
+                              ? "bg-white text-gray-900 shadow-xs"
+                              : "text-gray-600 hover:text-gray-900"
+                          )}
+                        >
+                          <ImageIcon className="h-3.5 w-3.5 text-blue-600" />
+                          📸 Photo Advertising Banner
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={currentBanner.enabled}
+                          onChange={(e) => updateCurrentBanner({ enabled: e.target.checked })}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-xs font-bold text-gray-800">
+                          Active in Carousel
+                        </span>
+                      </label>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteBanner(activeBannerIndex)}
+                        className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold shrink-0"
+                        title="Delete this banner"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Delete This Banner
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* PHOTO ADVERTISING BANNER CONTROLS */}
+                  {currentBanner.type === "photo" ? (
+                    <div className="space-y-4">
+                      {/* Image Upload & URL */}
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                          Advertising Photo / Graphic Image
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-white p-4 hover:border-blue-500 transition cursor-pointer text-center">
+                              <Upload className="h-6 w-6 text-gray-400 mb-1" />
+                              <span className="text-xs font-bold text-gray-800">
+                                {uploadingBannerImage ? "Uploading..." : "Upload Photo from PC"}
+                              </span>
+                              <span className="text-[10px] text-gray-400 mt-0.5">
+                                Recommended: 1200x400 or widescreen banner
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleBannerImageUpload}
+                                disabled={uploadingBannerImage}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+
+                          <div>
+                            <span className="text-[11px] font-semibold text-gray-500 block mb-1">
+                              Or Paste Direct Image URL:
+                            </span>
+                            <Input
+                              value={currentBanner.imageUrl || ""}
+                              onChange={(e) => updateCurrentBanner({ imageUrl: e.target.value })}
+                              placeholder="https://images.unsplash.com/... or storage URL"
+                              className="text-xs"
+                            />
+                            <span className="text-[10px] text-gray-400 mt-1 block">
+                              Supports JPG, PNG, WebP image links
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Photo Preview */}
+                        {currentBanner.imageUrl && (
+                          <div className="mt-3 relative rounded-xl overflow-hidden border border-gray-200 bg-gray-950 aspect-[24/9] max-h-48 w-full group">
+                            <img
+                              src={currentBanner.imageUrl}
+                              alt="Banner Preview"
+                              className="h-full w-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-4 flex flex-col justify-end text-white">
+                              <span className="inline-block rounded-full bg-amber-400 text-gray-950 px-2 py-0.5 text-[10px] font-black w-fit mb-1">
+                                {currentBanner.discountHighlight || "SPECIAL PROMOTION"}
+                              </span>
+                              <h4 className="font-bold text-sm sm:text-base line-clamp-1">
+                                {currentBanner.title}
+                              </h4>
+                              {currentBanner.subtitle && (
+                                <p className="text-xs text-white/80 line-clamp-1">
+                                  {currentBanner.subtitle}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Click Target URL */}
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                          Click Destination Link (Target URL)
+                        </label>
+                        <Input
+                          value={currentBanner.targetUrl || currentBanner.buttonLink || ""}
+                          onChange={(e) => updateCurrentBanner({ targetUrl: e.target.value, buttonLink: e.target.value })}
+                          placeholder="e.g. /products?category=fruits, /products?deals=true, or full URL"
+                          className="text-xs font-mono"
+                        />
+                        <span className="text-[11px] text-gray-500 mt-0.5 block">
+                          Customers will be taken to this page when they click anywhere on the advertising banner.
+                        </span>
+                      </div>
+
+                      {/* Headline Title & Subtitle */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Banner Headline Overlay
+                          </label>
+                          <Input
+                            value={currentBanner.title}
+                            onChange={(e) => updateCurrentBanner({ title: e.target.value })}
+                            placeholder="e.g. 🛒 Fresh Farm Produce Bonanza"
+                            className="text-sm font-semibold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Subtitle / Promotional Details
+                          </label>
+                          <Input
+                            value={currentBanner.subtitle || ""}
+                            onChange={(e) => updateCurrentBanner({ subtitle: e.target.value })}
+                            placeholder="e.g. Crisp greens, fruits & staples at wholesale prices."
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Badge Text, Discount Pill & Button Label */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Promotional Badge
+                          </label>
+                          <Input
+                            value={currentBanner.badgeText || ""}
+                            onChange={(e) => updateCurrentBanner({ badgeText: e.target.value })}
+                            placeholder="e.g. PHOTO ADVERTISEMENT"
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Discount Pill
+                          </label>
+                          <Input
+                            value={currentBanner.discountHighlight || ""}
+                            onChange={(e) => updateCurrentBanner({ discountHighlight: e.target.value })}
+                            placeholder="e.g. FLAT 25% OFF"
+                            className="text-xs font-bold text-amber-700"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Button Text
+                          </label>
+                          <Input
+                            value={currentBanner.buttonText || ""}
+                            onChange={(e) => updateCurrentBanner({ buttonText: e.target.value })}
+                            placeholder="e.g. Shop Collection"
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Expiry Date */}
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                          Offer Expiry / Countdown Timer (Optional)
+                        </label>
+                        <Input
+                          type="datetime-local"
+                          value={currentBanner.endDate ? currentBanner.endDate.slice(0, 16) : ""}
+                          onChange={(e) =>
+                            updateCurrentBanner({
+                              endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
+                            })
+                          }
+                          className="text-xs"
+                        />
+                        <span className="text-[11px] text-gray-500 mt-0.5 block">
+                          Leave blank if this advertising banner has no expiration date.
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    /* DEALS BANNER CONTROLS */
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                          Banner Headline Title
+                        </label>
+                        <Input
+                          value={currentBanner.title}
+                          onChange={(e) => updateCurrentBanner({ title: e.target.value })}
+                          placeholder="e.g. ⚡ Mega Savings & Flash Grocery Deals!"
+                          className="text-sm font-semibold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                          Subtitle / Description
+                        </label>
+                        <Input
+                          value={currentBanner.subtitle || ""}
+                          onChange={(e) => updateCurrentBanner({ subtitle: e.target.value })}
+                          placeholder="e.g. Save big on daily groceries, snacks & household essentials."
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Promotional Badge
+                          </label>
+                          <Input
+                            value={currentBanner.badgeText || ""}
+                            onChange={(e) => updateCurrentBanner({ badgeText: e.target.value })}
+                            placeholder="e.g. LIMITED TIME DEALS"
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Discount Highlight Pill
+                          </label>
+                          <Input
+                            value={currentBanner.discountHighlight || ""}
+                            onChange={(e) => updateCurrentBanner({ discountHighlight: e.target.value })}
+                            placeholder="e.g. UP TO 50% OFF"
+                            className="text-xs font-bold text-amber-700"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Banner Expiry / Countdown Timer */}
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                          Banner Countdown End Date &amp; Time
+                        </label>
+                        <Input
+                          type="datetime-local"
+                          value={currentBanner.endDate ? currentBanner.endDate.slice(0, 16) : ""}
+                          onChange={(e) =>
+                            updateCurrentBanner({
+                              endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
+                            })
+                          }
+                          className="text-xs"
+                        />
+                        <span className="text-[11px] text-gray-500 mt-0.5 block">
+                          The live countdown clock on the home page will count down to this date and time.
+                        </span>
+                      </div>
+
+                      {/* Theme Selector */}
+                      <div>
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                          Banner Color Theme
+                        </label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { id: "flame", label: "Flame Red", bg: "bg-gradient-to-r from-rose-600 to-amber-600" },
+                            { id: "royal", label: "Royal Blue", bg: "bg-gradient-to-r from-blue-900 to-indigo-800" },
+                            { id: "emerald", label: "Emerald", bg: "bg-gradient-to-r from-emerald-800 to-teal-700" },
+                            { id: "amber", label: "Amber Sun", bg: "bg-gradient-to-r from-amber-600 to-rose-600" },
+                          ].map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => updateCurrentBanner({ theme: t.id as any })}
+                              className={cn(
+                                "rounded-xl p-2 text-center text-xs font-bold text-white transition border-2",
+                                t.bg,
+                                currentBanner.theme === t.id
+                                  ? "border-black ring-2 ring-blue-500 scale-105"
+                                  : "border-transparent opacity-80 hover:opacity-100"
+                              )}
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Button Label
+                          </label>
+                          <Input
+                            value={currentBanner.buttonText || ""}
+                            onChange={(e) => updateCurrentBanner({ buttonText: e.target.value })}
+                            placeholder="e.g. Shop Deals Now"
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                            Button Target Link
+                          </label>
+                          <Input
+                            value={currentBanner.buttonLink || ""}
+                            onChange={(e) => updateCurrentBanner({ buttonLink: e.target.value })}
+                            placeholder="e.g. /products?deals=true"
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card Bottom Actions */}
+                  <div className="flex items-center justify-between border-t border-gray-200 pt-3 text-xs">
+                    <span className="text-gray-500">
+                      Editing Banner #{activeBannerIndex + 1} of {(bannerConfig.banners || []).length}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteBanner(activeBannerIndex)}
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete This Banner
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </div>
+
+        {/* Sticky Modal Footer (Fixed at bottom so it never overflows screen) */}
+        <div className="flex items-center justify-between border-t p-4 sm:p-5 shrink-0 bg-gray-50/95 backdrop-blur-xs z-10">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 font-medium">
+              {(bannerConfig.banners || []).length} banner(s) configured
+            </span>
+            {(bannerConfig.banners || []).length > 0 && (
               <Button
                 type="button"
                 variant="outline"
-                disabled={savingBanner}
-                onClick={() => setShowBannerModal(false)}
+                size="sm"
+                onClick={() => handleDeleteBanner(activeBannerIndex)}
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold"
+                title="Delete current active banner"
               >
-                Cancel
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Delete Current Banner
               </Button>
-              <Button
-                type="button"
-                loading={savingBanner}
-                onClick={handleSaveBanner}
-                className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
-              >
-                Save &amp; Publish Banner
-              </Button>
-            </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={savingBanner}
+              onClick={() => setShowBannerModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              loading={savingBanner}
+              onClick={handleSaveBanner}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            >
+              Save &amp; Publish Banners
+            </Button>
           </div>
         </div>
-      )}
+      </div>
+    </div>
+  )}
     </div>
   );
 }

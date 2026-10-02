@@ -20,7 +20,8 @@ export function ProductsPageClient() {
   const [offline, setOffline] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  const isFeatured = searchParams.get("featured") === "true";
+  const isFeatured =
+    searchParams.get("featured") === "true" || searchParams.get("deals") === "true";
   const selectedCategory = searchParams.get("category");
   const searchQuery = searchParams.get("search");
   const minPrice = searchParams.get("minPrice");
@@ -297,25 +298,43 @@ export function ProductsPageClient() {
               ))}
             </div>
           ) : products.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/70 p-12 text-center">
-              <p className="text-base font-semibold text-gray-800">
-                {isFeatured
-                  ? "No special deals or featured products match this filter."
-                  : "No products found matching your criteria."}
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                Try clearing active filters or explore the full store catalog.
-              </p>
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={clearAllFilters}
-                  className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-800"
-                >
-                  View All Products
-                </button>
+            isFeatured && allProducts.length > 0 ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-amber-950">
+                    <span>⚡ There are no deals at the moment</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-amber-800">
+                    Showing all other fresh products &amp; groceries from the catalog below!
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                  {allProducts.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50/70 p-12 text-center">
+                <p className="text-base font-semibold text-gray-800">
+                  {isFeatured
+                    ? "No special deals or featured products match this filter."
+                    : "No products found matching your criteria."}
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try clearing active filters or explore the full store catalog.
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-800"
+                  >
+                    View All Products
+                  </button>
+                </div>
+              </div>
+            )
           ) : (
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
               {products.map((product) => (

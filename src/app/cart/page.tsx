@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { ProductImage } from "@/components/product-image";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
+import { toast } from "sonner";
 import { useCartStore } from "@/store/cart-store";
 import { formatPrice } from "@/utils/format";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/utils/cn";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, getTotal } = useCartStore();
@@ -55,27 +57,46 @@ export default function CartPage() {
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateQuantity(item.productId, item.quantity - 1)
-                      }
-                      className="rounded border p-1.5 hover:bg-gray-50"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </button>
-                    <span className="w-8 text-center">{item.quantity}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateQuantity(item.productId, item.quantity + 1)
-                      }
-                      className="rounded border p-1.5 hover:bg-gray-50"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {(() => {
+                    const maxStock =
+                      item.product && typeof item.product.stock === "number"
+                        ? item.product.stock
+                        : Infinity;
+                    const isMaxReached = item.quantity >= maxStock;
+
+                    return (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQuantity(item.productId, item.quantity - 1)
+                          }
+                          className="rounded border p-1.5 hover:bg-gray-50"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="w-8 text-center">{item.quantity}</span>
+                        <button
+                          type="button"
+                          disabled={isMaxReached}
+                          onClick={() => {
+                            if (isMaxReached) {
+                              toast.error(`Only ${maxStock} items available in stock!`);
+                              return;
+                            }
+                            updateQuantity(item.productId, item.quantity + 1);
+                          }}
+                          className={cn(
+                            "rounded border p-1.5 transition",
+                            isMaxReached ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50"
+                          )}
+                          title={isMaxReached ? `Only ${maxStock} in stock` : "Increase"}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={() => removeItem(item.productId)}
