@@ -38,7 +38,7 @@ import { Modal } from "@/components/admin/modal";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { formatPrice, formatDate } from "@/utils/format";
 import { printReceipt } from "@/components/erp/receipt-print";
-import { lineItemGst } from "@/utils/gst";
+import { lineItemInclusiveGst } from "@/utils/gst";
 import { APP_NAME, STORE_ADDRESS } from "@/lib/constants";
 
 interface StagedPurchaseItem {
@@ -50,10 +50,12 @@ interface StagedPurchaseItem {
   batchNumber: string;
   expiryDate: string;
   quantity: number;
-  purchaseRate: number; // base taxable rate before GST
-  totalBillAmount: number; // user entered line amount
-  sellingPrice: number;
-  mrp: number;
+  purchaseRate: number; // Single item price (INCL. GST)
+  totalBillAmount: number; // Line total bill amount (INCL. GST)
+  taxableSubtotal: number; // Base amount before GST
+  taxableBaseRate: number; // Base rate per unit before GST
+  sellingPrice: number; // Selling price (INCL. GST)
+  mrp: number; // MRP (INCL. GST)
   gstPercentage: number;
   gstAmount: number;
   totalWithGst: number;
@@ -70,12 +72,12 @@ const emptyForm = {
   batchNumber: "",
   expiryDate: "",
   quantity: 1,
-  purchaseRate: 0, // base rate before GST
-  totalBillAmount: 0, // line total amount (entered by user or computed)
+  purchaseRate: 0, // Single item price (INCL. GST)
+  totalBillAmount: 0, // Line total bill amount (INCL. GST)
   sellingPrice: 0,
   mrp: 0,
   gstPercentage: 5,
-  taxMode: "inclusive" as "inclusive" | "exclusive",
+  taxMode: "inclusive" as const,
   lastEditedField: "total" as "rate" | "total",
 };
 
@@ -147,74 +149,36 @@ export default function PurchasesPage() {
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
-  // Helper to recompute rate and total bill amount bidirectionally
+  // Helper to recompute rate and total bill amount bidirectionally (Always GST-inclusive)
   const recalculatePricing = (
     current: FormState,
     changes: Partial<FormState>
   ): FormState => {
     const updated = { ...current, ...changes };
     const qty = Math.max(1, updated.quantity || 1);
-    const gst = updated.gstPercentage || 0;
-    const isInclusive = updated.taxMode === "inclusive";
 
     if (changes.totalBillAmount !== undefined || (changes.quantity !== undefined && updated.lastEditedField === "total")) {
       // User entered/changed Total Bill Amount -> Calculate Single Item Rate:
+      // (Both are GST-inclusive, so single unit rate = Total Bill / Quantity)
       const totalAmt = updated.totalBillAmount || 0;
-      let calculatedBaseRate = 0;
-
-      if (isInclusive) {
-        // e.g. Bill is ₹1200 for 48 units at 5% GST:
-        // Taxable total = 1200 / 1.05 = 1142.857
-        // Base rate per unit = 1142.857 / 48 = 23.81
-        const taxableTotal = gst > 0 ? totalAmt / (1 + gst / 100) : totalAmt;
-        calculatedBaseRate = Math.round((taxableTotal / qty) * 100) / 100;
-      } else {
-        // Exclusive: Bill of ₹1200 is before tax
-        calculatedBaseRate = Math.round((totalAmt / qty) * 100) / 100;
-      }
+      const calculatedUnitRate = Math.round((totalAmt / qty) * 100) / 100;
 
       return {
         ...updated,
-        purchaseRate: calculatedBaseRate,
+        purchaseRate: calculatedUnitRate,
         lastEditedField: changes.totalBillAmount !== undefined ? "total" : updated.lastEditedField,
       };
     } else if (changes.purchaseRate !== undefined || (changes.quantity !== undefined && updated.lastEditedField === "rate")) {
       // User entered/changed Single Item Purchase Rate -> Calculate Total Bill Amount:
-      const baseRate = updated.purchaseRate || 0;
-      let calculatedTotal = 0;
-
-      if (isInclusive) {
-        // Total inclusive = Rate * qty * (1 + gst/100)
-        calculatedTotal = Math.round(baseRate * qty * (1 + gst / 100) * 100) / 100;
-      } else {
-        calculatedTotal = Math.round(baseRate * qty * 100) / 100;
-      }
+      // (Both are GST-inclusive, so Total Bill = Single Unit Rate * Quantity)
+      const unitRate = updated.purchaseRate || 0;
+      const calculatedTotal = Math.round(unitRate * qty * 100) / 100;
 
       return {
         ...updated,
         totalBillAmount: calculatedTotal,
         lastEditedField: changes.purchaseRate !== undefined ? "rate" : updated.lastEditedField,
       };
-    } else if (changes.taxMode !== undefined || changes.gstPercentage !== undefined) {
-      // User changed Tax Mode or GST %:
-      if (updated.lastEditedField === "total" && updated.totalBillAmount > 0) {
-        let calculatedBaseRate = 0;
-        if (isInclusive) {
-          const taxableTotal = gst > 0 ? updated.totalBillAmount / (1 + gst / 100) : updated.totalBillAmount;
-          calculatedBaseRate = Math.round((taxableTotal / qty) * 100) / 100;
-        } else {
-          calculatedBaseRate = Math.round((updated.totalBillAmount / qty) * 100) / 100;
-        }
-        return { ...updated, purchaseRate: calculatedBaseRate };
-      } else if (updated.purchaseRate > 0) {
-        let calculatedTotal = 0;
-        if (isInclusive) {
-          calculatedTotal = Math.round(updated.purchaseRate * qty * (1 + gst / 100) * 100) / 100;
-        } else {
-          calculatedTotal = Math.round(updated.purchaseRate * qty * 100) / 100;
-        }
-        return { ...updated, totalBillAmount: calculatedTotal };
-      }
     }
 
     return updated;
@@ -319,14 +283,16 @@ export default function PurchasesPage() {
     }
   };
 
-  // Live item computation (for pricing breakdown badge)
+  // Live item computation (for pricing breakdown badge — All amounts are GST-inclusive)
   const computeItemBadge = (f: FormState) => {
     const qty = Math.max(1, f.quantity || 1);
-    const rate = f.purchaseRate || 0;
+    const rate = f.purchaseRate || 0; // Single item price (INCL. GST)
     const gstPercent = f.gstPercentage || 0;
-    const gst = lineItemGst(rate, qty, gstPercent);
-    const totalLineCost = gst.totalWithGst;
-    const landedUnitCost = Math.round((totalLineCost / qty) * 100) / 100;
+    const gst = lineItemInclusiveGst(rate, qty, gstPercent);
+    const totalLineCost = gst.totalWithGst; // Line total (INCL. GST)
+    const landedUnitCost = rate; // Unit price (INCL. GST)
+    const taxableBaseRate = Math.round((gst.taxableAmount / qty) * 100) / 100;
+    const unitGst = Math.round((gst.totalGst / qty) * 100) / 100;
     const sellingPrice = f.sellingPrice || 0;
     const mrp = f.mrp || 0;
     const unitProfit = sellingPrice > 0 ? Math.round((sellingPrice - landedUnitCost) * 100) / 100 : 0;
@@ -336,6 +302,10 @@ export default function PurchasesPage() {
     return {
       qty,
       taxableSubtotal: gst.taxableAmount,
+      taxableBaseRate,
+      unitGst,
+      cgst: gst.cgst,
+      sgst: gst.sgst,
       totalGst: gst.totalGst,
       totalLineCost,
       landedUnitCost,
@@ -384,7 +354,9 @@ export default function PurchasesPage() {
       expiryDate: form.expiryDate,
       quantity: form.quantity,
       purchaseRate: form.purchaseRate,
-      totalBillAmount: form.totalBillAmount || summary.totalLineCost,
+      totalBillAmount: summary.totalLineCost,
+      taxableSubtotal: summary.taxableSubtotal,
+      taxableBaseRate: summary.taxableBaseRate,
       sellingPrice: form.sellingPrice,
       mrp: form.mrp,
       gstPercentage: form.gstPercentage,
@@ -516,7 +488,7 @@ export default function PurchasesPage() {
     const rate = Number(item.purchase_rate);
     const qty = item.quantity;
     const gstPercent = Number(item.gst_percentage);
-    const gst = lineItemGst(rate, qty, gstPercent);
+    const gst = lineItemInclusiveGst(rate, qty, gstPercent);
 
     setEditForm({
       billNumber: bill.bill_number,
@@ -533,7 +505,7 @@ export default function PurchasesPage() {
       sellingPrice: Number(item.selling_price ?? 0),
       mrp: Number(item.mrp ?? 0),
       gstPercentage: gstPercent,
-      taxMode: "inclusive",
+      taxMode: "inclusive" as const,
       lastEditedField: "total",
     });
   };
@@ -660,7 +632,7 @@ export default function PurchasesPage() {
     : null;
 
   // Staged multi-item totals
-  const stagedSubtotal = stagedItems.reduce((acc, i) => acc + i.purchaseRate * i.quantity, 0);
+  const stagedTaxableSubtotal = stagedItems.reduce((acc, i) => acc + (i.taxableSubtotal || (i.totalWithGst - i.gstAmount)), 0);
   const stagedGst = stagedItems.reduce((acc, i) => acc + i.gstAmount, 0);
   const stagedTotal = stagedItems.reduce((acc, i) => acc + i.totalWithGst, 0);
 
@@ -741,32 +713,9 @@ export default function PurchasesPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Tax Mode Switcher */}
-              <div className="flex items-center rounded-xl bg-slate-100 p-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setForm((f) => recalculatePricing(f, { taxMode: "inclusive" }))}
-                  className={`rounded-lg px-2.5 py-1 font-bold transition-all ${
-                    form.taxMode === "inclusive"
-                      ? "bg-white text-emerald-900 shadow-2xs font-bold"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                  title="Bill amount already includes GST tax"
-                >
-                  Bill Includes GST
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setForm((f) => recalculatePricing(f, { taxMode: "exclusive" }))}
-                  className={`rounded-lg px-2.5 py-1 font-bold transition-all ${
-                    form.taxMode === "exclusive"
-                      ? "bg-white text-emerald-900 shadow-2xs font-bold"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                  title="GST tax is added extra on top of rate"
-                >
-                  GST Added Extra
-                </button>
+              <div className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 border border-emerald-200 shadow-2xs">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>All Amounts Include GST (Standard)</span>
               </div>
 
               <Button
@@ -916,11 +865,11 @@ export default function PurchasesPage() {
                 <div className="flex items-center gap-2">
                   <Calculator className="h-4 w-4 text-emerald-700" />
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                    3. Auto-Calculate Single Item Rate from Quantity &amp; Total Bill
+                    3. Auto-Calculate Single Item Price (GST-Inclusive)
                   </span>
                 </div>
                 <span className="text-xs text-slate-500">
-                  Type <strong>Total Bill</strong> OR <strong>Single Item Rate</strong> — the other calculates automatically!
+                  Type <strong>Quantity &amp; Total Bill</strong> (or Single Item Price). All amounts include GST!
                 </span>
               </div>
 
@@ -967,7 +916,7 @@ export default function PurchasesPage() {
                 {/* 2. Total Item Bill Amount (User enters this from distributor invoice) */}
                 <div>
                   <label htmlFor="purchase-total-bill-input" className="mb-1 block text-sm font-semibold text-emerald-950">
-                    Total Item Bill Amount (₹)
+                    Total Item Bill Amount (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
                   </label>
                   <div className="flex items-center rounded-lg border-2 border-emerald-500 bg-emerald-50/40 px-2 py-1.5 focus-within:border-emerald-700 focus-within:bg-white shadow-2xs">
                     <span className="text-emerald-700 font-bold mr-1">₹</span>
@@ -987,11 +936,11 @@ export default function PurchasesPage() {
                     />
                   </div>
                   <div className="mt-1 flex items-center justify-between text-[11px]">
-                    <span className="text-emerald-700 font-semibold">⚡ Auto-divides by Qty</span>
-                    <span className="text-slate-500 font-mono">
+                    <span className="text-emerald-700 font-semibold">⚡ Single item price:</span>
+                    <span className="text-slate-800 font-mono font-bold">
                       {form.quantity > 0 && form.totalBillAmount > 0
-                        ? `₹${(form.totalBillAmount / form.quantity).toFixed(2)}/pc`
-                        : ""}
+                        ? `₹${(form.totalBillAmount / form.quantity).toFixed(2)} / pc`
+                        : "₹0.00"}
                     </span>
                   </div>
                 </div>
@@ -999,7 +948,7 @@ export default function PurchasesPage() {
                 {/* 3. Single Item Purchase Rate (Auto calculated or manually entered) */}
                 <div>
                   <label htmlFor="purchase-rate-input" className="mb-1 block text-sm font-semibold text-slate-800">
-                    Single Item Rate (₹)
+                    Single Item Price (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
                   </label>
                   <div className="flex items-center rounded-lg border border-slate-300 bg-white px-2 py-1.5 focus-within:border-emerald-600 focus-within:ring-1 focus-within:ring-emerald-600">
                     <span className="text-slate-400 mr-1 font-semibold">₹</span>
@@ -1019,7 +968,7 @@ export default function PurchasesPage() {
                     />
                   </div>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    {form.taxMode === "inclusive" ? "Taxable rate before GST" : "Base rate per unit"}
+                    Base: ₹{currentSummary.taxableBaseRate.toFixed(2)} + GST: ₹{currentSummary.unitGst.toFixed(2)}
                   </p>
                 </div>
 
@@ -1044,8 +993,8 @@ export default function PurchasesPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400 text-right">
-                    GST: ₹{currentSummary.totalGst.toFixed(2)}
+                  <p className="mt-1 text-[11px] text-slate-500 text-right font-medium">
+                    Extracted Tax: <strong>₹{currentSummary.totalGst.toFixed(2)}</strong>
                   </p>
                 </div>
               </div>
@@ -1055,32 +1004,32 @@ export default function PurchasesPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Calculated Landed Cost:
+                      Single Item Cost (Incl. GST):
                     </span>
                     <p className="text-base sm:text-lg font-black text-emerald-950">
-                      {formatPrice(currentSummary.landedUnitCost)}
+                      {formatPrice(form.purchaseRate || 0)}
                       <span className="text-[10px] text-slate-500 font-normal"> / unit</span>
                     </p>
                     <p className="text-[10px] text-slate-500 font-mono">
-                      Taxable {formatPrice(form.purchaseRate)} + GST {formatPrice(currentSummary.totalGst / currentSummary.qty)}
+                      Taxable {formatPrice(currentSummary.taxableBaseRate)} + GST {formatPrice(currentSummary.unitGst)}
                     </p>
                   </div>
 
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Total Line Bill Amount:
+                      Total Line Bill (Incl. GST):
                     </span>
                     <p className="text-base sm:text-lg font-black text-slate-900">
                       {formatPrice(currentSummary.totalLineCost)}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      For {currentSummary.qty} units inwarded
+                      For {currentSummary.qty} units (Tax: {formatPrice(currentSummary.totalGst)})
                     </p>
                   </div>
 
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      Retail Selling Price:
+                      Selling Price (Incl. GST):
                     </span>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="font-extrabold text-sm text-slate-800">
@@ -1124,7 +1073,7 @@ export default function PurchasesPage() {
               {/* RETAIL SELLING & MRP OVERRIDE INPUTS */}
               <div className="mt-3.5 grid gap-3 sm:grid-cols-4">
                 <Input
-                  label="Selling Price (₹)"
+                  label="Selling Price (₹) (Incl. GST)"
                   type="number"
                   min={0}
                   step="0.01"
@@ -1133,7 +1082,7 @@ export default function PurchasesPage() {
                   onChange={(e) => setForm({ ...form, sellingPrice: Number(e.target.value) || 0 })}
                 />
                 <Input
-                  label="MRP (₹)"
+                  label="MRP (₹) (Incl. GST)"
                   type="number"
                   min={0}
                   step="0.01"
@@ -1223,10 +1172,11 @@ export default function PurchasesPage() {
                         <th className="p-2">#</th>
                         <th className="p-2">Product Name &amp; Barcode</th>
                         <th className="p-2 text-right">Qty</th>
-                        <th className="p-2 text-right">Rate (Base)</th>
+                        <th className="p-2 text-right">Unit Price (Incl. GST)</th>
+                        <th className="p-2 text-right">Taxable Base</th>
                         <th className="p-2 text-right">GST %</th>
-                        <th className="p-2 text-right">Unit Landed</th>
-                        <th className="p-2 text-right">Line Total</th>
+                        <th className="p-2 text-right">GST Amount</th>
+                        <th className="p-2 text-right">Line Total (Incl. GST)</th>
                         <th className="p-2 text-center">Action</th>
                       </tr>
                     </thead>
@@ -1243,12 +1193,17 @@ export default function PurchasesPage() {
                             )}
                           </td>
                           <td className="p-2 text-right font-bold text-slate-900">{item.quantity}</td>
-                          <td className="p-2 text-right font-mono">{formatPrice(item.purchaseRate)}</td>
-                          <td className="p-2 text-right text-slate-600">{item.gstPercentage}%</td>
-                          <td className="p-2 text-right font-mono font-semibold text-emerald-900">
-                            {formatPrice(item.landedUnitCost)}
+                          <td className="p-2 text-right font-mono font-bold text-emerald-950">
+                            {formatPrice(item.purchaseRate)}
                           </td>
-                          <td className="p-2 text-right font-mono font-extrabold text-slate-950">
+                          <td className="p-2 text-right font-mono text-slate-500">
+                            {formatPrice(item.taxableBaseRate)}
+                          </td>
+                          <td className="p-2 text-right text-slate-600">{item.gstPercentage}%</td>
+                          <td className="p-2 text-right font-mono text-slate-600">
+                            {formatPrice(item.gstAmount)}
+                          </td>
+                          <td className="p-2 text-right font-mono font-black text-slate-950">
                             {formatPrice(item.totalWithGst)}
                           </td>
                           <td className="p-2 text-center">
@@ -1272,9 +1227,14 @@ export default function PurchasesPage() {
                         <td className="p-2 text-right">
                           {stagedItems.reduce((acc, i) => acc + i.quantity, 0)}
                         </td>
-                        <td className="p-2 text-right font-mono">{formatPrice(stagedSubtotal)}</td>
-                        <td className="p-2 text-right text-slate-600">Tax: {formatPrice(stagedGst)}</td>
                         <td className="p-2" />
+                        <td className="p-2 text-right font-mono text-slate-600">
+                          Taxable: {formatPrice(stagedTaxableSubtotal)}
+                        </td>
+                        <td className="p-2" />
+                        <td className="p-2 text-right font-mono text-slate-600">
+                          Tax: {formatPrice(stagedGst)}
+                        </td>
                         <td className="p-2 text-right font-mono text-base font-extrabold text-emerald-950">
                           {formatPrice(stagedTotal)}
                         </td>
@@ -1412,10 +1372,10 @@ export default function PurchasesPage() {
                     <th className="p-2.5">Item Name &amp; Barcode</th>
                     <th className="p-2.5">Lot / Batch</th>
                     <th className="p-2.5 text-right">Qty</th>
-                    <th className="p-2.5 text-right">Purchase Rate</th>
+                    <th className="p-2.5 text-right">Price (Incl. GST)</th>
                     <th className="p-2.5 text-right">GST %</th>
                     <th className="p-2.5 text-right">GST Amount</th>
-                    <th className="p-2.5 text-right">Line Total</th>
+                    <th className="p-2.5 text-right">Line Total (Incl. GST)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1432,10 +1392,10 @@ export default function PurchasesPage() {
                         {item.lot_number || item.batch_number || "—"}
                       </td>
                       <td className="p-2.5 text-right font-bold">{item.quantity}</td>
-                      <td className="p-2.5 text-right font-mono">{formatPrice(item.purchase_rate)}</td>
+                      <td className="p-2.5 text-right font-mono font-bold text-emerald-950">{formatPrice(item.purchase_rate)}</td>
                       <td className="p-2.5 text-right text-slate-600">{item.gst_percentage}%</td>
-                      <td className="p-2.5 text-right font-mono">{formatPrice(item.gst_amount)}</td>
-                      <td className="p-2.5 text-right font-mono font-extrabold text-emerald-950">
+                      <td className="p-2.5 text-right font-mono text-slate-600">{formatPrice(item.gst_amount)}</td>
+                      <td className="p-2.5 text-right font-mono font-extrabold text-slate-950">
                         {formatPrice(item.total_amount)}
                       </td>
                     </tr>
@@ -1447,9 +1407,9 @@ export default function PurchasesPage() {
                     <td className="p-2.5 text-right font-bold">
                       {viewBill.purchase_items?.reduce((acc, i) => acc + i.quantity, 0)}
                     </td>
-                    <td colSpan={2} className="p-2.5 text-right">Taxable: {formatPrice(viewBill.subtotal)}</td>
-                    <td className="p-2.5 text-right font-mono">
-                      {formatPrice(Number(viewBill.cgst) + Number(viewBill.sgst))}
+                    <td colSpan={2} className="p-2.5 text-right font-mono text-slate-600">Taxable: {formatPrice(viewBill.subtotal)}</td>
+                    <td className="p-2.5 text-right font-mono text-slate-600">
+                      Tax: {formatPrice(Number(viewBill.cgst) + Number(viewBill.sgst))}
                     </td>
                     <td className="p-2.5 text-right font-mono font-black text-emerald-950 text-sm">
                       {formatPrice(viewBill.total_amount)}
@@ -1549,7 +1509,7 @@ export default function PurchasesPage() {
 
           <div>
             <label className="mb-1 block font-semibold text-emerald-950">
-              Total Item Bill Amount (₹)
+              Total Item Bill Amount (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
             </label>
             <input
               type="number"
@@ -1567,7 +1527,7 @@ export default function PurchasesPage() {
 
           <div>
             <label className="mb-1 block font-semibold text-slate-800">
-              Single Item Purchase Rate (₹)
+              Single Item Price (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
             </label>
             <input
               type="number"
@@ -1600,7 +1560,7 @@ export default function PurchasesPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-slate-700">Selling Price (₹)</label>
+            <label className="mb-1 block text-slate-700">Selling Price (₹) (Incl. GST)</label>
             <input
               type="number"
               min={0}
@@ -1612,7 +1572,7 @@ export default function PurchasesPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-slate-700">MRP (₹)</label>
+            <label className="mb-1 block text-slate-700">MRP (₹) (Incl. GST)</label>
             <input
               type="number"
               min={0}

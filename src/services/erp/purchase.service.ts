@@ -1,6 +1,6 @@
 import { requireClient } from "@/lib/supabase/client";
 import type { PurchaseBill } from "@/types/erp";
-import { lineItemGst } from "@/utils/gst";
+import { lineItemInclusiveGst } from "@/utils/gst";
 
 export const purchaseService = {
   async list(): Promise<PurchaseBill[]> {
@@ -54,12 +54,13 @@ export const purchaseService = {
     const lineRows: Record<string, unknown>[] = [];
 
     for (const item of params.items) {
-      const gst = lineItemGst(
+      // All purchase rates and amounts are GST-inclusive
+      const gst = lineItemInclusiveGst(
         item.purchaseRate,
         item.quantity,
         item.gstPercentage
       );
-      subtotal += item.purchaseRate * item.quantity;
+      subtotal += gst.taxableAmount;
       cgst += gst.cgst;
       sgst += gst.sgst;
       lineRows.push({
@@ -104,6 +105,21 @@ export const purchaseService = {
       lineRows.map((r) => ({ ...r, purchase_bill_id: billId }))
     );
     if (itemsErr) throw itemsErr;
+
+    // Update product catalog latest purchase price, selling price, and mrp
+    for (const item of params.items) {
+      try {
+        await supabase
+          .from("products")
+          .update({
+            purchase_price: item.purchaseRate,
+            ...(item.sellingPrice ? { price: item.sellingPrice, selling_price: item.sellingPrice } : {}),
+            ...(item.mrp ? { mrp: item.mrp } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.productId);
+      } catch {}
+    }
 
     const { data: supplier } = await supabase
       .from("suppliers")
@@ -180,7 +196,7 @@ export const purchaseService = {
 
     const purchaseRate = params.purchaseRate ?? item.purchase_rate;
     const gstPct = params.gstPercentage ?? item.gst_percentage;
-    const gst = lineItemGst(purchaseRate, newQty, gstPct);
+    const gst = lineItemInclusiveGst(purchaseRate, newQty, gstPct);
 
     await supabase
       .from("purchase_items")
@@ -223,6 +239,22 @@ export const purchaseService = {
         .eq("id", lotRow.id);
     }
 
+    // Keep product catalog in sync with updated purchase price
+    const prodId = params.productId ?? item.product_id;
+    if (prodId) {
+      try {
+        await supabase
+          .from("products")
+          .update({
+            purchase_price: purchaseRate,
+            ...(params.sellingPrice ? { price: params.sellingPrice, selling_price: params.sellingPrice } : {}),
+            ...(params.mrp ? { mrp: params.mrp } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", prodId);
+      } catch {}
+    }
+
     const billUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (params.supplierId) billUpdates.supplier_id = params.supplierId;
     if (params.invoiceDate) billUpdates.invoice_date = params.invoiceDate;
@@ -238,8 +270,8 @@ export const purchaseService = {
       let cgst = 0;
       let sgst = 0;
       for (const li of updated.purchase_items) {
-        subtotal += li.purchase_rate * li.quantity;
-        const g = lineItemGst(li.purchase_rate, li.quantity, li.gst_percentage);
+        const g = lineItemInclusiveGst(li.purchase_rate, li.quantity, li.gst_percentage);
+        subtotal += g.taxableAmount;
         cgst += g.cgst;
         sgst += g.sgst;
       }

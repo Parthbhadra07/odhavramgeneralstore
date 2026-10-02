@@ -457,7 +457,7 @@ export default function AdminProductsPage() {
             onChange: (e) => !editing && setValue("slug", slugify(e.target.value)),
           })} />
           <Input label="Slug" error={errors.slug?.message} {...register("slug")} />
-          <Input label="Selling Price" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
+          <Input label="Selling Price (Incl. GST)" type="number" step="0.01" error={errors.price?.message} {...register("price")} />
           <Input label="Stock" type="number" step="1" error={errors.stock?.message} {...register("stock")} />
           <div className="sm:col-span-2">
             <Controller
@@ -474,8 +474,8 @@ export default function AdminProductsPage() {
           </div>
           <Input label="Brand" {...register("brand")} />
           <Input label="Unit" placeholder="pcs, kg, L" {...register("unit")} />
-          <Input label="Purchase Price" type="number" step="0.01" {...register("purchase_price")} />
-          <Input label="MRP" type="number" step="0.01" {...register("mrp")} />
+          <Input label="Purchase Price (Incl. GST)" type="number" step="0.01" {...register("purchase_price")} />
+          <Input label="MRP (Incl. GST)" type="number" step="0.01" {...register("mrp")} />
           <Input label="GST %" type="number" step="0.01" {...register("gst_percentage")} />
           <Input label="Reorder Level" type="number" {...register("reorder_level")} />
           <Input label="Min Stock" type="number" {...register("min_stock_level")} />
