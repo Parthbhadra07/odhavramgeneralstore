@@ -324,7 +324,7 @@ export default function PurchasesPage() {
     if (!f.supplierId) errs.supplierId = "Select a supplier";
     if (!f.productId) errs.productId = "Select a product";
     if (!f.invoiceDate) errs.invoiceDate = "Purchase date is required";
-    if (f.quantity < 1) errs.quantity = "Quantity must be at least 1";
+    if (f.quantity <= 0) errs.quantity = "Quantity must be greater than 0";
     if (f.purchaseRate < 0) errs.purchaseRate = "Purchase rate cannot be negative";
     if (f.gstPercentage < 0 || f.gstPercentage > 100) {
       errs.gstPercentage = "GST must be between 0 and 100";
@@ -623,7 +623,7 @@ export default function PurchasesPage() {
   const supplierOptions = suppliers.map((s) => ({ value: s.id, label: s.name }));
   const productOptions = products.map((p) => ({
     value: p.id,
-    label: `${p.name} ${p.stock !== undefined ? `(Stock: ${p.stock})` : ""} · MRP ₹${p.mrp ?? p.price ?? 0}`,
+    label: `${p.name} ${p.stock !== undefined ? `(Stock: ${p.stock})` : ""} · MRP ${formatPrice(p.mrp ?? p.price ?? 0)} · Buy: ${formatPrice(p.purchase_price ?? 0)}`,
   }));
 
   const selectedProductObj = products.find((p) => p.id === form.productId);
@@ -892,7 +892,8 @@ export default function PurchasesPage() {
                     <input
                       id="purchase-qty-input"
                       type="number"
-                      min={1}
+                      step="any"
+                      min={0.001}
                       ref={qtyInputRef}
                       value={form.quantity}
                       onChange={(e) =>
@@ -1498,7 +1499,8 @@ export default function PurchasesPage() {
             <input
               id="edit-purchase-qty-input"
               type="number"
-              min={1}
+              step="any"
+              min={0.001}
               value={editForm.quantity}
               onChange={(e) =>
                 setEditForm((f) => recalculatePricing(f, { quantity: Number(e.target.value) }))
