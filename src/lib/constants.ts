@@ -1,7 +1,7 @@
 export const APP_NAME = "Odhavram General Store";
 export const APP_SHORT_NAME = "OGS";
 export const APP_DESCRIPTION =
-  "Your neighborhood grocery store in Odhav. Daily essentials, fresh goods, and home delivery.";
+  "Your neighborhood grocery store in Vapi. Daily essentials, fresh goods, and home delivery.";
 
 export const STORE_PHONE = "8160373047";
 export const STORE_PHONE_DISPLAY = "+91 81603 73047";

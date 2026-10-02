@@ -8,7 +8,7 @@ export function HeroBanner() {
       <div className="container mx-auto px-4 py-16 md:py-24">
         <div className="max-w-2xl">
           <span className="mb-4 inline-block rounded-full bg-white/20 px-4 py-1 text-sm font-medium backdrop-blur">
-            Odhavram General Store · Odhav
+            Odhavram General Store · Vapi
           </span>
           <h1 className="mb-4 text-4xl font-bold leading-tight md:text-5xl lg:text-6xl">
             Your Local Grocery Store, Now Online

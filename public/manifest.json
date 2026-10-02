@@ -1,14 +1,18 @@
 {
   "name": "Odhavram General Store",
   "short_name": "OGS",
-  "description": "Local grocery store — Odhav, Ahmedabad. Order online groceries with fast delivery or pickup.",
+  "description": "Local grocery store — Vapi. Order online groceries with fast delivery or pickup.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",
   "orientation": "portrait-primary",
-  "categories": ["shopping", "business", "productivity"],
+  "categories": [
+    "shopping",
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -29,21 +33,36 @@
       "short_name": "Shop",
       "description": "Browse grocery items and daily essentials",
       "url": "/products",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Track Order",
       "short_name": "Track",
       "description": "Track your grocery order delivery status",
       "url": "/track-order",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "POS Billing (Staff)",
       "short_name": "POS",
       "description": "Open POS Quick Billing for staff",
       "url": "/admin/pos/",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

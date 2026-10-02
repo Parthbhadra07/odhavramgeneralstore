@@ -12,7 +12,7 @@ ON CONFLICT DO NOTHING;
 -- Sample customers
 INSERT INTO public.customers (name, mobile, address, gst_number) VALUES
   ('Walk-in Customer', '9999999999', 'Vapi', NULL),
-  ('Ramesh Patel', '9123456780', 'Odhav, Ahmedabad', NULL),
+  ('Ramesh Patel', '9123456780', 'Vapi, Gujarat', NULL),
   ('Shree Traders', '9123456781', 'Vapi Industrial', '24AABCT1234R1Z1')
 ON CONFLICT DO NOTHING;
 

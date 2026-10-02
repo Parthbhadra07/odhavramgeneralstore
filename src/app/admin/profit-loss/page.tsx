@@ -329,7 +329,7 @@ export default function ProfitLossPage() {
             {APP_NAME}
           </h2>
           <p className="text-xs font-semibold text-slate-600">
-            General Merchant &amp; Kirana Superstore · Odhav, Ahmedabad
+            General Merchant &amp; Kirana Superstore · Odhav, Vapi
           </p>
           <div className="mt-2 inline-block rounded-md border border-slate-800 bg-slate-50 px-3 py-1">
             <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-slate-900">
