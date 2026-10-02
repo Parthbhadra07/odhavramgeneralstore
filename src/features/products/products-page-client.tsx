@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ProductCard } from "@/components/product-card";
 import { ProductCardSkeleton } from "@/components/ui/skeleton";
 import { ProductsFilters } from "@/features/products/products-filters";
+import { MobileCatalogView } from "@/features/products/mobile-catalog-view";
 import { productService } from "@/services/product.service";
 import { categoryService } from "@/services/category.service";
 import { getCatalogCachedAt } from "@/lib/offline/product-cache";
@@ -73,15 +74,66 @@ export function ProductsPageClient() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {offline && (
-        <p className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Offline — showing cached catalog from your last visit.
-        </p>
-      )}
+    <>
+      {/* MOBILE QUICK-COMMERCE VIEW (< md, Blinkit / Instamart style) */}
+      <div className="md:hidden">
+        <MobileCatalogView
+          products={products}
+          categories={categories}
+          loading={loading}
+          selectedCategory={selectedCategory}
+          onSelectCategory={(catId) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (catId) {
+              params.set("category", catId);
+            } else {
+              params.delete("category");
+            }
+            router.push(`/products?${params.toString()}`);
+          }}
+          isFeatured={isFeatured}
+          onToggleFeatured={(featured) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (featured) {
+              params.set("featured", "true");
+            } else {
+              params.delete("featured");
+            }
+            router.push(`/products?${params.toString()}`);
+          }}
+          searchQuery={searchQuery || ""}
+          onSearchChange={(query) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (query.trim()) {
+              params.set("search", query.trim());
+            } else {
+              params.delete("search");
+            }
+            router.push(`/products?${params.toString()}`);
+          }}
+          selectedSort={(searchParams.get("sort") as ProductSort) || undefined}
+          onSortChange={(sort) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (sort) {
+              params.set("sort", sort);
+            } else {
+              params.delete("sort");
+            }
+            router.push(`/products?${params.toString()}`);
+          }}
+        />
+      </div>
 
-      {/* Header Banner */}
-      <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end border-b pb-4">
+      {/* DESKTOP CATALOG VIEW (>= md) */}
+      <div className="hidden md:block container mx-auto px-4 py-8">
+        {offline && (
+          <p className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            Offline — showing cached catalog from your last visit.
+          </p>
+        )}
+
+        {/* Header Banner */}
+        <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end border-b pb-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold text-gray-900">
@@ -262,5 +314,6 @@ export function ProductsPageClient() {
         </div>
       </div>
     </div>
+    </>
   );
 }

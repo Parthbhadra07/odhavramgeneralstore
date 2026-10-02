@@ -12,6 +12,7 @@ import {
   STORE_ADDRESS,
 } from "@/lib/constants";
 import { CallStoreButton } from "@/components/call-store-button";
+import { cn } from "@/utils/cn";
 
 export function Footer() {
   const pathname = usePathname();
@@ -19,8 +20,15 @@ export function Footer() {
     return null;
   }
 
+  const isProductsPage = pathname === "/products";
+
   return (
-    <footer className="mt-auto border-t border-green-100 bg-green-900 text-green-50">
+    <footer
+      className={cn(
+        "mt-auto border-t border-green-100 bg-green-900 text-green-50",
+        isProductsPage && "hidden md:block"
+      )}
+    >
       <div className="container mx-auto px-4 py-12">
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           <div>

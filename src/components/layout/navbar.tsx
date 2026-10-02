@@ -40,9 +40,16 @@ export function Navbar() {
     return null;
   }
 
+  const isProductsPage = pathname === "/products";
+
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-green-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <header
+        className={cn(
+          "sticky top-0 z-40 border-b border-green-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80",
+          isProductsPage && "hidden md:block"
+        )}
+      >
         <div className="container mx-auto px-4">
           <div className="flex h-16 items-center justify-between gap-4">
             <Link href="/" className="group flex shrink-0 items-center gap-2.5">
