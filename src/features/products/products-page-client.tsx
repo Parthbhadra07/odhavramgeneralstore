@@ -63,6 +63,16 @@ export function ProductsPageClient() {
       .finally(() => setLoading(false));
   }, [filters]);
 
+  // Keep a full catalog list for instantaneous mobile rail & search switching
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    productService
+      .getAll()
+      .then((prods) => setAllProducts(prods))
+      .catch(() => {});
+  }, []);
+
   const removeFilter = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete(key);
@@ -78,9 +88,9 @@ export function ProductsPageClient() {
       {/* MOBILE QUICK-COMMERCE VIEW (< md, Blinkit / Instamart style) */}
       <div className="md:hidden">
         <MobileCatalogView
-          products={products}
+          products={allProducts.length > 0 ? allProducts : products}
           categories={categories}
-          loading={loading}
+          loading={loading && allProducts.length === 0}
           selectedCategory={selectedCategory}
           onSelectCategory={(catId) => {
             const params = new URLSearchParams(searchParams.toString());
@@ -89,6 +99,7 @@ export function ProductsPageClient() {
             } else {
               params.delete("category");
             }
+            params.delete("view");
             router.push(`/products?${params.toString()}`);
           }}
           isFeatured={isFeatured}
@@ -99,6 +110,7 @@ export function ProductsPageClient() {
             } else {
               params.delete("featured");
             }
+            params.delete("view");
             router.push(`/products?${params.toString()}`);
           }}
           searchQuery={searchQuery || ""}

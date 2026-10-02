@@ -97,7 +97,31 @@ export const productService = {
     }
 
     if (filters.category) {
-      query = query.eq("category_id", filters.category);
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filters.category);
+      if (isUUID) {
+        query = query.eq("category_id", filters.category);
+      } else {
+        const cleanCat = filters.category.trim();
+        const { data: catBySlug } = await supabase
+          .from("categories")
+          .select("id")
+          .eq("slug", cleanCat)
+          .maybeSingle();
+
+        if (catBySlug?.id) {
+          query = query.eq("category_id", catBySlug.id);
+        } else {
+          const { data: catByName } = await supabase
+            .from("categories")
+            .select("id")
+            .ilike("name", `%${cleanCat}%`)
+            .limit(1)
+            .maybeSingle();
+          if (catByName?.id) {
+            query = query.eq("category_id", catByName.id);
+          }
+        }
+      }
     }
     if (filters.featured) {
       query = query.eq("featured", true);
@@ -108,8 +132,9 @@ export const productService = {
     if (filters.maxPrice !== undefined) {
       query = query.lte("price", filters.maxPrice);
     }
-    if (filters.search) {
-      query = query.ilike("name", `%${filters.search}%`);
+    if (filters.search && filters.search.trim()) {
+      const s = filters.search.trim().replace(/,/g, " ");
+      query = query.or(`name.ilike.%${s}%,brand.ilike.%${s}%,barcode.ilike.%${s}%`);
     }
 
     switch (filters.sort) {
