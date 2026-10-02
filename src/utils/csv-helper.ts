@@ -15,6 +15,7 @@ export interface ParsedProductRow {
   mrp?: number;
   stock: number;
   gstPercentage?: number;
+  imageUrl?: string;
   reorderLevel?: number;
   minStockLevel?: number;
   piecesPerPacket?: number;
@@ -103,6 +104,7 @@ export function normalizeHeader(header: string): string {
   if (["mrp", "maxretailprice", "maximumretailprice"].includes(h)) return "mrp";
   if (["stock", "quantity", "qty", "openingstock", "currentstock", "available"].includes(h)) return "stock";
   if (["gst", "tax", "gstpercentage", "gstpercent", "taxrate", "vat"].includes(h)) return "gst_percentage";
+  if (["photo", "image", "imageurl", "photourl", "productphoto", "productimage", "img", "picture", "pic"].includes(h)) return "image_url";
   if (["reorderlevel", "reorder", "alertqty", "minstock", "minlevel"].includes(h)) return "reorder_level";
   if (["minstocklevel", "minimumstock"].includes(h)) return "min_stock_level";
   if (["piecesperpacket", "pcsperpacket", "piecesperpkt", "pcsperpkt"].includes(h)) return "pieces_per_packet";
@@ -198,6 +200,8 @@ export function processProductRows(rawRows: string[][]): {
       rawLoose === "y" ||
       unit.toLowerCase() === "loose";
 
+    const imageUrl = getVal("image_url") || undefined;
+
     // Validation
     if (!name) {
       errors.push("Product Name is missing");
@@ -233,6 +237,7 @@ export function processProductRows(rawRows: string[][]): {
       mrp,
       stock: isNaN(stock) ? 0 : stock,
       gstPercentage: isNaN(gstPercentage) ? 0 : gstPercentage,
+      imageUrl,
       reorderLevel: isNaN(reorderLevel) ? 10 : reorderLevel,
       minStockLevel: isNaN(minStockLevel) ? 5 : minStockLevel,
       piecesPerPacket,
@@ -267,24 +272,25 @@ export function getSampleKiranaProductsCSV(): string {
     "MRP",
     "Stock",
     "GST %",
+    "Product Photo URL",
     "Reorder Level",
     "Pieces Per Packet",
     "Packets Per Box",
   ];
 
   const sampleItems = [
-    ["8901030383709", "Parle-G Glucose Biscuits 80g", "Biscuits & Snacks", "Parle", "pcs", "10", "8.50", "10", "120", "0", "24", "12", "12"],
-    ["8901058852331", "Maggi 2-Minute Masala Noodles 70g", "Noodles & Instant Food", "Nestle", "pcs", "14", "11.80", "14", "96", "5", "24", "12", "8"],
-    ["8901063141123", "Britannia Good Day Butter Cookies 75g", "Biscuits & Snacks", "Britannia", "pcs", "15", "12.50", "15", "60", "0", "12", "12", "12"],
-    ["8901030010049", "Tata Salt Vacuum Evaporated 1kg", "Grocery & Spices", "Tata", "kg", "28", "24.00", "28", "50", "0", "15", "1", "25"],
-    ["8901030366887", "Lifebuoy Total Germ Protection Soap 125g", "Personal Care", "Lifebuoy", "pcs", "38", "31.00", "40", "48", "18", "12", "4", "18"],
-    ["8901248100115", "Dettol Antiseptic Liquid 100ml", "Personal Care", "Dettol", "pcs", "42", "36.00", "45", "30", "12", "6", "1", "24"],
-    ["8901030612182", "Surf Excel Easy Wash Detergent Powder 1kg", "Household & Laundry", "Surf Excel", "kg", "145", "128.00", "155", "35", "18", "8", "1", "10"],
-    ["8901262010019", "Amul Taaza Toned Milk 1L Tetra", "Dairy & Milk", "Amul", "pcs", "72", "66.00", "74", "25", "0", "10", "1", "12"],
-    ["8901030020017", "Brooke Bond Red Label Tea 250g", "Beverages", "Brooke Bond", "pcs", "135", "118.00", "145", "40", "5", "10", "1", "20"],
-    ["8901725131234", "Balaji Wafers Simply Salted 35g", "Biscuits & Snacks", "Balaji", "pcs", "10", "8.20", "10", "80", "5", "20", "12", "10"],
-    ["8901314010012", "Aashirvaad Superior MP Sharbati Atta 5kg", "Grocery & Flour", "ITC", "pcs", "295", "265.00", "310", "20", "0", "5", "1", "4"],
-    ["8901030030023", "Colgate Strong Teeth Toothpaste 100g", "Personal Care", "Colgate", "pcs", "62", "52.00", "65", "45", "18", "10", "1", "24"],
+    ["8901030383709", "Parle-G Glucose Biscuits 80g", "Biscuits & Snacks", "Parle", "pcs", "10", "8.50", "10", "120", "0", "https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e", "24", "12", "12"],
+    ["8901058852331", "Maggi 2-Minute Masala Noodles 70g", "Noodles & Instant Food", "Nestle", "pcs", "14", "11.80", "14", "96", "5", "https://images.unsplash.com/photo-1612927601601-6638404737ce", "24", "12", "8"],
+    ["8901063141123", "Britannia Good Day Butter Cookies 75g", "Biscuits & Snacks", "Britannia", "pcs", "15", "12.50", "15", "60", "0", "", "12", "12", "12"],
+    ["8901030010049", "Tata Salt Vacuum Evaporated 1kg", "Grocery & Spices", "Tata", "kg", "28", "24.00", "28", "50", "0", "", "15", "1", "25"],
+    ["8901030366887", "Lifebuoy Total Germ Protection Soap 125g", "Personal Care", "Lifebuoy", "pcs", "38", "31.00", "40", "48", "18", "", "12", "4", "18"],
+    ["8901248100115", "Dettol Antiseptic Liquid 100ml", "Personal Care", "Dettol", "pcs", "42", "36.00", "45", "30", "12", "", "6", "1", "24"],
+    ["8901030612182", "Surf Excel Easy Wash Detergent Powder 1kg", "Household & Laundry", "Surf Excel", "kg", "145", "128.00", "155", "35", "18", "", "8", "1", "10"],
+    ["8901262010019", "Amul Taaza Toned Milk 1L Tetra", "Dairy & Milk", "Amul", "pcs", "72", "66.00", "74", "25", "0", "", "10", "1", "12"],
+    ["8901030020017", "Brooke Bond Red Label Tea 250g", "Beverages", "Brooke Bond", "pcs", "135", "118.00", "145", "40", "5", "", "10", "1", "20"],
+    ["8901725131234", "Balaji Wafers Simply Salted 35g", "Biscuits & Snacks", "Balaji", "pcs", "10", "8.20", "10", "80", "5", "", "20", "12", "10"],
+    ["8901314010012", "Aashirvaad Superior MP Sharbati Atta 5kg", "Grocery & Flour", "ITC", "pcs", "295", "265.00", "310", "20", "0", "", "5", "1", "4"],
+    ["8901030030023", "Colgate Strong Teeth Toothpaste 100g", "Personal Care", "Colgate", "pcs", "62", "52.00", "65", "45", "18", "", "10", "1", "24"],
   ];
 
   const escapeCSVCell = (val: string) => {
@@ -314,6 +320,7 @@ export function exportProductsToCSV(products: Array<Record<string, any>>): strin
     "Stock",
     "Loose (Yes/No)",
     "GST %",
+    "Product Photo URL",
     "Reorder Level",
     "Pieces Per Packet",
     "Packets Per Box",
@@ -340,6 +347,7 @@ export function exportProductsToCSV(products: Array<Record<string, any>>): strin
     p.stock ?? 0,
     p.is_loose ? "Yes" : "No",
     p.gst_percentage ?? 0,
+    p.image_url || "",
     p.reorder_level ?? 10,
     p.pieces_per_packet ?? 12,
     p.packets_per_box ?? 12,

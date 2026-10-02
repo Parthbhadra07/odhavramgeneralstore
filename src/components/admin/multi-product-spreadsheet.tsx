@@ -17,11 +17,14 @@ import {
   RefreshCw,
   X,
   ClipboardPaste,
+  Image as ImageIcon,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { productService } from "@/services/product.service";
 import { categoryService } from "@/services/category.service";
+import { uploadProductImage } from "@/services/storage.service";
 import { slugify } from "@/utils/format";
 import { downloadCSVFile } from "@/utils/csv-helper";
 import type { Category } from "@/types/database";
@@ -39,6 +42,8 @@ export interface SpreadsheetRow {
   mrp: string;
   stock: string;
   min_stock_level: string;
+  gst_percentage: string;
+  image_url: string;
   error?: string;
 }
 
@@ -60,6 +65,8 @@ function createBlankRow(): SpreadsheetRow {
     mrp: "",
     stock: "10",
     min_stock_level: "5",
+    gst_percentage: "5",
+    image_url: "",
   };
 }
 
@@ -82,6 +89,9 @@ export function MultiProductSpreadsheet({
   const [saveProgress, setSaveProgress] = useState<{ current: number; total: number } | null>(null);
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  const [uploadingRowId, setUploadingRowId] = useState<string | null>(null);
+  const [activeUploadRowId, setActiveUploadRowId] = useState<string | null>(null);
+  const rowFileInputRef = useRef<HTMLInputElement>(null);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -90,6 +100,38 @@ export function MultiProductSpreadsheet({
       categoryService.getAll().then(setCategories).catch(() => []);
     }
   }, [categoriesList]);
+
+  // Trigger file upload dialog for a row
+  const triggerRowImageUpload = (rowId: string) => {
+    setActiveUploadRowId(rowId);
+    if (rowFileInputRef.current) {
+      rowFileInputRef.current.value = "";
+      rowFileInputRef.current.click();
+    }
+  };
+
+  // Process chosen image file
+  const handleRowFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeUploadRowId) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file (JPG, PNG, WEBP)");
+      return;
+    }
+
+    const targetId = activeUploadRowId;
+    setUploadingRowId(targetId);
+    try {
+      const url = await uploadProductImage(file);
+      updateCell(targetId, "image_url", url);
+      toast.success("Product photo uploaded successfully!");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingRowId(null);
+      setActiveUploadRowId(null);
+    }
+  };
 
   // Update cell
   const updateCell = useCallback(
@@ -146,6 +188,8 @@ export function MultiProductSpreadsheet({
       id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name: row.name ? `${row.name} (Copy)` : "",
       barcode: "", // clear barcode to avoid collision
+      gst_percentage: row.gst_percentage || "5",
+      image_url: row.image_url || "",
     };
     setRows((prev) => {
       const idx = prev.findIndex((r) => r.id === row.id);
@@ -203,10 +247,20 @@ export function MultiProductSpreadsheet({
       let selling_price = "";
       let mrp = "";
       let stock = "10";
+      let gst_percentage = "5";
+      let image_url = "";
+
+      // Check if any column contains a URL or image link
+      for (const p of parts) {
+        if (/^(https?:\/\/|\/|data:image).*\.(jpg|jpeg|png|webp|avif|gif)/i.test(p) || /^(https?:\/\/)/i.test(p)) {
+          image_url = p;
+          break;
+        }
+      }
 
       // Flexible column mapper depending on columns pasted:
-      // Pattern A: [Barcode, Name, Category, Brand, Unit, Selling Price, Purchase Price, MRP, Stock, Loose]
-      // Pattern B: [Name, Barcode, Selling Price, Stock...]
+      // Pattern A: [Barcode, Name, Category, Brand, Unit, Selling Price, Purchase Price, MRP, Stock, Loose, GST, Photo]
+      // Pattern B: [Name, Barcode, Category, Brand, Unit, Selling Price, Purchase Price, MRP, Stock, Loose, GST, Photo]
       if (parts.length >= 2 && /^\d{7,14}$/.test(parts[0])) {
         // First col is barcode
         barcode = parts[0] || "";
@@ -222,6 +276,10 @@ export function MultiProductSpreadsheet({
           const l = parts[9].toLowerCase();
           is_loose = l === "yes" || l === "true" || l === "1" || l === "loose";
         }
+        if (parts[10] && !parts[10].startsWith("http")) {
+          const cleanGst = parts[10].replace(/[^0-9.]/g, "");
+          if (cleanGst) gst_percentage = cleanGst;
+        }
       } else {
         // First col is Name
         name = parts[0] || "";
@@ -236,6 +294,10 @@ export function MultiProductSpreadsheet({
         if (parts[9]) {
           const l = parts[9].toLowerCase();
           is_loose = l === "yes" || l === "true" || l === "1" || l === "loose";
+        }
+        if (parts[10] && !parts[10].startsWith("http")) {
+          const cleanGst = parts[10].replace(/[^0-9.]/g, "");
+          if (cleanGst) gst_percentage = cleanGst;
         }
       }
 
@@ -257,6 +319,8 @@ export function MultiProductSpreadsheet({
         mrp,
         stock: stock || "10",
         min_stock_level: "5",
+        gst_percentage: gst_percentage || "5",
+        image_url: image_url || "",
       });
     }
 
@@ -278,11 +342,12 @@ export function MultiProductSpreadsheet({
   // Download blank CSV template
   const handleDownloadTemplate = () => {
     const csvContent =
-      "Product Name,Barcode,Category,Brand,Unit,Selling Price,Purchase Price,MRP,Stock,Loose (Yes/No)\r\n" +
-      "Basmati Rice 1kg,8901234567890,Grocery,India Gate,kg,110,95,120,50,No\r\n" +
-      "Loose Sugar (Weight Scale),,Grocery,Local,kg,44,38,48,100,Yes\r\n" +
-      "Toor Dal Loose,,Pulses,Farm Fresh,kg,140,120,150,80,Yes\r\n" +
-      "Parle-G 80g,8901030383709,Biscuits,Parle,pcs,10,8.5,10,120,No\r\n";
+      "Product Name,Barcode,Category,Brand,Unit,Selling Price,Purchase Price,MRP,Stock,Loose (Yes/No),GST %,Photo URL\r\n" +
+      "Basmati Rice 1kg,8901234567890,Grocery,India Gate,kg,110,95,120,50,No,0,https://images.unsplash.com/photo-1586201375761-83865001e31c\r\n" +
+      "Loose Sugar (Weight Scale),,Grocery,Local,kg,44,38,48,100,Yes,5,\r\n" +
+      "Toor Dal Loose,,Pulses,Farm Fresh,kg,140,120,150,80,Yes,0,\r\n" +
+      "Parle-G 80g,8901030383709,Biscuits,Parle,pcs,10,8.5,10,120,No,0,https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e\r\n" +
+      "Surf Excel Easy Wash 1kg,8901030612182,Household,Surf Excel,kg,145,128,155,35,No,18,\r\n";
     downloadCSVFile("odhavram_multi_product_template.csv", csvContent);
     toast.success("Excel/CSV template downloaded!");
   };
@@ -346,6 +411,8 @@ export function MultiProductSpreadsheet({
         const mrp = row.mrp ? parseFloat(row.mrp) : null;
         const stock = parseFloat(row.stock) || 0;
         const minStock = parseFloat(row.min_stock_level) || 5;
+        const gst = parseFloat(row.gst_percentage) || 0;
+        const imageUrl = row.image_url.trim() || null;
 
         const barcode =
           row.barcode.trim() || `OGS${Date.now().toString().slice(-7)}${i}`;
@@ -367,7 +434,8 @@ export function MultiProductSpreadsheet({
           min_stock_level: minStock,
           reorder_level: minStock * 2,
           featured: false,
-          image_url: null,
+          gst_percentage: gst,
+          image_url: imageUrl,
         });
 
         createdCount++;
@@ -532,10 +600,15 @@ export function MultiProductSpreadsheet({
         ref={tableContainerRef}
         className="max-h-[60vh] overflow-x-auto overflow-y-auto border-b border-gray-200 bg-slate-50"
       >
-        <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1240px] border-collapse text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wider shadow-sm select-none">
             <tr>
               <th className="w-10 border-b border-r border-slate-300 px-2 py-2.5 text-center">#</th>
+              <th className="w-48 border-b border-r border-slate-300 px-2 py-2.5 text-center bg-sky-50/70 text-sky-950">
+                <span className="flex items-center justify-center gap-1">
+                  <ImageIcon className="h-3.5 w-3.5 text-sky-600" /> Photo / Image
+                </span>
+              </th>
               <th className="w-64 border-b border-r border-slate-300 px-3 py-2.5">
                 Product Name <span className="text-red-500">*</span>
               </th>
@@ -553,6 +626,9 @@ export function MultiProductSpreadsheet({
                 Sell Price (₹) <span className="text-red-500">*</span>
               </th>
               <th className="w-24 border-b border-r border-slate-300 px-2 py-2.5 text-right">MRP (₹)</th>
+              <th className="w-24 border-b border-r border-slate-300 px-2 py-2.5 text-center bg-amber-50/70 text-amber-950">
+                GST %
+              </th>
               <th className="w-20 border-b border-r border-slate-300 px-2 py-2.5 text-center">Opening Stock</th>
               <th className="w-20 border-b border-r border-slate-300 px-2 py-2.5 text-center">Profit %</th>
               <th className="w-16 border-b border-slate-300 px-2 py-2.5 text-center">Actions</th>
@@ -583,6 +659,62 @@ export function MultiProductSpreadsheet({
                   {/* Row Index */}
                   <td className="border-r border-slate-200 px-2 py-1.5 text-center font-mono text-[11px] text-slate-400 bg-slate-50/80 select-none">
                     {index + 1}
+                  </td>
+
+                  {/* Photo / Image */}
+                  <td className="border-r border-slate-200 p-1 bg-sky-50/20">
+                    <div className="flex items-center gap-1.5">
+                      {row.image_url ? (
+                        <div className="relative group/thumb shrink-0">
+                          <img
+                            src={row.image_url}
+                            alt=""
+                            className="h-7 w-7 rounded object-cover border border-slate-300 shadow-xs bg-white"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                          <ImageIcon className="h-3.5 w-3.5" />
+                        </div>
+                      )}
+
+                      <input
+                        type="text"
+                        placeholder="Image URL..."
+                        value={row.image_url}
+                        onChange={(e) => updateCell(row.id, "image_url", e.target.value)}
+                        className="w-full min-w-0 rounded bg-transparent px-1.5 py-1 text-[11px] text-slate-700 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                        title={row.image_url || "Paste image URL or click camera to upload"}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => triggerRowImageUpload(row.id)}
+                        disabled={uploadingRowId === row.id}
+                        className="shrink-0 rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition"
+                        title="Upload photo from device / camera"
+                      >
+                        {uploadingRowId === row.id ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                        ) : (
+                          <Camera className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+
+                      {row.image_url && (
+                        <button
+                          type="button"
+                          onClick={() => updateCell(row.id, "image_url", "")}
+                          className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500 transition"
+                          title="Remove photo"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
                   </td>
 
                   {/* Name */}
@@ -699,6 +831,22 @@ export function MultiProductSpreadsheet({
                     />
                   </td>
 
+                  {/* GST % */}
+                  <td className="border-r border-slate-200 p-1 text-center bg-amber-50/30">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="any"
+                      list="gst-datalist"
+                      placeholder="5"
+                      value={row.gst_percentage}
+                      onChange={(e) => updateCell(row.id, "gst_percentage", e.target.value)}
+                      className="w-full rounded bg-transparent px-1.5 py-1 text-center text-xs font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                      title="GST rate (0%, 5%, 12%, 18%, 28%)"
+                    />
+                  </td>
+
                   {/* Stock */}
                   <td className="border-r border-slate-200 p-1">
                     <input
@@ -767,6 +915,22 @@ export function MultiProductSpreadsheet({
           <option key={u} value={u} />
         ))}
       </datalist>
+      <datalist id="gst-datalist">
+        <option value="0">0% (Nil / Exempt)</option>
+        <option value="5">5% (Essential Food / Kirana)</option>
+        <option value="12">12% (Standard FMCG / Processed)</option>
+        <option value="18">18% (Household & Personal Care)</option>
+        <option value="28">28% (Luxury & Aerated)</option>
+      </datalist>
+
+      {/* Hidden file input for photo upload */}
+      <input
+        ref={rowFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleRowFileSelected}
+      />
 
       {/* Spreadsheet Bottom Footer */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-5 py-3 border-t border-slate-200 text-xs text-slate-600">
@@ -825,7 +989,7 @@ export function MultiProductSpreadsheet({
               Columns expected (Tab or Comma separated):
               <br />
               <code className="mt-1 block rounded bg-slate-100 p-2 font-mono text-[11px] text-slate-800 border">
-                Product Name | Barcode | Category | Brand | Unit | Selling Price | Purchase Price | MRP | Stock | Loose (Yes/No)
+                Product Name | Barcode | Category | Brand | Unit | Selling Price | Purchase Price | MRP | Stock | Loose (Yes/No) | GST % | Photo URL
               </code>
             </p>
 

@@ -13,6 +13,7 @@ import {
   FileCheck,
   ChevronRight,
   ArrowRight,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -272,6 +273,10 @@ export function BulkProductImportModal({
                     <span className="font-semibold text-gray-800">GST % / Reorder</span>
                     <p className="text-[11px] text-gray-500">0, 5, 12, 18% & low stock</p>
                   </div>
+                  <div className="rounded-md bg-gray-50 p-2 border border-gray-100">
+                    <span className="font-semibold text-gray-800">Photo / Image URL</span>
+                    <p className="text-[11px] text-gray-500">Web image link for item</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -380,9 +385,11 @@ export function BulkProductImportModal({
                     <thead className="bg-gray-100 text-gray-700 font-semibold sticky top-0 border-b">
                       <tr>
                         <th className="p-2.5">Row</th>
+                        <th className="p-2.5 text-center">Photo</th>
                         <th className="p-2.5">Barcode</th>
                         <th className="p-2.5">Product Name</th>
                         <th className="p-2.5">Category</th>
+                        <th className="p-2.5 text-center">GST %</th>
                         <th className="p-2.5">Price</th>
                         <th className="p-2.5">Stock</th>
                         <th className="p-2.5">Status</th>
@@ -392,11 +399,28 @@ export function BulkProductImportModal({
                       {parsedRows.slice(0, 15).map((r, i) => (
                         <tr key={i} className={r.errors.length > 0 ? "bg-red-50/50" : "hover:bg-gray-50"}>
                           <td className="p-2.5 text-gray-500 font-mono">#{r.rawRowNumber}</td>
+                          <td className="p-2.5 text-center">
+                            {r.imageUrl ? (
+                              <img
+                                src={r.imageUrl}
+                                alt={r.name}
+                                className="h-7 w-7 rounded object-cover border border-gray-200 mx-auto bg-white"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <span className="text-gray-300 font-mono">-</span>
+                            )}
+                          </td>
                           <td className="p-2.5 font-mono text-gray-700">
                             {r.barcode || <span className="text-gray-400 italic">auto-generated</span>}
                           </td>
                           <td className="p-2.5 font-medium text-gray-900">{r.name}</td>
                           <td className="p-2.5 text-gray-600">{r.categoryName}</td>
+                          <td className="p-2.5 text-center font-mono text-gray-700">
+                            {r.gstPercentage !== undefined ? `${r.gstPercentage}%` : "0%"}
+                          </td>
                           <td className="p-2.5 font-semibold text-emerald-800">
                             {formatPrice(r.sellingPrice)}
                           </td>

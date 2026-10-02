@@ -160,6 +160,7 @@ export const bulkImportService = {
             packet_selling_price: row.packetSellingPrice ?? existing.packet_selling_price,
             box_selling_price: row.boxSellingPrice ?? existing.box_selling_price,
             is_loose: row.isLoose !== undefined ? row.isLoose : existing.is_loose,
+            image_url: row.imageUrl ?? existing.image_url,
           });
 
           // If stock changed and stock movement tracking is desired
@@ -192,7 +193,7 @@ export const bulkImportService = {
             description: "",
             price: row.sellingPrice,
             stock: row.stock || 0,
-            image_url: null,
+            image_url: row.imageUrl || null,
             category_id: categoryId,
             featured: false,
             sku: null,
