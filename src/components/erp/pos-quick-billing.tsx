@@ -15,6 +15,7 @@ import {
   Globe,
   Settings,
   Scale,
+  Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,7 @@ export function PosQuickBilling() {
   const [printWidth, setPrintWidth] = useState<ReceiptWidth>("80mm");
   const [showScanner, setShowScanner] = useState(false);
   const [showProductLookup, setShowProductLookup] = useState(false);
+  const [productLookupTab, setProductLookupTab] = useState<"details" | "weight">("details");
   const [productSearch, setProductSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
   const [searchSelectIndex, setSearchSelectIndex] = useState(0);
@@ -105,6 +107,7 @@ export function PosQuickBilling() {
   const [splitCash, setSplitCash] = useState(0);
   const [splitUpi, setSplitUpi] = useState(0);
   const [splitCard, setSplitCard] = useState(0);
+  const [mobilePosTab, setMobilePosTab] = useState<"cart" | "payment">("cart");
   const completeSaleRef = useRef<(autoPrint?: boolean) => Promise<void>>(async () => {});
   const holdBillRef = useRef<() => Promise<void>>(async () => {});
   const autoPrintSaleIdRef = useRef<string | null>(null);
@@ -200,6 +203,16 @@ export function PosQuickBilling() {
       if (e.key === "F6" && cart.length) {
         e.preventDefault();
         void holdBillRef.current();
+      }
+      if (e.key === "F3") {
+        e.preventDefault();
+        setProductLookupTab("details");
+        setShowProductLookup(true);
+      }
+      if (e.key === "F7") {
+        e.preventDefault();
+        setProductLookupTab("weight");
+        setShowProductLookup(true);
       }
       if (e.key === "F8" && cart.length) {
         e.preventDefault();
@@ -1005,6 +1018,7 @@ export function PosQuickBilling() {
       setSplitCash(0);
       setSplitUpi(0);
       setSplitCard(0);
+      setMobilePosTab("cart");
       const lastCustomerCredit =
         sale.customer_id && sale.payment_method === "credit"
           ? (await customerService.getByMobile(sale.customer_mobile ?? ""))
@@ -1126,30 +1140,79 @@ export function PosQuickBilling() {
   };
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 lg:min-h-[calc(100vh-4rem)] lg:flex-row">
+    <div className="flex min-h-0 flex-col gap-3 lg:gap-4 lg:min-h-[calc(100vh-4rem)] lg:flex-row">
+      {/* Mobile POS Tab Switcher (Phone & Tablet portrait) */}
+      <div className="flex rounded-xl bg-slate-200/80 p-1 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePosTab("cart")}
+          className={`flex-1 rounded-lg py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            mobilePosTab === "cart"
+              ? "bg-white text-green-900 shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <ShoppingCart className="h-4 w-4" />
+          <span>Cart ({cart.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePosTab("payment")}
+          className={`flex-1 rounded-lg py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            mobilePosTab === "payment"
+              ? "bg-green-700 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <Banknote className="h-4 w-4" />
+          <span>Pay {formatPrice(total)}</span>
+        </button>
+      </div>
+
       {/* Left: cart + scanner */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white lg:max-w-[55%]">
+      <div
+        className={`min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white lg:max-w-[55%] ${
+          mobilePosTab === "cart" ? "flex" : "hidden lg:flex"
+        }`}
+      >
         <div className="border-b p-3 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold text-green-900 sm:text-xl">POS Billing</h1>
               <OfflineStatusBanner compact />
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="hidden sm:block text-xs text-gray-500">
               F2 Search · F3 Details · F4 New · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-none max-w-full pb-0.5 whitespace-nowrap">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => setShowProductLookup(true)}
-                className="border-blue-300 bg-blue-50/80 text-blue-900 hover:bg-blue-100 font-semibold text-xs gap-1 shrink-0"
+                onClick={() => {
+                  setProductLookupTab("details");
+                  setShowProductLookup(true);
+                }}
+                className="border-blue-300 bg-blue-50/80 text-blue-900 hover:bg-blue-100 font-semibold text-xs gap-1 shrink-0 px-2 sm:px-3"
               >
                 <Tag className="h-3.5 w-3.5 text-blue-600" />
-                Check Details (F3)
+                <span>Details <span className="hidden sm:inline">(F3)</span></span>
               </Button>
-              <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setProductLookupTab("weight");
+                  setShowProductLookup(true);
+                }}
+                className="border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 font-semibold text-xs gap-1 shrink-0 px-2 sm:px-3"
+                title="Calculate price from weight or budget (F7)"
+              >
+                <Scale className="h-3.5 w-3.5 text-emerald-600" />
+                <span>Weight <span className="hidden sm:inline">(F7)</span></span>
+              </Button>
+              <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-1.5 sm:px-2 py-1 shrink-0">
                 <Printer className="h-3.5 w-3.5 text-gray-500" />
                 <select
                   value={printWidth}
@@ -1181,16 +1244,17 @@ export function PosQuickBilling() {
                 size="sm"
                 variant="primary"
                 onClick={() => setShowProductPicker(true)}
-                className="shrink-0"
+                className="shrink-0 px-2 sm:px-3 text-xs"
               >
-                <Plus className="mr-1 h-4 w-4" />
-                Add Product
+                <Plus className="mr-0.5 sm:mr-1 h-3.5 w-3.5" />
+                <span>Product</span>
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 onClick={() => setShowScanner((s) => !s)}
+                className="shrink-0 px-2 sm:px-3 text-xs"
               >
                 {showScanner ? "Hide" : "Scan"}
               </Button>
@@ -1224,8 +1288,8 @@ export function PosQuickBilling() {
             )}
           </div>
 
-          {/* Quick billing keyboard shortcuts hint bar */}
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
+          {/* Quick billing keyboard shortcuts hint bar (Desktop only) */}
+          <div className="mt-2 hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
             <span className="font-semibold text-slate-800">⚡ Shortcuts:</span>
             <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+P</kbd> Pcs</span>
             <span><kbd className="rounded bg-white px-1 py-0.5 font-mono text-[10px] shadow-sm border">Alt+K</kbd> Packet</span>
@@ -1583,11 +1647,48 @@ export function PosQuickBilling() {
               })}
             </ul>
           )}
+
+          {/* Mobile Bottom Floating Checkout Button */}
+          {cart.length > 0 && (
+            <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-green-200 bg-white/95 backdrop-blur p-3 shadow-lg lg:hidden">
+              <div>
+                <span className="text-[11px] text-gray-500 block leading-tight">Total Payable:</span>
+                <span className="text-lg font-bold text-green-900 leading-tight">{formatPrice(total)}</span>
+                <span className="text-[10px] text-gray-500 ml-1.5">({cart.length} items)</span>
+              </div>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => setMobilePosTab("payment")}
+                className="gap-1.5 font-bold text-xs shadow-md bg-green-700 hover:bg-green-800"
+              >
+                <span>Proceed to Pay</span>
+                <span>→</span>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Right: payment panel */}
-      <div className="flex w-full shrink-0 flex-col rounded-xl border bg-white p-3 sm:p-4 lg:w-[45%]">
+      <div
+        className={`w-full shrink-0 flex-col rounded-xl border bg-white p-3 sm:p-4 lg:w-[45%] ${
+          mobilePosTab === "payment" ? "flex" : "hidden lg:flex"
+        }`}
+      >
+        {/* Mobile Header: Back to Cart button */}
+        <div className="flex items-center justify-between pb-3 mb-2 border-b lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobilePosTab("cart")}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-green-800 hover:text-green-950 bg-green-50 px-3 py-1.5 rounded-lg border border-green-200 shadow-2xs"
+          >
+            ← Back to Cart ({cart.length})
+          </button>
+          <span className="text-sm font-extrabold text-green-900">
+            {formatPrice(total)}
+          </span>
+        </div>
         <div className="mb-4 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <Input
@@ -2099,17 +2200,22 @@ export function PosQuickBilling() {
 
       <ProductDetailsLookupModal
         open={showProductLookup}
+        initialTab={productLookupTab}
         onClose={() => setShowProductLookup(false)}
-        onAddToCart={(p) => {
-          const isLoose = Boolean(
-            p.is_loose ||
-              p.unit?.toLowerCase() === "kg" ||
-              p.unit?.toLowerCase() === "loose"
-          );
-          if (isLoose) {
-            setLooseModalItem({ product: p, lot: null });
+        onAddToCart={(p, options) => {
+          if (options?.weightInKg) {
+            addLineToCart(p, null, options.unit || "kg", options.weightInKg, true);
           } else {
-            addLineToCart(p);
+            const isLoose = Boolean(
+              p.is_loose ||
+                p.unit?.toLowerCase() === "kg" ||
+                p.unit?.toLowerCase() === "loose"
+            );
+            if (isLoose) {
+              setLooseModalItem({ product: p, lot: null });
+            } else {
+              addLineToCart(p);
+            }
           }
         }}
       />

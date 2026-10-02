@@ -121,6 +121,7 @@ export function PosInvoiceBilling() {
   const [scanCode, setScanCode] = useState("");
   const [showCameraScan, setShowCameraScan] = useState(false);
   const [showProductLookup, setShowProductLookup] = useState(false);
+  const [productLookupTab, setProductLookupTab] = useState<"details" | "weight">("details");
   const [looseModalItem, setLooseModalItem] = useState<{
     product: LooseModalProduct;
     lot?: LooseModalLot;
@@ -260,6 +261,16 @@ export function PosInvoiceBilling() {
         }
       }
 
+      if (e.key === "F3") {
+        e.preventDefault();
+        setProductLookupTab("details");
+        setShowProductLookup(true);
+      }
+      if (e.key === "F7") {
+        e.preventDefault();
+        setProductLookupTab("weight");
+        setShowProductLookup(true);
+      }
       if ((e.key === "F8" || e.key === "F9") && filledLines.length) {
         e.preventDefault();
         promptCheckoutRef.current();
@@ -999,13 +1010,13 @@ export function PosInvoiceBilling() {
         <div className="flex items-center gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-wide">Sales Invoice</h1>
-            <p className="text-[11px] text-slate-300">
+            <p className="hidden sm:block text-[11px] text-slate-300">
               F2 Scan · F3 Details · F4 New · Alt+P/K/B Unit · +/- Qty · F6 Hold · F8 Pay · F9 Pay &amp; Print
             </p>
           </div>
           <OfflineStatusBanner compact />
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-sm">
           <Button
             type="button"
             size="sm"
@@ -1070,10 +1081,10 @@ export function PosInvoiceBilling() {
         </div>
       </header>
 
-      <div className="grid gap-3 border-b bg-slate-50 px-4 py-3 lg:grid-cols-4">
-        <label className="text-xs font-medium text-slate-600 lg:col-span-2">
+      <div className="grid gap-3 border-b bg-slate-50 px-3 sm:px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-medium text-slate-600 sm:col-span-2">
           Barcode / scanner gun
-          <div className="mt-1 flex gap-2">
+          <div className="mt-1 flex flex-col sm:flex-row gap-2">
             <input
               ref={scanInputRef}
               value={scanCode}
@@ -1090,19 +1101,49 @@ export function PosInvoiceBilling() {
                 }
                 if (filledLines.length) promptCheckoutRef.current();
               }}
-              placeholder="Scan barcode or type & Enter (Enter on empty to save bill)"
-              className="h-9 flex-1 rounded border border-slate-300 bg-white px-2 font-mono text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+              placeholder="Scan barcode or type & Enter..."
+              className="h-9 w-full sm:flex-1 rounded border border-slate-300 bg-white px-2 font-mono text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
             />
-            <Button
-              type="button"
-              size="sm"
-              variant={showCameraScan ? "primary" : "outline"}
-              className="shrink-0"
-              onClick={() => setShowCameraScan((s) => !s)}
-            >
-              <ScanBarcode className="mr-1 h-4 w-4" />
-              {showCameraScan ? "Hide" : "Camera"}
-            </Button>
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none whitespace-nowrap">
+              <Button
+                type="button"
+                size="sm"
+                variant={showCameraScan ? "primary" : "outline"}
+                className="shrink-0 px-2 sm:px-3 text-xs"
+                onClick={() => setShowCameraScan((s) => !s)}
+              >
+                <ScanBarcode className="mr-1 h-3.5 w-3.5" />
+                {showCameraScan ? "Hide" : "Camera"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100 font-semibold text-xs gap-1 px-2 sm:px-3"
+                onClick={() => {
+                  setProductLookupTab("details");
+                  setShowProductLookup(true);
+                }}
+                title="Product Details & Pricing Check (F3)"
+              >
+                <Tag className="h-3.5 w-3.5 text-blue-600" />
+                <span>Details <span className="hidden sm:inline">(F3)</span></span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 font-semibold text-xs gap-1 px-2 sm:px-3"
+                onClick={() => {
+                  setProductLookupTab("weight");
+                  setShowProductLookup(true);
+                }}
+                title="Weigh loose item & scale calculation (F7)"
+              >
+                <Scale className="h-3.5 w-3.5 text-emerald-600" />
+                <span>Weight <span className="hidden sm:inline">(F7)</span></span>
+              </Button>
+            </div>
           </div>
         </label>
         <label className="text-xs font-medium text-slate-600">
@@ -1679,15 +1720,46 @@ export function PosInvoiceBilling() {
 
       <ProductDetailsLookupModal
         open={showProductLookup}
+        initialTab={productLookupTab}
         onClose={() => setShowProductLookup(false)}
-        onAddToCart={(p) => {
-          const emptyTarget = rows.find((r) => !r.productId)?.id;
-          if (emptyTarget) {
-            applyProduct(emptyTarget, p);
+        onAddToCart={(p, options) => {
+          if (options?.weightInKg) {
+            const emptyTarget = rows.find((r) => !r.productId)?.id;
+            const filled: Omit<InvoiceRow, "id"> = {
+              productId: p.id,
+              name: p.name,
+              hsn: p.hsn_code ?? "",
+              unit: options.unit || p.unit || "kg",
+              packMultiplier: 1,
+              piecesPerPacket: 1,
+              packetsPerBox: 1,
+              packetSellingPrice: null,
+              boxSellingPrice: null,
+              baseRate: options.rate,
+              quantity: options.weightInKg,
+              rate: options.rate,
+              discountPercent: Number(p.discount_percent ?? 0),
+              gstPercentage: Number(p.gst_percentage ?? 0),
+              barcode: p.barcode ?? null,
+              lotId: null,
+              isLoose: true,
+            };
+
+            if (emptyTarget) {
+              setRows((prev) => prev.map((r) => (r.id === emptyTarget ? { ...r, ...filled } : r)));
+            } else {
+              setRows((prev) => [...prev, { ...newRow(), ...filled }, newRow()]);
+            }
+            toast.success(`Added ${p.name} (${options.weightInKg} kg)`);
           } else {
-            const nextR = newRow();
-            setRows((prev) => [...prev, nextR]);
-            applyProduct(nextR.id, p);
+            const emptyTarget = rows.find((r) => !r.productId)?.id;
+            if (emptyTarget) {
+              applyProduct(emptyTarget, p);
+            } else {
+              const nextR = newRow();
+              setRows((prev) => [...prev, nextR]);
+              applyProduct(nextR.id, p);
+            }
           }
         }}
       />

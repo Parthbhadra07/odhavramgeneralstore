@@ -97,15 +97,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
               <FinancialYearSwitcher compact />
               <OfflineStatusBanner compact />
-              <DesktopInstallPrompt />
+              <div className="hidden sm:inline-flex">
+                <DesktopInstallPrompt />
+              </div>
               <AdminPrinterSettings />
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 overflow-x-hidden p-4 pt-[4.5rem] pb-28 sm:p-6 sm:pt-[4.5rem] lg:p-6 lg:pb-6">
+          <main className="min-w-0 flex-1 overflow-x-hidden p-3 pt-[4.25rem] pb-24 sm:p-6 sm:pt-[4.5rem] lg:p-6 lg:pb-6">
             {children}
           </main>
         </div>

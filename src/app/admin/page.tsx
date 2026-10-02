@@ -24,6 +24,7 @@ import { StatCard } from "@/components/admin/stat-card";
 import { OnlineOrdersBreakdownModal } from "@/components/admin/online-orders-breakdown-modal";
 import { SimpleBarChart } from "@/components/admin/charts/simple-bar-chart";
 import { SimpleLineChart } from "@/components/admin/charts/simple-line-chart";
+import { DashboardQuickShortcuts } from "@/components/admin/dashboard-quick-shortcuts";
 import { formatPrice } from "@/utils/format";
 import { APP_NAME } from "@/lib/constants";
 
@@ -85,7 +86,10 @@ export default function AdminDashboardPage() {
         </Link>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+      {/* Direct Operations Command Center Shortcuts Hub */}
+      <DashboardQuickShortcuts newOrderCount={newOrderCount} />
+
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
         <StatCard
           label="Today's Online Sales"
           value={formatPrice(metrics.todayOnlineSales)}

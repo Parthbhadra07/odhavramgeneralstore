@@ -632,13 +632,23 @@ export interface Refund {
 
 export interface ProfitReport {
   revenue: number;
+  posRevenue?: number;
+  onlineRevenue?: number;
   cogs: number;
   grossProfit: number;
+  grossProfitMargin?: number;
   purchaseReturns: number;
   salesReturns: number;
+  netSales?: number;
+  purchases?: number;
+  netPurchases?: number;
   expenses: number;
+  expensesBreakdown?: { category: string; amount: number }[];
   discounts: number;
   deliveryCharges: number;
   netProfit: number;
+  netProfitMargin?: number;
   inventoryValue: number;
+  openingStockEstimated?: number;
+  closingStock?: number;
 }

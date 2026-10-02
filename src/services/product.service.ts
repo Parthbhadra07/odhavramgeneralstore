@@ -129,7 +129,26 @@ export const productService = {
     try {
       const { data, error } = await query;
       if (error) throw error;
-      const products = (data ?? []) as Product[];
+      let products = (data ?? []) as Product[];
+
+      // If user clicked View Deals/featured but no products are explicitly marked featured yet,
+      // gracefully show popular/discounted catalogue items so the page is never blank
+      if (products.length === 0 && filters.featured) {
+        let fallbackQuery = supabase
+          .from("products")
+          .select("*, categories(id, name, slug, image)")
+          .neq("is_active", false)
+          .order("created_at", { ascending: false })
+          .limit(24);
+        if (filters.category) {
+          fallbackQuery = fallbackQuery.eq("category_id", filters.category);
+        }
+        const fallbackRes = await fallbackQuery;
+        if (fallbackRes.data && fallbackRes.data.length > 0) {
+          products = fallbackRes.data as Product[];
+        }
+      }
+
       saveProductCatalog(products);
       return products;
     } catch (err) {
@@ -494,7 +513,10 @@ function applyProductFilters(
     list = list.filter((p) => p.category_id === filters.category);
   }
   if (filters.featured) {
-    list = list.filter((p) => p.featured);
+    const feat = list.filter((p) => p.featured || (p.mrp && p.mrp > p.price));
+    if (feat.length > 0) {
+      list = feat;
+    }
   }
   if (filters.search) {
     const q = filters.search.toLowerCase();

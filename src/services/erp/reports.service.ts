@@ -85,6 +85,7 @@ export const erpReportsService = {
       purchaseReturnRes,
       salesReturnRes,
       posItemsRes,
+      purchaseBillsRes,
     ] = await Promise.all([
       this.salesInRange(from, to),
       expenseService.list({ from, to }),
@@ -105,6 +106,11 @@ export const erpReportsService = {
         .gte("pos_sales.created_at", from)
         .lte("pos_sales.created_at", to)
         .eq("pos_sales.sale_status", "completed"),
+      supabase
+        .from("purchase_bills")
+        .select("total_amount")
+        .gte("invoice_date", from.slice(0, 10))
+        .lte("invoice_date", to.slice(0, 10)),
     ]);
 
     const expenseTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
@@ -116,7 +122,23 @@ export const erpReportsService = {
       (s, r) => s + Number(r.total_amount),
       0
     );
+    const totalPurchases = (purchaseBillsRes.data ?? []).reduce(
+      (s, r) => s + Number(r.total_amount),
+      0
+    );
 
+    // Group expenses by category
+    const expenseCatMap: Record<string, number> = {};
+    for (const exp of expenses) {
+      const cat = exp.category?.trim() || "General Expenses";
+      expenseCatMap[cat] = (expenseCatMap[cat] || 0) + Number(exp.amount);
+    }
+    const expensesBreakdown = Object.entries(expenseCatMap).map(([category, amount]) => ({
+      category,
+      amount,
+    }));
+
+    // Cost of Goods Sold from line items
     let cogs = 0;
     for (const item of posItemsRes.data ?? []) {
       const pp =
@@ -124,25 +146,42 @@ export const erpReportsService = {
       cogs += item.quantity * Number(pp);
     }
 
-    const grossProfit = sales.revenue - cogs;
-    const netProfit =
-      sales.revenue -
-      salesReturns -
-      expenseTotal -
-      sales.discounts +
-      purchaseReturns;
+    // Standard Double-Entry Accounting Equations
+    const grossRevenue = sales.revenue;
+    const netSales = Math.max(0, grossRevenue - salesReturns);
+    const netPurchases = Math.max(0, totalPurchases - purchaseReturns);
+    const grossProfit = Math.round((netSales - cogs) * 100) / 100;
+    const grossProfitMargin = netSales > 0 ? Math.round(((netSales - cogs) / netSales) * 1000) / 10 : 0;
+
+    // Total Operating Income = Gross Profit + Other Direct Operating Revenue (Delivery & Purchase Return credits)
+    const totalOperatingIncome = grossProfit + sales.deliveryCharges + purchaseReturns;
+    // Operating Expenses = Cash Expenses + Sales/Loyalty Discounts
+    const totalOperatingExpenses = expenseTotal + sales.discounts;
+
+    // Net Profit = Operating Income - Operating Expenses
+    const netProfit = Math.round((totalOperatingIncome - totalOperatingExpenses) * 100) / 100;
+    const netProfitMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
     return {
-      revenue: sales.revenue,
-      cogs,
+      revenue: grossRevenue,
+      posRevenue: sales.posRevenue,
+      onlineRevenue: sales.onlineRevenue,
+      cogs: Math.round(cogs * 100) / 100,
       grossProfit,
+      grossProfitMargin,
       purchaseReturns,
       salesReturns,
+      netSales,
+      purchases: totalPurchases,
+      netPurchases,
       expenses: expenseTotal,
+      expensesBreakdown,
       discounts: sales.discounts,
       deliveryCharges: sales.deliveryCharges,
       netProfit,
+      netProfitMargin,
       inventoryValue,
+      closingStock: inventoryValue,
     };
   },
 

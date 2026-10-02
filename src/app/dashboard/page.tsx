@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -157,8 +158,61 @@ export default function ProfilePage() {
     );
   }
 
+  const isAdminOrStaff =
+    profile?.role === "admin" ||
+    profile?.role === "super_admin" ||
+    profile?.role === "staff" ||
+    profile?.role === "cashier";
+
   return (
     <div className="space-y-6">
+      {isAdminOrStaff && (
+        <div className="rounded-2xl border border-green-200 bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 p-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-green-800">
+                Staff &amp; Admin Quick Access
+              </p>
+              <p className="text-xs text-green-700">
+                Jump directly to billing, purchases, or store analytics
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/admin/pos"
+                className="rounded-lg bg-green-700 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-green-800"
+              >
+                ⚡ Sales Bill (POS)
+              </Link>
+              <Link
+                href="/admin/purchases"
+                className="rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-indigo-800"
+              >
+                🚚 Purchase Bill
+              </Link>
+              <Link
+                href="/admin/reports"
+                className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-sky-800"
+              >
+                📊 Reports
+              </Link>
+              <Link
+                href="/admin/profit-loss"
+                className="rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-teal-800"
+              >
+                💰 Profit &amp; Loss
+              </Link>
+              <Link
+                href="/admin"
+                className="rounded-lg border border-green-700 bg-white px-3 py-1.5 text-xs font-bold text-green-800 hover:bg-green-50"
+              >
+                ERP Dashboard &rarr;
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Profile Details Card */}
       <div className="rounded-xl border bg-white p-6 shadow-sm">
         <h1 className="mb-6 text-2xl font-bold text-slate-900">My Profile</h1>
