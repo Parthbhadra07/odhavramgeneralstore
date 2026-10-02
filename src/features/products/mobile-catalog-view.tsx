@@ -573,15 +573,15 @@ export function MobileCatalogView({
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-white text-gray-800 pb-24 select-none">
-      {/* 1. TOP HEADER: MERGED SEAMLESSLY WITH ODHAVRAM WEBSITE BRANDING */}
-      <header className="sticky top-0 z-30 bg-white border-b border-green-100/90 px-3.5 pt-2.5 pb-2.5 shadow-2xs">
+    <div data-mobile-catalog="true" className="flex flex-col min-h-screen bg-slate-50 text-gray-800 pb-24 select-none">
+      {/* 1. TOP HEADER: ROYAL BLUE THEME MATCHING NAVBAR */}
+      <header className="sticky top-0 z-30 bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 text-white px-3.5 pt-2.5 pb-2.5 shadow-md">
         {/* Top row: Store Logo + User Delivery Address + Account Avatar */}
         <div className="flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            {/* Store Logo with green ring */}
+            {/* Store Logo */}
             <Link href="/" className="shrink-0 group">
-              <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-green-200 bg-white p-0.5 shadow-xs transition-transform group-hover:scale-105">
+              <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-white/40 bg-white p-0.5 shadow-xs transition-transform group-hover:scale-105">
                 <Image
                   src="/logo.png"
                   alt={APP_NAME}
@@ -597,17 +597,17 @@ export function MobileCatalogView({
             <button
               type="button"
               onClick={() => setShowAddressModal(true)}
-              className="flex-1 text-left min-w-0 group hover:opacity-90 transition"
+              className="flex-1 text-left min-w-0 group hover:opacity-95 transition"
               title="Change Delivery Address"
             >
               <div className="flex items-center gap-1 leading-none">
-                <span className="text-[11px] font-semibold text-gray-500">Deliver to</span>
-                <span className="text-xs font-black text-green-900 flex items-center gap-0.5">
+                <span className="text-[11px] font-semibold text-blue-200">Deliver to</span>
+                <span className="text-xs font-black text-white flex items-center gap-0.5">
                   {deliveryAddress.label}
-                  <ChevronDown className="h-3 w-3 text-green-700 group-hover:translate-y-0.5 transition-transform" />
+                  <ChevronDown className="h-3 w-3 text-blue-200 group-hover:translate-y-0.5 transition-transform" />
                 </span>
               </div>
-              <p className="text-[11px] text-gray-600 truncate font-medium mt-0.5 max-w-[210px] sm:max-w-xs">
+              <p className="text-[11px] text-blue-100 truncate font-medium mt-0.5 max-w-[210px] sm:max-w-xs">
                 {deliveryAddress.address_line}
                 {deliveryAddress.city ? `, ${deliveryAddress.city}` : ""}
               </p>
@@ -617,7 +617,7 @@ export function MobileCatalogView({
           {/* User profile avatar / Login */}
           <Link
             href={user ? "/dashboard" : "/auth/login"}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-50 text-green-800 border border-green-200 shadow-2xs hover:bg-green-100 transition active:scale-95"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-800/80 text-white border border-blue-400/50 shadow-xs hover:bg-blue-700 transition active:scale-95"
             aria-label="Account"
           >
             <span className="text-xs font-bold">
@@ -626,9 +626,9 @@ export function MobileCatalogView({
           </Link>
         </div>
 
-        {/* Search Bar Pill matching the website's clean SearchBar */}
-        <div className="mt-2.5 relative flex items-center rounded-full bg-gray-50 px-3.5 py-1.5 shadow-2xs border border-gray-200 focus-within:bg-white focus-within:border-green-600 focus-within:ring-2 focus-within:ring-green-600/20 transition-all">
-          <Search className="h-4 w-4 text-green-700 shrink-0 mr-2" />
+        {/* Search Bar Pill with Blue Accent */}
+        <div className="mt-2.5 relative flex items-center rounded-full bg-white px-3.5 py-1.5 shadow-xs border border-blue-200/60 focus-within:ring-2 focus-within:ring-blue-400 transition-all">
+          <Search className="h-4 w-4 text-blue-700 shrink-0 mr-2" />
           <input
             ref={searchInputRef}
             type="text"
@@ -650,7 +650,7 @@ export function MobileCatalogView({
             <button
               type="button"
               onClick={startVoiceSearch}
-              className="p-1 text-green-700 hover:text-green-900 transition active:scale-90"
+              className="p-1 text-blue-700 hover:text-blue-900 transition active:scale-90"
               title="Voice Search"
             >
               <Mic className="h-4 w-4" />
@@ -659,7 +659,7 @@ export function MobileCatalogView({
         </div>
       </header>
 
-      {/* 2. CATEGORY SWITCHER TABS (Clean green & gray tokens matching website) */}
+      {/* 2. CATEGORY SWITCHER TABS (Clean blue & gray tokens) */}
       <div className="bg-white border-b border-gray-200/80 px-3 py-1.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-xl">
           <button
@@ -668,7 +668,7 @@ export function MobileCatalogView({
             className={cn(
               "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all",
               activeView === "catalog"
-                ? "bg-green-700 text-white shadow-xs"
+                ? "bg-blue-700 text-white shadow-xs"
                 : "text-gray-600 hover:text-gray-900"
             )}
           >
@@ -681,7 +681,7 @@ export function MobileCatalogView({
             className={cn(
               "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all",
               activeView === "categories"
-                ? "bg-green-700 text-white shadow-xs"
+                ? "bg-blue-700 text-white shadow-xs"
                 : "text-gray-600 hover:text-gray-900"
             )}
           >
@@ -721,7 +721,7 @@ export function MobileCatalogView({
               className={cn(
                 "group relative flex flex-col items-center justify-center py-2 px-1 text-center transition-colors border-l-4",
                 isFeatured && !localCategory
-                  ? "border-green-700 bg-white font-bold text-green-950 shadow-2xs"
+                  ? "border-blue-600 bg-white font-bold text-blue-950 shadow-2xs"
                   : "border-transparent text-gray-600 hover:bg-gray-100"
               )}
             >
@@ -743,11 +743,11 @@ export function MobileCatalogView({
               className={cn(
                 "group relative flex flex-col items-center justify-center py-2 px-1 text-center transition-colors border-l-4",
                 !localCategory && !isFeatured
-                  ? "border-green-700 bg-white font-bold text-green-950 shadow-2xs"
+                  ? "border-blue-600 bg-white font-bold text-blue-950 shadow-2xs"
                   : "border-transparent text-gray-600 hover:bg-gray-100"
               )}
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-green-800 shadow-2xs">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-800 shadow-2xs">
                 <Package className="h-5 w-5" />
               </div>
               <span className="mt-1 text-[10px] font-semibold leading-tight line-clamp-2">
@@ -774,7 +774,7 @@ export function MobileCatalogView({
                   className={cn(
                     "group relative flex flex-col items-center justify-center py-2 px-1 text-center transition-all border-l-4",
                     isActive
-                      ? "border-green-700 bg-white font-bold text-green-950 shadow-2xs"
+                      ? "border-blue-600 bg-white font-bold text-blue-950 shadow-2xs"
                       : "border-transparent text-gray-600 hover:bg-gray-100"
                   )}
                 >
@@ -998,13 +998,13 @@ export function MobileCatalogView({
                               addItem(product);
                               toast.success(`Added ${product.name} to cart`);
                             }}
-                            className="rounded-lg border-2 border-green-700 bg-white px-3 py-1 text-xs font-black text-green-800 shadow-2xs hover:bg-green-700 hover:text-white transition-all active:scale-95 flex items-center gap-0.5"
+                            className="rounded-lg border-2 border-blue-600 bg-blue-50/70 px-3 py-1 text-xs font-black text-blue-900 shadow-2xs hover:bg-blue-600 hover:text-white transition-all active:scale-95 flex items-center gap-0.5"
                           >
                             <span>ADD</span>
                             <Plus className="h-3 w-3 stroke-[3]" />
                           </button>
                         ) : (
-                          <div className="flex items-center rounded-lg bg-green-700 px-1 py-0.5 text-white shadow-xs gap-1.5">
+                          <div className="flex items-center rounded-lg bg-blue-700 px-1 py-0.5 text-white shadow-xs gap-1.5">
                             <button
                               type="button"
                               onClick={() => {
@@ -1014,7 +1014,7 @@ export function MobileCatalogView({
                                   updateQuantity(product.id, inCartQty - 1);
                                 }
                               }}
-                              className="p-1 hover:bg-green-800 rounded transition"
+                              className="p-1 hover:bg-blue-800 rounded transition"
                               aria-label="Decrease"
                             >
                               <Minus className="h-3 w-3 stroke-[3]" />
@@ -1027,7 +1027,7 @@ export function MobileCatalogView({
                               onClick={() => {
                                 updateQuantity(product.id, inCartQty + 1);
                               }}
-                              className="p-1 hover:bg-green-800 rounded transition"
+                              className="p-1 hover:bg-blue-800 rounded transition"
                               aria-label="Increase"
                             >
                               <Plus className="h-3 w-3 stroke-[3]" />
@@ -1039,7 +1039,7 @@ export function MobileCatalogView({
                       {/* Pricing Row */}
                       <div className="mt-1">
                         <div className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="text-sm font-extrabold text-green-800">
+                          <span className="text-sm font-extrabold text-blue-950">
                             {formatPrice(product.price)}
                           </span>
                           {product.mrp && product.mrp > product.price && (
@@ -1049,7 +1049,7 @@ export function MobileCatalogView({
                           )}
                         </div>
                         {discountPercent > 0 && (
-                          <span className="inline-block text-[10px] font-bold text-green-700 bg-green-50 px-1 py-0.2 rounded leading-tight">
+                          <span className="inline-block text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded leading-tight">
                             {discountPercent}% off
                           </span>
                         )}
@@ -1058,7 +1058,7 @@ export function MobileCatalogView({
                       {/* Product Title */}
                       <Link
                         href={`/products/view?slug=${encodeURIComponent(product.slug)}`}
-                        className="mt-1 text-xs font-semibold text-gray-900 line-clamp-2 leading-snug hover:text-green-700"
+                        className="mt-1 text-xs font-semibold text-gray-900 line-clamp-2 leading-snug hover:text-blue-700"
                         title={product.name}
                       >
                         {product.name}
@@ -1066,7 +1066,7 @@ export function MobileCatalogView({
 
                       {/* Dynamic Realistic Delivery Badge */}
                       <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-gray-500">
-                        <Zap className="h-3 w-3 text-green-600 fill-green-500 shrink-0" />
+                        <Zap className="h-3 w-3 text-blue-600 fill-blue-500 shrink-0" />
                         <span className="truncate">{deliveryInfo.text}</span>
                       </div>
                     </article>

@@ -67,7 +67,7 @@ export function BottomNav() {
           className={cn(
             "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
             isHome
-              ? "text-green-700 font-bold"
+              ? "text-blue-700 font-bold"
               : "text-gray-500 hover:text-gray-800"
           )}
         >
@@ -82,7 +82,7 @@ export function BottomNav() {
           className={cn(
             "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
             isSearchActive
-              ? "text-green-700 font-bold"
+              ? "text-blue-700 font-bold"
               : "text-gray-500 hover:text-gray-800"
           )}
         >
@@ -97,7 +97,7 @@ export function BottomNav() {
           className={cn(
             "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
             isCategoriesView
-              ? "text-green-700 font-bold"
+              ? "text-blue-700 font-bold"
               : "text-gray-500 hover:text-gray-800"
           )}
         >
@@ -111,7 +111,7 @@ export function BottomNav() {
           className={cn(
             "flex flex-1 flex-col items-center justify-center py-1 text-center transition-colors rounded-xl",
             isOrders
-              ? "text-green-700 font-bold"
+              ? "text-blue-700 font-bold"
               : "text-gray-500 hover:text-gray-800"
           )}
         >
@@ -123,7 +123,7 @@ export function BottomNav() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="relative ml-1 flex items-center gap-1.5 rounded-full bg-green-700 hover:bg-green-800 px-3.5 py-2 text-white shadow-lg active:scale-95 transition-transform"
+          className="relative ml-1 flex items-center gap-1.5 rounded-full bg-blue-700 hover:bg-blue-800 px-3.5 py-2 text-white shadow-lg active:scale-95 transition-transform"
           aria-label="View Cart"
         >
           <div className="relative">

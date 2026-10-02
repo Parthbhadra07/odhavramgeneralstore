@@ -24,6 +24,10 @@ import {
   Download,
   Scale,
   Printer,
+  Tag,
+  FolderTree,
+  X,
+  Percent,
 } from "lucide-react";
 import Link from "next/link";
 import { productService } from "@/services/product.service";
@@ -52,8 +56,20 @@ export default function AdminProductsPage() {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [filterTab, setFilterTab] = useState<"active" | "archived" | "autorefill" | "all">("active");
+  const [filterTab, setFilterTab] = useState<"active" | "offers" | "archived" | "autorefill" | "all">("active");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("all");
+  const [groupByCategory, setGroupByCategory] = useState(false);
+
+  // Offer Modal State
+  const [offerModalProduct, setOfferModalProduct] = useState<Product | null>(null);
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [offerMrp, setOfferMrp] = useState<number>(0);
+  const [offerPrice, setOfferPrice] = useState<number>(0);
+  const [offerFeatured, setOfferFeatured] = useState<boolean>(true);
+  const [selectedOfferProductManualId, setSelectedOfferProductManualId] = useState<string>("");
+  const [savingOffer, setSavingOffer] = useState(false);
+
   const [runningRefill, setRunningRefill] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<{
     id: string;
@@ -103,7 +119,8 @@ export default function AdminProductsPage() {
 
   useEffect(() => { load(); }, []);
 
-  const openCreate = () => {
+  const openCreate = (defaultCategoryId?: string | React.MouseEvent) => {
+    const catId = typeof defaultCategoryId === "string" ? defaultCategoryId : "";
     setEditing(null);
     reset({
       name: "",
@@ -112,7 +129,7 @@ export default function AdminProductsPage() {
       stock: 0,
       featured: false,
       image_url: "",
-      category_id: "",
+      category_id: catId,
       description: "",
       barcode: "",
       unit: "pcs",
@@ -240,6 +257,10 @@ export default function AdminProductsPage() {
     () => products.filter((p) => p.is_active !== false),
     [products]
   );
+  const offerProducts = useMemo(
+    () => products.filter((p) => p.is_active !== false && (p.featured || (p.mrp && p.mrp > p.price))),
+    [products]
+  );
   const archivedProducts = useMemo(
     () => products.filter((p) => p.is_active === false),
     [products]
@@ -253,11 +274,22 @@ export default function AdminProductsPage() {
     let list =
       filterTab === "active"
         ? activeProducts
+        : filterTab === "offers"
+        ? offerProducts
         : filterTab === "archived"
         ? archivedProducts
         : filterTab === "autorefill"
         ? autoRefillProducts
         : products;
+
+    if (selectedCategoryFilter !== "all") {
+      list = list.filter(
+        (p) =>
+          p.category_id === selectedCategoryFilter ||
+          p.categories?.id === selectedCategoryFilter ||
+          p.categories?.slug === selectedCategoryFilter
+      );
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -265,11 +297,138 @@ export default function AdminProductsPage() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-          (p.brand && p.brand.toLowerCase().includes(q))
+          (p.brand && p.brand.toLowerCase().includes(q)) ||
+          (p.categories?.name && p.categories.name.toLowerCase().includes(q))
       );
     }
     return list;
-  }, [filterTab, activeProducts, archivedProducts, autoRefillProducts, products, searchQuery]);
+  }, [filterTab, activeProducts, offerProducts, archivedProducts, autoRefillProducts, products, selectedCategoryFilter, searchQuery]);
+
+  const groupedProductsByCategory = useMemo(() => {
+    const map = new Map<string, { category: Category | null; products: Product[] }>();
+
+    categories.forEach((cat) => {
+      map.set(cat.id, { category: cat, products: [] });
+    });
+
+    const uncategorized: Product[] = [];
+
+    displayedProducts.forEach((p) => {
+      const catId = p.category_id || p.categories?.id;
+      if (catId && map.has(catId)) {
+        map.get(catId)!.products.push(p);
+      } else {
+        uncategorized.push(p);
+      }
+    });
+
+    const groups: { key: string; name: string; category: Category | null; products: Product[] }[] = [];
+
+    map.forEach((val, catId) => {
+      if (val.products.length > 0) {
+        groups.push({
+          key: catId,
+          name: val.category?.name || "Category",
+          category: val.category,
+          products: val.products,
+        });
+      }
+    });
+
+    if (uncategorized.length > 0) {
+      groups.push({
+        key: "uncategorized",
+        name: "Uncategorized Items",
+        category: null,
+        products: uncategorized,
+      });
+    }
+
+    return groups;
+  }, [displayedProducts, categories]);
+
+  const openOfferModal = (product: Product) => {
+    setOfferModalProduct(product);
+    setSelectedOfferProductManualId(product.id);
+    const mrpVal = Number(product.mrp || product.price);
+    setOfferMrp(mrpVal);
+    setOfferPrice(Number(product.price));
+    setOfferFeatured(Boolean(product.featured));
+    setShowOfferModal(true);
+  };
+
+  const openOfferModalForNew = () => {
+    setOfferModalProduct(null);
+    const firstP = activeProducts[0];
+    if (firstP) {
+      setSelectedOfferProductManualId(firstP.id);
+      const mrpVal = Number(firstP.mrp || firstP.price);
+      setOfferMrp(mrpVal);
+      setOfferPrice(Number(firstP.price));
+      setOfferFeatured(true);
+    }
+    setShowOfferModal(true);
+  };
+
+  const applyDiscountPreset = (percent: number) => {
+    if (offerMrp > 0) {
+      const discounted = Math.round(offerMrp * (1 - percent / 100));
+      setOfferPrice(discounted);
+    }
+  };
+
+  const handleSaveOffer = async () => {
+    const targetProduct = offerModalProduct || products.find((p) => p.id === selectedOfferProductManualId);
+    if (!targetProduct) {
+      toast.error("Please select a product");
+      return;
+    }
+    if (offerPrice <= 0) {
+      toast.error("Offer price must be greater than 0");
+      return;
+    }
+    if (offerMrp > 0 && offerPrice > offerMrp) {
+      toast.error("Offer price cannot be greater than MRP");
+      return;
+    }
+
+    setSavingOffer(true);
+    try {
+      await productService.update(targetProduct.id, {
+        price: offerPrice,
+        selling_price: offerPrice,
+        mrp: offerMrp > 0 ? offerMrp : null,
+        featured: offerFeatured,
+      });
+      toast.success(`Offer updated for "${targetProduct.name}"!`);
+      setShowOfferModal(false);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update offer");
+    } finally {
+      setSavingOffer(false);
+    }
+  };
+
+  const handleRemoveOffer = async () => {
+    const targetProduct = offerModalProduct || products.find((p) => p.id === selectedOfferProductManualId);
+    if (!targetProduct) return;
+
+    setSavingOffer(true);
+    try {
+      await productService.update(targetProduct.id, {
+        mrp: null,
+        featured: false,
+      });
+      toast.success(`Offer removed from "${targetProduct.name}".`);
+      setShowOfferModal(false);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove offer");
+    } finally {
+      setSavingOffer(false);
+    }
+  };
 
   const handleRunAutoRefill = async () => {
     setRunningRefill(true);
@@ -832,106 +991,213 @@ export default function AdminProductsPage() {
       )}
 
       {/* Filter Tabs & Search Bar */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b pb-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setFilterTab("active")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-              filterTab === "active"
-                ? "bg-gray-900 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            )}
-          >
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            Active Products
-            <span
+      <div className="mb-4 space-y-3 border-b pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterTab("active")}
               className={cn(
-                "ml-1 rounded-full px-1.5 py-0.2 text-xs",
-                filterTab === "active" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                filterTab === "active"
+                  ? "bg-gray-900 text-white shadow-xs"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               )}
             >
-              {activeProducts.length}
-            </span>
-          </button>
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              Active Products
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-1.5 py-0.2 text-xs",
+                  filterTab === "active" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"
+                )}
+              >
+                {activeProducts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setFilterTab("archived")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-              filterTab === "archived"
-                ? "bg-amber-600 text-white shadow-xs"
-                : "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
-            )}
-          >
-            <Archive className="h-4 w-4" />
-            Archived Products
-            <span
+            <button
+              type="button"
+              onClick={() => setFilterTab("offers")}
               className={cn(
-                "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
-                filterTab === "archived" ? "bg-white/25 text-white" : "bg-amber-200 text-amber-900"
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                filterTab === "offers"
+                  ? "bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-xs"
+                  : "bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100"
               )}
             >
-              {archivedProducts.length}
-            </span>
-          </button>
+              <Tag className="h-4 w-4 text-rose-500" />
+              🔥 Offers & Deals
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
+                  filterTab === "offers" ? "bg-white/25 text-white" : "bg-rose-200 text-rose-900"
+                )}
+              >
+                {offerProducts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setFilterTab("autorefill")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-              filterTab === "autorefill"
-                ? "bg-emerald-700 text-white shadow-xs"
-                : "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
-            )}
-          >
-            <Clock className="h-4 w-4" />
-            Daily Auto-Refill
-            <span
+            <button
+              type="button"
+              onClick={() => setFilterTab("archived")}
               className={cn(
-                "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
-                filterTab === "autorefill" ? "bg-white/25 text-white" : "bg-emerald-200 text-emerald-900"
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                filterTab === "archived"
+                  ? "bg-amber-600 text-white shadow-xs"
+                  : "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
               )}
             >
-              {autoRefillProducts.length}
-            </span>
-          </button>
+              <Archive className="h-4 w-4" />
+              Archived Products
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
+                  filterTab === "archived" ? "bg-white/25 text-white" : "bg-amber-200 text-amber-900"
+                )}
+              >
+                {archivedProducts.length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setFilterTab("all")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-              filterTab === "all"
-                ? "bg-gray-800 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            )}
-          >
-            All Products
-            <span
+            <button
+              type="button"
+              onClick={() => setFilterTab("autorefill")}
               className={cn(
-                "ml-1 rounded-full px-1.5 py-0.2 text-xs",
-                filterTab === "all" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                filterTab === "autorefill"
+                  ? "bg-emerald-700 text-white shadow-xs"
+                  : "bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
               )}
             >
-              {products.length}
-            </span>
-          </button>
+              <Clock className="h-4 w-4" />
+              Daily Auto-Refill
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-1.5 py-0.2 text-xs font-bold",
+                  filterTab === "autorefill" ? "bg-white/25 text-white" : "bg-emerald-200 text-emerald-900"
+                )}
+              >
+                {autoRefillProducts.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFilterTab("all")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                filterTab === "all"
+                  ? "bg-gray-800 text-white shadow-xs"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              )}
+            >
+              All Products
+              <span
+                className={cn(
+                  "ml-1 rounded-full px-1.5 py-0.2 text-xs",
+                  filterTab === "all" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"
+                )}
+              >
+                {products.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input
+              placeholder="Search name, barcode, brand..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 h-9 text-sm"
+            />
+          </div>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search name, barcode..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-9 text-sm"
-          />
+        {/* Category Controls Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Category:
+              </span>
+              <select
+                value={selectedCategoryFilter}
+                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 shadow-xs focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all">All Categories ({products.length})</option>
+                {categories.map((c) => {
+                  const count = products.filter(
+                    (p) => p.category_id === c.id || p.categories?.id === c.id
+                  ).length;
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setGroupByCategory((prev) => !prev)}
+              className={cn(
+                "h-8 text-xs font-semibold gap-1.5 transition",
+                groupByCategory
+                  ? "border-blue-500 bg-blue-50 text-blue-700 shadow-2xs"
+                  : "border-gray-200 text-gray-700 hover:bg-gray-100"
+              )}
+            >
+              <FolderTree className="h-3.5 w-3.5" />
+              {groupByCategory ? "Categorized Cards (Active)" : "Group by Category"}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={openOfferModalForNew}
+              className="h-8 gap-1.5 bg-gradient-to-r from-rose-600 to-amber-600 text-white hover:from-rose-700 hover:to-amber-700 text-xs font-semibold shadow-xs"
+            >
+              <Tag className="h-3.5 w-3.5" />
+              + Create Offer on Product
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Offers & Deals Information Banner */}
+      {filterTab === "offers" && (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 p-4 text-sm text-rose-950 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white shadow-xs">
+                <Tag className="h-5 w-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-rose-950">Store Offers & Promotional Deals</h4>
+                <p className="mt-0.5 text-xs text-rose-800">
+                  Manage discounted prices, crossed-out MRPs, and featured deals shown to customers on the website &amp; mobile app catalog.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={openOfferModalForNew}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" /> Create Offer on Product
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Archived Products Information Banner */}
       {filterTab === "archived" && (
@@ -961,137 +1227,289 @@ export default function AdminProductsPage() {
         </div>
       )}
 
-      <div className="-mx-4 overflow-x-auto rounded-xl border bg-white shadow-sm sm:mx-0">
-        <table className="w-full min-w-[28rem] text-sm">
-          <thead className="border-b bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left">Name</th>
-              <th className="px-4 py-3 text-left">Price</th>
-              <th className="px-4 py-3 text-left">Stock</th>
-              <th className="px-4 py-3 text-left">Featured</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayedProducts.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
-                  {filterTab === "archived" ? (
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <Archive className="h-8 w-8 text-gray-300" />
-                      <p className="font-medium text-gray-700">No archived products</p>
-                      <p className="text-xs text-gray-400">All products in your store are currently active.</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <Package className="h-8 w-8 text-gray-300" />
-                      <p className="font-medium text-gray-700">No products found</p>
-                      <p className="text-xs text-gray-400">Try adjusting your search query or filter tab.</p>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ) : (
-              displayedProducts.map((p) => {
-                const isArchived = p.is_active === false;
-                return (
-                  <tr
-                    key={p.id}
-                    className={cn(
-                      "border-b transition hover:bg-gray-50/70",
-                      isArchived && "bg-amber-50/30"
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(isArchived && "text-gray-600 font-medium")}>{p.name}</span>
-                        {isArchived && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 border border-amber-300 shrink-0">
-                            <Archive className="h-3 w-3" /> Archived
-                          </span>
-                        )}
-                        {(p.auto_refill_enabled || p.auto_refill_slot2_enabled) && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 border border-emerald-300 shrink-0" title={`Refill: Morning (+${p.auto_refill_quantity || 0} @ ${p.auto_refill_time || "06:00"})${p.auto_refill_slot2_enabled ? `, Afternoon (+${p.auto_refill_slot2_quantity || 0} @ ${p.auto_refill_slot2_time || "16:00"})` : ""}`}>
-                            <Clock className="h-3 w-3 text-emerald-600" />
-                            {p.auto_refill_slot2_enabled
-                              ? `2x Daily: +${p.auto_refill_quantity || 0} (M) / +${p.auto_refill_slot2_quantity || 0} (A)`
-                              : `Daily: +${p.auto_refill_quantity || 0} @ ${p.auto_refill_time || "06:00"}`}
-                          </span>
-                        )}
-                        {p.is_loose && (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 border border-indigo-200 shrink-0"
-                            title="Sold by weight (loose scale item in POS)"
-                          >
-                            <Scale className="h-3 w-3 text-indigo-600" /> Loose ({p.unit || "kg"})
-                          </span>
-                        )}
-                      </div>
-                      {p.barcode && (
-                        <p className="text-xs text-gray-400 font-mono mt-0.5">Barcode: {p.barcode}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-medium">{formatPrice(p.price)}</td>
-                    <td className="px-4 py-3">
-                      <span className={cn(p.stock <= 5 ? "text-red-600 font-bold" : "text-gray-700")}>
-                        {p.stock}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{p.featured ? "Yes" : "No"}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {isArchived ? (
-                        <div className="inline-flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleRestore(p.id, p.name)}
-                            className="h-8 px-2.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
-                            title="Restore to active catalog"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              setDeletingProduct({ id: p.id, name: p.name, isArchived: true })
-                            }
-                            className="h-8 px-2.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border-red-200"
-                            title="Delete permanently"
-                          >
-                            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Permanently
-                          </Button>
+      {/* Product Tables Rendering (Single or Category-Grouped) */}
+      {(() => {
+        const renderProductTable = (items: Product[]) => (
+          <div className="-mx-4 overflow-x-auto rounded-xl border bg-white shadow-sm sm:mx-0">
+            <table className="w-full min-w-[32rem] text-sm">
+              <thead className="border-b bg-gray-50 text-gray-700">
+                <tr>
+                  <th className="w-14 px-3 py-3 text-left">Photo</th>
+                  <th className="px-4 py-3 text-left">Product &amp; Barcode</th>
+                  <th className="px-4 py-3 text-left">Category</th>
+                  <th className="px-4 py-3 text-left">Price &amp; MRP</th>
+                  <th className="px-4 py-3 text-left">Stock</th>
+                  <th className="px-4 py-3 text-left">Offer &amp; Deal</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+                      {filterTab === "archived" ? (
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Archive className="h-7 w-7 text-gray-300" />
+                          <p className="font-medium text-gray-700">No archived products</p>
+                        </div>
+                      ) : filterTab === "offers" ? (
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Tag className="h-7 w-7 text-rose-300" />
+                          <p className="font-medium text-gray-700">No active offers or deals yet</p>
+                          <p className="text-xs text-gray-400">Click &quot;+ Create Offer&quot; above to set discounts on your products.</p>
                         </div>
                       ) : (
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(p)}
-                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
-                            title="Edit product"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDeletingProduct({ id: p.id, name: p.name, isArchived: false })
-                            }
-                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition"
-                            title="Delete product"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Package className="h-7 w-7 text-gray-300" />
+                          <p className="font-medium text-gray-700">No products found</p>
+                          <p className="text-xs text-gray-400">Try adjusting your search query or filters.</p>
                         </div>
                       )}
                     </td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                ) : (
+                  items.map((p) => {
+                    const isArchived = p.is_active === false;
+                    const hasOffer = Boolean(p.mrp && p.mrp > p.price);
+                    const discountPct = hasOffer && p.mrp ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0;
+                    return (
+                      <tr
+                        key={p.id}
+                        className={cn(
+                          "transition hover:bg-gray-50/70",
+                          isArchived && "bg-amber-50/30"
+                        )}
+                      >
+                        {/* Photo Column */}
+                        <td className="px-3 py-3">
+                          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shadow-2xs">
+                            {p.image_url ? (
+                              <img
+                                src={p.image_url}
+                                alt={p.name}
+                                className="h-full w-full object-contain p-0.5"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <Package className="h-5 w-5 text-gray-300" />
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Name & Barcode */}
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={cn("font-medium text-gray-900", isArchived && "text-gray-600")}>
+                              {p.name}
+                            </span>
+                            {isArchived && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 border border-amber-300 shrink-0">
+                                <Archive className="h-3 w-3" /> Archived
+                              </span>
+                            )}
+                            {(p.auto_refill_enabled || p.auto_refill_slot2_enabled) && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 border border-emerald-300 shrink-0">
+                                <Clock className="h-3 w-3 text-emerald-600" /> Daily Refill
+                              </span>
+                            )}
+                            {p.is_loose && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-800 border border-indigo-200 shrink-0">
+                                <Scale className="h-3 w-3 text-indigo-600" /> Loose ({p.unit || "kg"})
+                              </span>
+                            )}
+                          </div>
+                          {p.barcode && (
+                            <p className="text-xs text-gray-400 font-mono mt-0.5">Barcode: {p.barcode}</p>
+                          )}
+                        </td>
+
+                        {/* Category Column */}
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 border border-gray-200">
+                            {p.categories?.name || "Uncategorized"}
+                          </span>
+                        </td>
+
+                        {/* Price & MRP */}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="font-semibold text-gray-900">{formatPrice(p.price)}</div>
+                          {hasOffer && (
+                            <div className="text-xs text-gray-400 line-through">
+                              MRP: {formatPrice(p.mrp!)}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Stock */}
+                        <td className="px-4 py-3">
+                          <span className={cn("font-medium", p.stock <= 5 ? "text-red-600 font-bold" : "text-gray-700")}>
+                            {p.stock}
+                          </span>
+                        </td>
+
+                        {/* Offer & Deal Column */}
+                        <td className="px-4 py-3">
+                          {hasOffer ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800 border border-rose-200">
+                                  <Tag className="h-3 w-3 text-rose-600" />
+                                  {discountPct}% OFF
+                                </span>
+                                {p.featured && (
+                                  <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-800 border border-amber-300">
+                                    ⭐ Deal
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                                <span>Saves {formatPrice(p.mrp! - p.price)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => openOfferModal(p)}
+                                  className="font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              {p.featured && (
+                                <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-800 border border-amber-300">
+                                  ⭐ Featured
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openOfferModal(p)}
+                                className="h-7 text-xs border-dashed border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                              >
+                                <Percent className="h-3 w-3 mr-1" /> + Create Offer
+                              </Button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {isArchived ? (
+                            <div className="inline-flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRestore(p.id, p.name)}
+                                className="h-8 px-2.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+                                title="Restore to active catalog"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restore
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  setDeletingProduct({ id: p.id, name: p.name, isArchived: true })
+                                }
+                                className="h-8 px-2.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border-red-200"
+                                title="Delete permanently"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Permanently
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(p)}
+                                className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
+                                title="Edit product"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDeletingProduct({ id: p.id, name: p.name, isArchived: false })
+                                }
+                                className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition"
+                                title="Delete product"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+
+        if (groupByCategory) {
+          return (
+            <div className="space-y-6">
+              {groupedProductsByCategory.length === 0 ? (
+                <div className="rounded-xl border bg-white p-12 text-center text-gray-500">
+                  <Package className="mx-auto h-8 w-8 text-gray-300 mb-2" />
+                  <p className="font-medium text-gray-700">No products found</p>
+                  <p className="text-xs text-gray-400">Try adjusting your filters or category selection.</p>
+                </div>
+              ) : (
+                groupedProductsByCategory.map((group) => (
+                  <div
+                    key={group.key}
+                    className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-gradient-to-r from-gray-50 to-blue-50/50 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 font-bold overflow-hidden shrink-0">
+                          {group.category?.image ? (
+                            <img
+                              src={group.category.image}
+                              alt={group.name}
+                              className="h-full w-full object-contain p-0.5"
+                            />
+                          ) : (
+                            <FolderTree className="h-5 w-5 text-blue-600" />
+                          )}
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-gray-900 flex items-center gap-2 text-base">
+                            {group.name}
+                            <span className="rounded-full bg-blue-100 px-2 py-0.2 text-xs font-semibold text-blue-800">
+                              {group.products.length} {group.products.length === 1 ? "item" : "items"}
+                            </span>
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            Products organized under {group.name}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openCreate(group.category ? group.category.id : undefined)}
+                        className="text-xs h-7 border-blue-200 text-blue-700 hover:bg-blue-50"
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Add in this category
+                      </Button>
+                    </div>
+                    {renderProductTable(group.products)}
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        }
+
+        return renderProductTable(displayedProducts);
+      })()}
 
       {/* Single Product Delete Modal */}
       {deletingProduct && (
@@ -1222,6 +1640,217 @@ export default function AdminProductsPage() {
         products={products}
         categories={categories}
       />
+
+      {/* Create / Edit Product Offer Modal */}
+      {showOfferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600 shadow-2xs">
+                  <Tag className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    {offerModalProduct ? "Edit Product Offer & Discount" : "Create Product Offer"}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Set discount selling price, strikethrough MRP, and deals
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOfferModal(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Product selection or selected product summary */}
+              {offerModalProduct ? (
+                <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-white flex items-center justify-center shadow-2xs">
+                    {offerModalProduct.image_url ? (
+                      <img
+                        src={offerModalProduct.image_url}
+                        alt={offerModalProduct.name}
+                        className="h-full w-full object-contain p-0.5"
+                      />
+                    ) : (
+                      <Package className="h-6 w-6 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-semibold text-gray-900 truncate text-sm">
+                      {offerModalProduct.name}
+                    </h4>
+                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                      <span>Current Price: <strong>{formatPrice(offerModalProduct.price)}</strong></span>
+                      {offerModalProduct.categories?.name && (
+                        <span className="rounded bg-gray-200 px-1.5 py-0.2 text-[10px] font-medium text-gray-700">
+                          {offerModalProduct.categories.name}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                    Select Product for Offer
+                  </label>
+                  <select
+                    value={selectedOfferProductManualId}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      setSelectedOfferProductManualId(pid);
+                      const sel = activeProducts.find((p) => p.id === pid);
+                      if (sel) {
+                        setOfferMrp(Number(sel.mrp || sel.price));
+                        setOfferPrice(Number(sel.price));
+                      }
+                    }}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-2xs focus:border-blue-500 focus:outline-none"
+                  >
+                    {activeProducts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — Current: ₹{p.price} {p.barcode ? `(${p.barcode})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Original MRP (₹)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Original MRP"
+                    value={offerMrp || ""}
+                    onChange={(e) => setOfferMrp(parseFloat(e.target.value) || 0)}
+                    className="font-medium"
+                  />
+                  <span className="text-[11px] text-gray-400">Shown with strikethrough</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                    Special Offer Price (₹)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Discounted Price"
+                    value={offerPrice || ""}
+                    onChange={(e) => setOfferPrice(parseFloat(e.target.value) || 0)}
+                    className="font-bold text-rose-600 border-rose-300 focus:border-rose-500"
+                  />
+                  <span className="text-[11px] text-rose-600 font-medium">Selling price charged to customer</span>
+                </div>
+              </div>
+
+              {/* Quick Discount Presets */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Quick Discount Presets
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[10, 15, 20, 25, 30, 40, 50].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => applyDiscountPreset(pct)}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-100 hover:border-rose-300 active:scale-95"
+                    >
+                      {pct}% OFF
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Offer preview calculation */}
+              {offerMrp > 0 && offerPrice > 0 && offerMrp > offerPrice && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-xs text-rose-950">
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5 text-rose-700">
+                      <Tag className="h-4 w-4" />
+                      Discount: {Math.round(((offerMrp - offerPrice) / offerMrp) * 100)}% OFF
+                    </span>
+                    <span className="text-emerald-700 font-semibold">
+                      Customer Saves: {formatPrice(offerMrp - offerPrice)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-rose-800">
+                    Product will show {formatPrice(offerMrp)} crossed out and selling at {formatPrice(offerPrice)}.
+                  </p>
+                </div>
+              )}
+
+              {/* Featured deal checkbox */}
+              <label className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={offerFeatured}
+                  onChange={(e) => setOfferFeatured(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-amber-950">Highlight as Featured Deal</span>
+                  <p className="text-amber-800 mt-0.5">
+                    Display prominently with special deal badge on website homepage and mobile app
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-6 flex items-center justify-between gap-3 border-t pt-4">
+              {offerModalProduct &&
+              ((offerModalProduct.mrp && offerModalProduct.mrp > offerModalProduct.price) ||
+                offerModalProduct.featured) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={savingOffer}
+                  onClick={handleRemoveOffer}
+                  className="text-xs border-red-200 text-red-700 hover:bg-red-50"
+                >
+                  Remove Offer
+                </Button>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={savingOffer}
+                  onClick={() => setShowOfferModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  loading={savingOffer}
+                  onClick={handleSaveOffer}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+                >
+                  Apply &amp; Save Offer
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

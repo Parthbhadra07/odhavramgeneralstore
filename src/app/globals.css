@@ -145,3 +145,10 @@ body {
     display: none !important;
   }
 }
+
+/* Guard: Hide main website navbar on mobile when mobile catalog view is active to prevent duplicate search bars */
+@media (max-width: 767px) {
+  body:has([data-mobile-catalog="true"]) .main-website-header {
+    display: none !important;
+  }
+}
