@@ -43,17 +43,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         {/* Mobile backdrop */}
         <div
           className={cn(
-            "fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden",
+            "fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden print:hidden",
             sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
           )}
           aria-hidden={!sidebarOpen}
           onClick={() => setSidebarOpen(false)}
         />
 
-        {/* Sidebar drawer — full height on mobile */}
+        {/* Sidebar drawer / menu bar — fixed drawer on mobile, sticky h-screen with internal scroll on desktop */}
         <AdminSidebar
           className={cn(
-            "fixed left-0 top-0 z-50 flex h-dvh w-[min(100vw-2rem,16rem)] flex-col transition-transform duration-300 ease-in-out lg:static lg:z-auto lg:h-auto lg:w-64 lg:translate-x-0 lg:shrink-0",
+            "fixed left-0 top-0 z-50 flex h-dvh w-[min(100vw-2rem,16rem)] flex-col transition-transform duration-300 ease-in-out lg:sticky lg:top-0 lg:z-30 lg:h-screen lg:max-h-screen lg:w-64 lg:translate-x-0 lg:shrink-0 print:hidden",
             sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
           )}
           onNavigate={() => setSidebarOpen(false)}
@@ -62,7 +62,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Desktop admin header bar */}
-          <header className="hidden lg:flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6">
+          <header className="hidden lg:flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white/95 backdrop-blur-xs px-6 sticky top-0 z-20 print:hidden">
             <div className="flex items-center gap-3">
               <OfflineStatusBanner compact />
             </div>
@@ -74,7 +74,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </header>
 
           {/* Mobile admin header — fixed at very top, left-aligned */}
-          <header className="fixed inset-x-0 top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 shadow-sm lg:hidden">
+          <header className="fixed inset-x-0 top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 shadow-sm lg:hidden print:hidden">
             <button
               type="button"
               onClick={() => setSidebarOpen((o) => !o)}

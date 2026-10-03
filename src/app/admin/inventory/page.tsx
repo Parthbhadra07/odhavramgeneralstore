@@ -23,6 +23,7 @@ import { BarcodeLabel, printBarcodeLabels } from "@/components/erp/barcode-label
 import { StockVerificationModal } from "@/components/admin/stock-verification-modal";
 import { STOCK_MOVEMENT_LABELS } from "@/lib/erp/constants";
 import { cn } from "@/utils/cn";
+import { printSystematicDocument } from "@/utils/document-print";
 import {
   describeStock,
   HEALTH_STYLE,
@@ -121,6 +122,108 @@ export default function InventoryPage() {
     { id: "healthy", label: "Healthy" },
   ];
 
+  const printStockValuation = () => {
+    if (products.length === 0) {
+      toast.error("No inventory products to print.");
+      return;
+    }
+    const totalVal = products.reduce(
+      (sum, p) => sum + p.stock * (p.purchase_price ?? p.selling_price ?? p.price * 0.85),
+      0
+    );
+    printSystematicDocument({
+      docTitle: "INVENTORY STOCK & VALUATION AUDIT STATEMENT",
+      docBadge: "ACCOUNTS PHYSICAL INVENTORY RECORD",
+      docNumber: `INV-VAL-${new Date().toISOString().slice(0, 10)}`,
+      metadata: [
+        { label: "Total Unique SKUs", value: products.length },
+        { label: "Estimated Stock Valuation", value: formatPrice(inventoryValue || totalVal) },
+        { label: "Out of Stock Items", value: outCount },
+        { label: "Low / Expiring Items", value: actionCount },
+        { label: "Generated Date", value: formatDate(new Date().toISOString()) },
+      ],
+      columns: [
+        { header: "Product Name", width: "26%" },
+        { header: "Barcode", width: "16%" },
+        { header: "Status", width: "16%" },
+        { header: "On Hand", align: "center", width: "12%" },
+        { header: "Selling Rate", align: "right", width: "14%" },
+        { header: "Est. Valuation", align: "right", width: "16%" },
+      ],
+      rows: visible.map((p) => {
+        const health = describeStock(p, movements);
+        const estVal = p.stock * (p.purchase_price ?? p.selling_price ?? p.price * 0.85);
+        return {
+          cells: [
+            p.name,
+            p.barcode || "—",
+            health.label,
+            `${p.stock} ${p.unit ?? "pcs"}`,
+            formatPrice(p.selling_price ?? p.price),
+            formatPrice(estVal),
+          ],
+        };
+      }),
+      summaryRows: [
+        { label: "Total SKUs Listed", value: String(visible.length) },
+        {
+          label: "Total Estimated Stock Value",
+          value: formatPrice(inventoryValue || totalVal),
+          isBold: true,
+          isHighlight: true,
+        },
+      ],
+      notes: [
+        "Official Odhavram General Store stock audit statement.",
+        "Values computed on current FIFO/average purchase cost basis.",
+      ],
+      signatories: ["Store Keeper / Inventory Auditor", "Store Proprietor"],
+    });
+  };
+
+  const printStockLedgerAudit = () => {
+    if (movements.length === 0) {
+      toast.error("No stock movements found to print.");
+      return;
+    }
+    printSystematicDocument({
+      docTitle: "STOCK MOVEMENT & LEDGER AUDIT REGISTER",
+      docBadge: "INVENTORY AUDIT COPY",
+      docNumber: `STK-LEDGER-${new Date().toISOString().slice(0, 10)}`,
+      metadata: [
+        { label: "Total Movements Logged", value: movements.length },
+        { label: "Generated Date", value: formatDate(new Date().toISOString()) },
+      ],
+      columns: [
+        { header: "Date", width: "16%" },
+        { header: "Product", width: "24%" },
+        { header: "Type", width: "16%" },
+        { header: "Qty Change", align: "right", width: "14%" },
+        { header: "Before", align: "center", width: "10%" },
+        { header: "After", align: "center", width: "10%" },
+        { header: "Notes", width: "10%" },
+      ],
+      rows: movements.map((m) => ({
+        cells: [
+          formatDate(m.created_at),
+          m.products?.name ?? "—",
+          STOCK_MOVEMENT_LABELS[m.movement_type] ?? m.movement_type,
+          (m.quantity > 0 ? "+" : "") + m.quantity,
+          m.stock_before,
+          m.stock_after,
+          m.notes || "—",
+        ],
+      })),
+      summaryRows: [
+        { label: "Total Stock Transaction Rows", value: String(movements.length) },
+      ],
+      notes: [
+        "Official Odhavram General Store stock ledger history.",
+      ],
+      signatories: ["Inventory In-Charge", "Auditor / Manager"],
+    });
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -143,6 +246,14 @@ export default function InventoryPage() {
               Bulk CSV Import
             </Button>
           </Link>
+          <Button
+            variant="outline"
+            onClick={printStockValuation}
+            className="gap-1.5 border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-semibold"
+          >
+            <Printer className="h-4 w-4 text-emerald-600" />
+            <span>Print Stock Valuation</span>
+          </Button>
           <Button
             variant="outline"
             onClick={() => setShowVerificationModal(true)}
@@ -259,208 +370,247 @@ export default function InventoryPage() {
       )}
 
       {tab === "lots" && (
-        <div className="mb-6 overflow-x-auto rounded-xl border bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-3 text-left">Product</th>
-                <th>Barcode</th>
-                <th>Lot</th>
-                <th>Batch</th>
-                <th>Stock</th>
-                <th>Expiry</th>
-                <th>Rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lots.map((l) => (
-                <tr key={l.id} className="border-t">
-                  <td className="p-3">{l.products?.name ?? "—"}</td>
-                  <td className="p-3 font-mono text-xs">{l.barcode}</td>
-                  <td className="p-3">{l.lot_number ?? "—"}</td>
-                  <td className="p-3">{l.batch_number ?? "—"}</td>
-                  <td
-                    className={`p-3 font-medium ${
-                      l.current_stock <= 5 ? "text-red-600" : ""
-                    }`}
-                  >
-                    {l.current_stock}
-                  </td>
-                  <td className="p-3">{l.expiry_date ?? "—"}</td>
-                  <td className="p-3">
-                    {formatPrice(l.selling_price ?? l.products?.selling_price ?? 0)}
-                  </td>
-                </tr>
-              ))}
-              {lots.length === 0 && (
+        <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] min-h-[300px] overflow-y-auto overscroll-contain scrollbar-thin">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur-xs shadow-xs text-xs font-semibold uppercase tracking-wider text-gray-700">
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-gray-500">
-                    No lots found. Add purchases with barcodes to create lots.
-                  </td>
+                  <th className="p-3 text-left">Product</th>
+                  <th>Barcode</th>
+                  <th>Lot</th>
+                  <th>Batch</th>
+                  <th>Stock</th>
+                  <th>Expiry</th>
+                  <th>Rate</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {lots.map((l) => (
+                  <tr key={l.id} className="border-t hover:bg-gray-50/80 transition-colors">
+                    <td className="p-3 font-medium text-gray-900">{l.products?.name ?? "—"}</td>
+                    <td className="p-3 font-mono text-xs">{l.barcode}</td>
+                    <td className="p-3">{l.lot_number ?? "—"}</td>
+                    <td className="p-3">{l.batch_number ?? "—"}</td>
+                    <td
+                      className={`p-3 font-medium ${
+                        l.current_stock <= 5 ? "text-red-600 font-bold" : ""
+                      }`}
+                    >
+                      {l.current_stock}
+                    </td>
+                    <td className="p-3">{l.expiry_date ?? "—"}</td>
+                    <td className="p-3">
+                      {formatPrice(l.selling_price ?? l.products?.selling_price ?? 0)}
+                    </td>
+                  </tr>
+                ))}
+                {lots.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-gray-500">
+                      No lots found. Add purchases with barcodes to create lots.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {lots.length > 0 && (
+            <div className="border-t border-gray-200 bg-gray-50/80 px-4 py-2 text-xs text-gray-500 flex items-center justify-between">
+              <span>Showing {lots.length} lot / batch record{lots.length === 1 ? "" : "s"}</span>
+              <span className="hidden sm:inline text-gray-400">Scroll table vertically to review older lots</span>
+            </div>
+          )}
         </div>
       )}
 
       {tab === "ledger" && (
-        <div className="mb-6 overflow-x-auto rounded-xl border bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-3 text-left">Date</th>
-                <th>Product</th>
-                <th>Type</th>
-                <th>Qty</th>
-                <th>Before</th>
-                <th>After</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.map((m) => (
-                <tr key={m.id} className="border-t">
-                  <td className="p-3 whitespace-nowrap">{formatDate(m.created_at)}</td>
-                  <td className="p-3">{m.products?.name ?? "—"}</td>
-                  <td className="p-3">
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs">
-                      {STOCK_MOVEMENT_LABELS[m.movement_type] ?? m.movement_type}
-                    </span>
-                  </td>
-                  <td
-                    className={`p-3 font-medium ${
-                      m.quantity > 0 ? "text-green-700" : "text-red-600"
-                    }`}
-                  >
-                    {m.quantity > 0 ? "+" : ""}
-                    {m.quantity}
-                  </td>
-                  <td className="p-3">{m.stock_before}</td>
-                  <td className="p-3">{m.stock_after}</td>
-                  <td className="p-3 text-gray-600">{m.notes ?? "—"}</td>
-                </tr>
-              ))}
-              {movements.length === 0 && (
+        <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b bg-gray-50/80 px-4 py-2.5">
+            <span className="text-xs font-semibold text-gray-700">Stock Movements History ({movements.length} records)</span>
+            {movements.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={printStockLedgerAudit}
+                className="gap-1 bg-white text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>Print Stock Ledger</span>
+              </Button>
+            )}
+          </div>
+          <div className="max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] min-h-[300px] overflow-y-auto overscroll-contain scrollbar-thin">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur-xs shadow-xs text-xs font-semibold uppercase tracking-wider text-gray-700">
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-gray-500">
-                    No stock movements yet.
-                  </td>
+                  <th className="p-3 text-left">Date</th>
+                  <th>Product</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Before</th>
+                  <th>After</th>
+                  <th>Notes</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {movements.map((m) => (
+                  <tr key={m.id} className="border-t hover:bg-gray-50/80 transition-colors">
+                    <td className="p-3 whitespace-nowrap">{formatDate(m.created_at)}</td>
+                    <td className="p-3 font-medium text-gray-900">{m.products?.name ?? "—"}</td>
+                    <td className="p-3">
+                      <span className="rounded bg-gray-100 px-2 py-0.5 text-xs">
+                        {STOCK_MOVEMENT_LABELS[m.movement_type] ?? m.movement_type}
+                      </span>
+                    </td>
+                    <td
+                      className={`p-3 font-medium ${
+                        m.quantity > 0 ? "text-green-700" : "text-red-600"
+                      }`}
+                    >
+                      {m.quantity > 0 ? "+" : ""}
+                      {m.quantity}
+                    </td>
+                    <td className="p-3">{m.stock_before}</td>
+                    <td className="p-3">{m.stock_after}</td>
+                    <td className="p-3 text-gray-600">{m.notes ?? "—"}</td>
+                  </tr>
+                ))}
+                {movements.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-gray-500">
+                      No stock movements yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {movements.length > 0 && (
+            <div className="border-t border-gray-200 bg-gray-50/80 px-4 py-2 text-xs text-gray-500 flex items-center justify-between">
+              <span>Showing {movements.length} stock movement{movements.length === 1 ? "" : "s"}</span>
+              <span className="hidden sm:inline text-gray-400">Scroll table vertically to review audit trails</span>
+            </div>
+          )}
         </div>
       )}
 
       {tab === "stock" && (
-        <div className="overflow-x-auto rounded-xl border bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-3 text-left">Product</th>
-                <th className="text-left">Status</th>
-                <th>On hand</th>
-                <th>Suggestion</th>
-                <th>Selling</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] min-h-[300px] overflow-y-auto overscroll-contain scrollbar-thin">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur-xs shadow-xs text-xs font-semibold uppercase tracking-wider text-gray-700">
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-gray-500">
-                    Loading stock…
-                  </td>
+                  <th className="p-3 text-left">Product</th>
+                  <th className="text-left">Status</th>
+                  <th>On hand</th>
+                  <th>Suggestion</th>
+                  <th>Selling</th>
+                  <th>Actions</th>
                 </tr>
-              )}
-              {!loading &&
-                visible.map((p) => {
-                  const health = describeStock(p, movements);
-                  return (
-                    <tr key={p.id} className="border-t">
-                      <td className="p-3">
-                        <p className="font-medium">{p.name}</p>
-                        <p className="font-mono text-xs text-gray-500">
-                          {p.barcode ?? "—"}
-                        </p>
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={cn(
-                            "inline-block rounded-full px-2 py-0.5 text-xs font-medium",
-                            HEALTH_STYLE[health.key]
-                          )}
-                        >
-                          {health.label}
-                        </span>
-                        <p className="mt-1 max-w-[16rem] text-xs text-gray-500">{health.hint}</p>
-                      </td>
-                      <td className="p-3 font-medium">
-                        {p.stock} {p.unit ?? "pcs"}
-                      </td>
-                      <td className="p-3">
-                        {health.suggestedBuy > 0 ? (
-                          <span className="font-medium text-amber-800">
-                            Buy {health.suggestedBuy}
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-gray-500">
+                      Loading stock…
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  visible.map((p) => {
+                    const health = describeStock(p, movements);
+                    return (
+                      <tr key={p.id} className="border-t hover:bg-gray-50/80 transition-colors">
+                        <td className="p-3">
+                          <p className="font-medium text-gray-900">{p.name}</p>
+                          <p className="font-mono text-xs text-gray-500">
+                            {p.barcode ?? "—"}
+                          </p>
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={cn(
+                              "inline-block rounded-full px-2 py-0.5 text-xs font-medium",
+                              HEALTH_STYLE[health.key]
+                            )}
+                          >
+                            {health.label}
                           </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="p-3">{formatPrice(p.selling_price ?? p.price)}</td>
-                      <td className="p-3">
-                        {adjustId === p.id ? (
-                          <div className="flex gap-1">
-                            <Input
-                              type="number"
-                              className="w-20"
-                              value={adjustQty || ""}
-                              onChange={(e) => setAdjustQty(Number(e.target.value))}
-                              placeholder="+ / −"
-                            />
-                            <Button size="sm" onClick={() => void handleAdjust(p.id)}>
-                              Save
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              className="rounded border px-2 py-0.5 text-xs hover:bg-gray-50"
-                              onClick={() => void handleAdjust(p.id, 1)}
-                            >
-                              +1
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded border px-2 py-0.5 text-xs hover:bg-gray-50"
-                              onClick={() => void handleAdjust(p.id, -1)}
-                            >
-                              −1
-                            </button>
-                            <button
-                              type="button"
-                              className="text-xs text-green-700 underline"
-                              onClick={() => setAdjustId(p.id)}
-                            >
-                              Adjust
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {!loading && visible.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-500">
-                    Nothing in this view. Try “All” or clear the search.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                          <p className="mt-1 max-w-[16rem] text-xs text-gray-500">{health.hint}</p>
+                        </td>
+                        <td className="p-3 font-medium">
+                          {p.stock} {p.unit ?? "pcs"}
+                        </td>
+                        <td className="p-3">
+                          {health.suggestedBuy > 0 ? (
+                            <span className="font-medium text-amber-800">
+                              Buy {health.suggestedBuy}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="p-3">{formatPrice(p.selling_price ?? p.price)}</td>
+                        <td className="p-3">
+                          {adjustId === p.id ? (
+                            <div className="flex gap-1">
+                              <Input
+                                type="number"
+                                className="w-20"
+                                value={adjustQty || ""}
+                                onChange={(e) => setAdjustQty(Number(e.target.value))}
+                                placeholder="+ / −"
+                              />
+                              <Button size="sm" onClick={() => void handleAdjust(p.id)}>
+                                Save
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                className="rounded border px-2 py-0.5 text-xs hover:bg-gray-50"
+                                onClick={() => void handleAdjust(p.id, 1)}
+                              >
+                                +1
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded border px-2 py-0.5 text-xs hover:bg-gray-50"
+                                onClick={() => void handleAdjust(p.id, -1)}
+                              >
+                                −1
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs text-green-700 underline"
+                                onClick={() => setAdjustId(p.id)}
+                              >
+                                Adjust
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {!loading && visible.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">
+                      Nothing in this view. Try “All” or clear the search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {visible.length > 0 && (
+            <div className="border-t border-gray-200 bg-gray-50/80 px-4 py-2.5 text-xs text-gray-500 flex items-center justify-between">
+              <span>Showing {visible.length} of {products.length} product{products.length === 1 ? "" : "s"}</span>
+              <span className="hidden sm:inline text-gray-400">Scroll table vertically to review stock catalog</span>
+            </div>
+          )}
         </div>
       )}
 

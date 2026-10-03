@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Printer } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   purchaseReturnService,
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/admin/modal";
 import { ActionButton } from "@/components/admin/action-button";
 import { formatPrice, formatDate } from "@/utils/format";
+import { printSystematicDocument } from "@/utils/document-print";
 
 const emptyForm = {
   supplierId: "",
@@ -164,17 +165,143 @@ export default function PurchaseReturnsPage() {
     }
   };
 
+  const handleDelete = async (ret: PurchaseReturn) => {
+    if (
+      !confirm(
+        `Delete purchase return ${ret.return_number}?\n\nReturned items (${formatPrice(
+          ret.total_amount
+        )}) will be safely restored back into warehouse inventory.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await purchaseReturnService.delete(ret.id);
+      toast.success(`Purchase return ${ret.return_number} deleted — stock restored!`);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete return");
+    }
+  };
+
+  const printPurchaseReturn = (r: PurchaseReturn) => {
+    const items = r.purchase_return_items ?? [];
+    printSystematicDocument(
+      {
+        docTitle: "PURCHASE RETURN DEBIT NOTE",
+        docBadge: "SUPPLIER DEBIT COPY",
+        docNumber: r.return_number,
+        docDate: formatDate(r.return_date),
+        partyTitle: "Supplier / Distributor Details",
+        partyDetails: {
+          name: r.suppliers?.name ?? "Wholesale Supplier",
+          mobile: r.suppliers?.mobile ?? undefined,
+          address: r.suppliers?.address ?? undefined,
+          gstin: r.suppliers?.gst_number ?? undefined,
+        },
+        metadata: [
+          { label: "Return Reason", value: PURCHASE_RETURN_REASON_LABELS[r.reason] ?? r.reason },
+          { label: "Purchase Bill Ref", value: r.purchase_bills?.bill_number ?? "Direct Inward Return" },
+          { label: "Notes", value: r.reason_notes || "Debit adjustment against supplier balance" },
+        ],
+        columns: [
+          { header: "#", width: "40px", align: "center" },
+          { header: "Product / Item Description", align: "left" },
+          { header: "Barcode / Batch", align: "left" },
+          { header: "Return Qty", align: "right" },
+          { header: "Purchase Rate", align: "right" },
+          { header: "Debit Amount", align: "right" },
+        ],
+        rows: (items.length > 0 ? items : [{
+          product_name: "Returned Merchandise",
+          quantity: 1,
+          purchase_rate: r.total_amount,
+          barcode: "",
+          batch_number: "",
+        }]).map((it, idx) => ({
+          cells: [
+            idx + 1,
+            it.product_name || (it as unknown as { products?: { name?: string } }).products?.name || "Item",
+            [it.barcode ? `Barcode: ${it.barcode}` : "", it.batch_number ? `Batch: ${it.batch_number}` : ""].filter(Boolean).join(" · ") || "—",
+            `${it.quantity} units`,
+            formatPrice(Number(it.purchase_rate || 0)),
+            formatPrice(Number(it.quantity || 1) * Number(it.purchase_rate || 0)),
+          ],
+        })),
+        summaryRows: [
+          { label: "Total Return Value", value: formatPrice(r.total_amount), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Goods returned due to reason cited above and deducted from physical store inventory.",
+          "Kindly credit the net debit note amount against our purchase account ledger or issue replacement goods.",
+        ],
+        signatories: ["Storekeeper Sign", "Supplier Carrier / Transporter", "Authorized Signatory"],
+      },
+      `Purchase-Return-${r.return_number}`
+    );
+  };
+
+  const printReturnsRegister = () => {
+    printSystematicDocument(
+      {
+        docTitle: "PURCHASE RETURNS AUDIT REGISTER",
+        docBadge: "AUDIT & ACCOUNTS COPY",
+        docDate: new Date().toLocaleDateString("en-IN", { dateStyle: "medium" }),
+        columns: [
+          { header: "#", width: "35px", align: "center" },
+          { header: "Return #", align: "left" },
+          { header: "Date", align: "left" },
+          { header: "Supplier / Distributor", align: "left" },
+          { header: "Return Reason", align: "left" },
+          { header: "Debit Amount", align: "right" },
+        ],
+        rows: returns.map((r, idx) => ({
+          cells: [
+            idx + 1,
+            r.return_number,
+            formatDate(r.return_date),
+            r.suppliers?.name ?? "—",
+            PURCHASE_RETURN_REASON_LABELS[r.reason] ?? r.reason,
+            formatPrice(r.total_amount),
+          ],
+        })),
+        summaryRows: [
+          { label: "Total Return Entries", value: `${returns.length} returns`, isBold: true },
+          { label: "Total Debit Turnover", value: formatPrice(returns.reduce((acc, r) => acc + Number(r.total_amount || 0), 0)), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Complete log of all goods returned to suppliers.",
+          "Verified for tax debit note adjustments.",
+        ],
+      },
+      "Purchase-Returns-Register"
+    );
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Purchase Returns</h1>
-          <p className="text-sm text-gray-600">Return goods back to supplier</p>
+          <p className="text-sm text-gray-600">Return goods back to supplier &amp; issue debit notes</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="mr-1 h-4 w-4" />
-          Create Return
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {returns.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={printReturnsRegister}
+              className="gap-1.5 font-bold"
+            >
+              <Printer className="h-4 w-4 text-emerald-600" />
+              <span>Print Returns Register</span>
+            </Button>
+          )}
+          <Button onClick={() => setShowForm(!showForm)}>
+            <Plus className="mr-1 h-4 w-4" />
+            Create Return
+          </Button>
+        </div>
       </div>
 
       {showForm && (
@@ -305,53 +432,65 @@ export default function PurchaseReturnsPage() {
         </form>
       )}
 
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-3 text-left">Return #</th>
-              <th>Date</th>
-              <th>Supplier</th>
-              <th>Reason</th>
-              <th>Amount</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {returns.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-3 font-mono">{r.return_number}</td>
-                <td className="p-3">{formatDate(r.return_date)}</td>
-                <td className="p-3">{r.suppliers?.name ?? "—"}</td>
-                <td className="p-3">
-                  {PURCHASE_RETURN_REASON_LABELS[r.reason] ?? r.reason}
-                </td>
-                <td className="p-3 font-medium">{formatPrice(r.total_amount)}</td>
-                <td className="p-3 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <ActionButton
-                      label="Edit return"
-                      icon={Pencil}
-                      onClick={() => openEdit(r)}
-                    />
-                    <ActionButton
-                      label="Print"
-                      icon={Printer}
-                      onClick={() => window.print()}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {returns.length === 0 && (
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col">
+        <div className="overflow-x-auto max-h-[calc(100vh-270px)] min-h-[300px] overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400">
+          <table className="w-full text-sm border-collapse">
+            <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur-xs text-left shadow-2xs font-semibold text-gray-700">
               <tr>
-                <td colSpan={6} className="p-6 text-center text-gray-500">
-                  No purchase returns yet
-                </td>
+                <th className="p-3 text-left">Return #</th>
+                <th>Date</th>
+                <th>Supplier</th>
+                <th>Reason</th>
+                <th>Amount</th>
+                <th className="p-3 text-right">Actions</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {returns.map((r) => (
+                <tr key={r.id} className="transition-colors hover:bg-gray-50/80">
+                  <td className="p-3 font-mono font-medium text-slate-900">{r.return_number}</td>
+                  <td className="p-3 text-gray-600">{formatDate(r.return_date)}</td>
+                  <td className="p-3 font-medium">{r.suppliers?.name ?? "—"}</td>
+                  <td className="p-3 text-gray-600">
+                    {PURCHASE_RETURN_REASON_LABELS[r.reason] ?? r.reason}
+                  </td>
+                  <td className="p-3 font-bold text-slate-900">{formatPrice(r.total_amount)}</td>
+                  <td className="p-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <ActionButton
+                        label="Edit return"
+                        icon={Pencil}
+                        onClick={() => openEdit(r)}
+                      />
+                      <ActionButton
+                        label="Print Debit Note"
+                        icon={Printer}
+                        onClick={() => printPurchaseReturn(r)}
+                      />
+                      <ActionButton
+                        label="Delete return"
+                        icon={Trash2}
+                        onClick={() => handleDelete(r)}
+                        variant="danger"
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {returns.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center text-gray-500">
+                    No purchase returns recorded yet
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-gray-200/80 bg-gray-50/90 px-4 py-2 text-[11px] text-gray-500 font-medium shrink-0">
+          <span>Showing <strong>{returns.length}</strong> return record(s)</span>
+          <span className="text-gray-400">Scroll inside table to view all items</span>
+        </div>
       </div>
 
       <Modal

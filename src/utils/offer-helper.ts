@@ -72,6 +72,9 @@ export function isOfferActive(product: Partial<Product>): boolean {
   }
 
   if (endDate) {
+    if (endDate === "realtime_daily" || endDate === "daily" || endDate === "today" || endDate === "weekend") {
+      return true; // Live real-time recurring deal
+    }
     const endTime = new Date(endDate).getTime();
     if (!isNaN(endTime) && now > endTime) {
       return false; // Offer has expired
@@ -83,32 +86,37 @@ export function isOfferActive(product: Partial<Product>): boolean {
 
 /**
  * Calculates remaining time until offer end date
+ * Supports real-time daily countdown (ends at 23:59:59 today), weekend mode,
+ * and fixed timestamp deadlines that persist across website restarts.
  */
 export function getOfferTimeRemaining(endDateStr?: string | null): OfferTimeRemaining {
-  if (!endDateStr) {
-    return {
-      text: "No Expiry",
-      isExpired: false,
-      days: 0,
-      hours: 0,
-      minutes: 0,
-      seconds: 0,
-    };
+  let targetTime: number;
+
+  const isDaily = !endDateStr || endDateStr === "realtime_daily" || endDateStr === "daily" || endDateStr === "today";
+  const isWeekend = endDateStr === "weekend";
+
+  if (isDaily) {
+    // Real-time daily countdown: target is end of today (23:59:59.999 local time)
+    const now = new Date();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    targetTime = endOfDay.getTime();
+  } else if (isWeekend) {
+    // Real-time weekend countdown: target is upcoming Sunday 23:59:59.999 local time
+    const now = new Date();
+    const day = now.getDay(); // 0 is Sunday
+    const daysUntilSunday = (7 - day) % 7;
+    const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysUntilSunday, 23, 59, 59, 999);
+    targetTime = endOfWeek.getTime();
+  } else {
+    targetTime = new Date(endDateStr).getTime();
+    if (isNaN(targetTime)) {
+      // Fallback to real-time daily
+      const now = new Date();
+      targetTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+    }
   }
 
-  const end = new Date(endDateStr).getTime();
-  if (isNaN(end)) {
-    return {
-      text: "Invalid Date",
-      isExpired: false,
-      days: 0,
-      hours: 0,
-      minutes: 0,
-      seconds: 0,
-    };
-  }
-
-  const diff = end - Date.now();
+  const diff = targetTime - Date.now();
   if (diff <= 0) {
     return {
       text: "Offer Expired",

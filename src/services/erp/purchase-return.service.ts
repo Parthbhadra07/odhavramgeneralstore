@@ -224,4 +224,37 @@ export const purchaseReturnService = {
     if (error) throw error;
     return (data ?? []) as PurchaseReturn[];
   },
+
+  async delete(id: string): Promise<void> {
+    const supabase = requireClient();
+    const ret = await this.getById(id);
+    if (!ret) return;
+
+    // Restore deducted inventory back to warehouse
+    for (const item of ret.purchase_return_items ?? []) {
+      try {
+        await supabase.rpc("apply_stock_movement", {
+          p_product_id: item.product_id,
+          p_quantity: item.quantity,
+          p_movement_type: "adjustment",
+          p_reference_type: "purchase_return_cancelled",
+          p_reference_id: id,
+          p_notes: `Purchase return ${ret.return_number} deleted — stock restored`,
+        });
+        if (item.lot_id) {
+          await supabase.rpc("apply_lot_stock_movement", {
+            p_lot_id: item.lot_id,
+            p_quantity: item.quantity,
+            p_movement_type: "adjustment",
+            p_reference_type: "purchase_return_cancelled",
+            p_reference_id: id,
+            p_notes: `Purchase return ${ret.return_number} deleted — lot stock restored`,
+          });
+        }
+      } catch {}
+    }
+
+    const { error } = await supabase.from("purchase_returns").delete().eq("id", id);
+    if (error) throw error;
+  },
 };

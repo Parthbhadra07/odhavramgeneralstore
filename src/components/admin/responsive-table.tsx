@@ -23,6 +23,7 @@ interface ResponsiveTableProps<T> {
   actions?: (row: T) => ReactNode;
   actionsHeader?: string;
   onRowClick?: (row: T) => void;
+  maxHeight?: string | false;
 }
 
 export function ResponsiveTable<T>({
@@ -34,6 +35,7 @@ export function ResponsiveTable<T>({
   actions,
   actionsHeader = "Actions",
   onRowClick,
+  maxHeight = "max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] min-h-[280px]",
 }: ResponsiveTableProps<T>) {
   if (loading) {
     return (
@@ -56,32 +58,40 @@ export function ResponsiveTable<T>({
   return (
     <>
       {/* Desktop table */}
-      <div className="hidden overflow-hidden rounded-xl border bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 md:block">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-gray-50 dark:bg-gray-800">
+      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 md:flex md:flex-col">
+        <div
+          className={cn(
+            "overflow-x-auto overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400",
+            maxHeight !== false && maxHeight
+          )}
+        >
+          <table className="w-full text-sm border-collapse">
+            <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 backdrop-blur-xs text-gray-700 shadow-2xs dark:border-gray-700 dark:bg-gray-800/95 dark:text-gray-200">
               <tr>
                 {columns.map((col) => (
                   <th
                     key={col.key}
-                    className={cn("px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-200", col.className)}
+                    className={cn(
+                      "px-4 py-3 text-left font-semibold text-gray-700 bg-gray-50/95 dark:bg-gray-800/95 dark:text-gray-200",
+                      col.className
+                    )}
                   >
                     {col.header}
                   </th>
                 ))}
                 {actions && (
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-200">
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 bg-gray-50/95 dark:bg-gray-800/95 dark:text-gray-200">
                     {actionsHeader}
                   </th>
                 )}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {data.map((row) => (
                 <tr
                   key={keyExtractor(row)}
                   className={cn(
-                    "border-t transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50",
+                    "transition-colors hover:bg-gray-50/80 dark:border-gray-700 dark:hover:bg-gray-800/50",
                     onRowClick && "cursor-pointer"
                   )}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -100,6 +110,11 @@ export function ResponsiveTable<T>({
               ))}
             </tbody>
           </table>
+        </div>
+        {/* Record count footer & scroll tip */}
+        <div className="flex items-center justify-between border-t border-gray-200/80 bg-gray-50/90 px-4 py-2 text-[11px] text-gray-500 font-medium shrink-0 dark:border-gray-800 dark:bg-gray-900/90 dark:text-gray-400">
+          <span>Showing <strong>{data.length}</strong> record(s)</span>
+          <span className="text-gray-400">Scroll inside table to view all items</span>
         </div>
       </div>
 

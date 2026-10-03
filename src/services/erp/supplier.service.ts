@@ -71,26 +71,32 @@ export const supplierService = {
     referenceNumber?: string;
     notes?: string;
     paymentDate?: string;
+    purchaseBillId?: string;
   }): Promise<SupplierPayment> {
     const supabase = requireClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { data, error } = await supabase
-      .from("supplier_payments")
-      .insert({
-        supplier_id: params.supplierId,
-        amount: params.amount,
-        payment_method: params.paymentMethod,
-        reference_number: params.referenceNumber ?? null,
-        notes: params.notes ?? null,
-        payment_date: params.paymentDate ?? new Date().toISOString().slice(0, 10),
-        created_by: user?.id ?? null,
-      })
-      .select()
-      .single();
-    if (error) throw error;
+    const insertPayload: Record<string, unknown> = {
+      supplier_id: params.supplierId,
+      amount: params.amount,
+      payment_method: params.paymentMethod,
+      reference_number: params.referenceNumber ?? null,
+      notes: params.notes ?? null,
+      payment_date: params.paymentDate ?? new Date().toISOString().slice(0, 10),
+      created_by: user?.id ?? null,
+    };
+    if (params.purchaseBillId) {
+      insertPayload.purchase_bill_id = params.purchaseBillId;
+    }
+
+    let insertRes = await supabase.from("supplier_payments").insert(insertPayload).select().single();
+    if (insertRes.error && insertRes.error.message.includes("purchase_bill_id")) {
+      delete insertPayload.purchase_bill_id;
+      insertRes = await supabase.from("supplier_payments").insert(insertPayload).select().single();
+    }
+    if (insertRes.error) throw insertRes.error;
 
     const supplier = await supabase
       .from("suppliers")
@@ -106,7 +112,90 @@ export const supplierService = {
       .update({ outstanding_amount: outstanding, updated_at: new Date().toISOString() })
       .eq("id", params.supplierId);
 
-    return data as SupplierPayment;
+    return insertRes.data as SupplierPayment;
+  },
+
+  async deletePayment(paymentId: string): Promise<void> {
+    const supabase = requireClient();
+    const { data: payment, error: pErr } = await supabase
+      .from("supplier_payments")
+      .select("*")
+      .eq("id", paymentId)
+      .single();
+    if (pErr || !payment) throw new Error("Payment record not found");
+
+    const isAutoCashPur = payment.reference_number?.startsWith("CASH-PUR-");
+    if (!isAutoCashPur) {
+      const { data: supplier } = await supabase
+        .from("suppliers")
+        .select("outstanding_amount")
+        .eq("id", payment.supplier_id)
+        .single();
+
+      if (supplier) {
+        const restored = Number(supplier.outstanding_amount ?? 0) + Number(payment.amount);
+        await supabase
+          .from("suppliers")
+          .update({ outstanding_amount: restored, updated_at: new Date().toISOString() })
+          .eq("id", payment.supplier_id);
+      }
+    }
+
+    const { error } = await supabase.from("supplier_payments").delete().eq("id", paymentId);
+    if (error) throw error;
+  },
+
+  async getSupplierBillsWithBalances(supplierId: string) {
+    const supabase = requireClient();
+    const [billsRes, paymentsRes] = await Promise.all([
+      supabase
+        .from("purchase_bills")
+        .select("id, bill_number, invoice_date, total_amount, payment_type, notes")
+        .eq("supplier_id", supplierId)
+        .order("invoice_date", { ascending: false }),
+      supabase
+        .from("supplier_payments")
+        .select("id, amount, reference_number, purchase_bill_id")
+        .eq("supplier_id", supplierId),
+    ]);
+
+    const bills = billsRes.data ?? [];
+    const payments = paymentsRes.data ?? [];
+
+    return bills.map((bill) => {
+      const isCash = bill.payment_type === "cash";
+      if (isCash) {
+        return {
+          ...bill,
+          paidAmount: Number(bill.total_amount),
+          pendingAmount: 0,
+          isFullySettled: true,
+        };
+      }
+
+      const billNumber = bill.bill_number.trim().toLowerCase();
+      let paid = 0;
+      for (const p of payments) {
+        if (p.purchase_bill_id === bill.id) {
+          paid += Number(p.amount);
+        } else if (p.reference_number && p.reference_number.toLowerCase().includes(billNumber)) {
+          paid += Number(p.amount);
+        }
+      }
+
+      const pending = Math.max(0, Math.round((Number(bill.total_amount) - paid) * 100) / 100);
+      return {
+        ...bill,
+        paidAmount: Math.round(paid * 100) / 100,
+        pendingAmount: pending,
+        isFullySettled: pending <= 0.01,
+      };
+    }).sort((a, b) => {
+      if (a.isFullySettled !== b.isFullySettled) {
+        return a.isFullySettled ? 1 : -1;
+      }
+      return new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime();
+    });
   },
 
   async getPayments(supplierId: string): Promise<SupplierPayment[]> {
@@ -143,13 +232,16 @@ export const supplierService = {
       reference: string;
       debit: number;
       credit: number;
+      paymentId?: string;
+      paymentMethod?: string;
+      notes?: string | null;
     };
 
     const entries: LedgerEntry[] = [
       ...purchases.map((p) => ({
         date: p.invoice_date,
         type: "purchase" as const,
-        reference: p.bill_number,
+        reference: `${p.bill_number}${p.payment_type === "cash" ? " (Cash Paid)" : ""}`,
         debit: Number(p.total_amount),
         credit: 0,
       })),
@@ -159,6 +251,9 @@ export const supplierService = {
         reference: p.reference_number ?? p.payment_method,
         debit: 0,
         credit: Number(p.amount),
+        paymentId: p.id,
+        paymentMethod: p.payment_method,
+        notes: p.notes,
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

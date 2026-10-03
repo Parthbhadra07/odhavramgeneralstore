@@ -63,26 +63,51 @@ export default function AdminCategoriesPage() {
         </form>
       )}
 
-      <div className="space-y-2">
-        {categories.map((cat) => (
-          <div key={cat.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-4">
-            <span className="font-medium">{cat.name}</span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => {
-                setEditing(cat);
-                reset({ name: cat.name, slug: cat.slug, image: cat.image ?? "" });
-                setShowForm(true);
-              }}>
-                <Pencil className="h-4 w-4 text-blue-600" />
-              </button>
-              <button type="button" onClick={async () => {
-                if (confirm("Delete?")) { await categoryService.remove(cat.id); load(); }
-              }}>
-                <Trash2 className="h-4 w-4 text-red-600" />
-              </button>
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b bg-gray-50/80 px-4 py-2.5 text-xs font-semibold text-gray-700 flex items-center justify-between">
+          <span>Categories ({categories.length})</span>
+          <span className="text-gray-400">Scroll list to review all categories</span>
+        </div>
+        <div className="max-h-[calc(100vh-280px)] min-h-[250px] overflow-y-auto overscroll-contain scrollbar-thin p-3 space-y-2">
+          {categories.map((cat) => (
+            <div key={cat.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-100 bg-white p-3 hover:bg-gray-50/80 transition-colors">
+              <div>
+                <span className="font-semibold text-gray-900">{cat.name}</span>
+                <span className="ml-2 font-mono text-xs text-gray-400">/{cat.slug}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded p-1 text-blue-600 hover:bg-blue-50"
+                  title="Edit category"
+                  onClick={() => {
+                    setEditing(cat);
+                    reset({ name: cat.name, slug: cat.slug, image: cat.image ?? "" });
+                    setShowForm(true);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded p-1 text-red-600 hover:bg-red-50"
+                  title="Delete category"
+                  onClick={async () => {
+                    if (confirm("Delete this category?")) {
+                      await categoryService.remove(cat.id);
+                      load();
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+          {categories.length === 0 && (
+            <p className="py-8 text-center text-sm text-gray-500">No categories found. Click Add Category to create one.</p>
+          )}
+        </div>
       </div>
     </div>
   );

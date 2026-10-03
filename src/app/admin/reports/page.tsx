@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { erpReportsService } from "@/services/erp";
-import { formatPrice } from "@/utils/format";
+import { formatPrice, formatDate } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import type { ProfitReport } from "@/types/erp";
 import {
@@ -34,6 +34,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
+import { printSystematicDocument } from "@/utils/document-print";
 
 type ReportTab = "overview" | "profit_loss" | "gst" | "inventory" | "returns";
 
@@ -120,7 +121,50 @@ export default function AdminReportsPage() {
   }, [dateFrom, dateTo]);
 
   const handlePrint = () => {
-    window.print();
+    printSystematicDocument(
+      {
+        docTitle: "EXECUTIVE STORE PERFORMANCE & SALES AUDIT REPORT",
+        docBadge: "AUDIT & TAX COMPLIANCE COPY",
+        docDate: new Date().toLocaleDateString("en-IN", { dateStyle: "medium" }),
+        financialYear: `FY ${selectedFY}`,
+        metadata: [
+          { label: "Reporting Period", value: `${formatDate(dateFrom)} to ${formatDate(dateTo)}` },
+          { label: "Active Financial Year", value: `FY ${selectedFY}` },
+          { label: "Report Section", value: activeTab.toUpperCase().replace("_", " ") },
+        ],
+        columns: [
+          { header: "#", width: "40px", align: "center" },
+          { header: "Accounting Metric / Financial Particulars", align: "left" },
+          { header: "Classification", align: "left" },
+          { header: "Amount / Metric Value", align: "right" },
+        ],
+        rows: [
+          { cells: [1, "Total Gross Sales Turnover (POS + Online)", "Revenue", formatPrice(sales?.total ?? 0)] },
+          { cells: [2, "Direct POS Counter Billing Sales", "Revenue (Store)", formatPrice(sales?.posSales ?? 0)] },
+          { cells: [3, "Online E-Commerce Orders", "Revenue (Digital)", formatPrice(sales?.onlineSales ?? 0)] },
+          { cells: [4, "Less: Customer Sales Returns & Refunds", "Deduction", `- ${formatPrice(profitLoss?.salesReturns ?? 0)}`] },
+          { cells: [5, "Net Sales Revenue", "Net Turnover", formatPrice(netSales)] },
+          { cells: [6, "Cost of Goods Sold (COGS)", "Direct Cost", formatPrice(profitLoss?.cogs ?? 0)] },
+          { cells: [7, "Gross Operating Profit", "Trading Margin", formatPrice(profitLoss?.grossProfit ?? 0)] },
+          { cells: [8, "Total Store Operating Expenses", "Overheads", `- ${formatPrice(profitLoss?.expenses ?? 0)}`] },
+          { cells: [9, "Customer Discounts & Bill Price Reductions", "Discounts", `- ${formatPrice(profitLoss?.discounts ?? 0)}`] },
+          { cells: [10, "Inward Delivery Service Charges", "Ancillary Revenue", `+ ${formatPrice(profitLoss?.deliveryCharges ?? 0)}`] },
+          { cells: [11, "Net Profit for Reporting Period", "Bottom Line Profit", formatPrice(profitLoss?.netProfit ?? 0)] },
+          { cells: [12, "Physical Store Inventory Valuation", "Live Asset Value", formatPrice(profitLoss?.inventoryValue ?? 0)] },
+          { cells: [13, "Input / Output GST Balance (CGST + SGST)", "Tax Compliance", formatPrice(gstSales?.total ?? 0)] },
+        ],
+        summaryRows: [
+          { label: "Net Sales Turnover", value: formatPrice(netSales), isBold: true },
+          { label: "Net Operating Profit", value: formatPrice(profitLoss?.netProfit ?? 0), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Report generated automatically from verified Odhavram General Store transaction ledgers.",
+          "Figures comply with Indian GST rules and standard retail accounting principles.",
+        ],
+        signatories: ["Store Accountant", "Chief Auditor", "Store Owner / Authorized Signatory"],
+      },
+      `Executive-Report-${dateFrom}-to-${dateTo}`
+    );
   };
 
   const exportOverviewCsv = () => {

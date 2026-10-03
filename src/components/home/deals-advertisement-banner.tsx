@@ -27,16 +27,19 @@ import { cn } from "@/utils/cn";
 import type { Product } from "@/types/database";
 
 export function DealsAdvertisementBanner() {
+  const [mounted, setMounted] = useState(false);
   const [config, setConfig] = useState<DealBannerConfig>(dealBannerService.getDefaults());
   const [dealProducts, setDealProducts] = useState<Product[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [nowTimestamp, setNowTimestamp] = useState(Date.now());
+  const [nowTimestamp, setNowTimestamp] = useState(0);
 
   const { addItem } = useCartStore();
 
   useEffect(() => {
-    // 1-second ticker for all live timers
+    setMounted(true);
+    setNowTimestamp(Date.now());
+    // 1-second ticker for live timers; expired banners are immediately filtered out from home page
     const interval = setInterval(() => {
       setNowTimestamp(Date.now());
     }, 1000);
@@ -100,9 +103,7 @@ export function DealsAdvertisementBanner() {
   const currentBanner = activeBanners[currentIndex] || activeBanners[0];
   if (!currentBanner) return null;
 
-  const remaining = currentBanner.endDate
-    ? getOfferTimeRemaining(currentBanner.endDate)
-    : null;
+  const remaining = getOfferTimeRemaining(currentBanner.endDate || "realtime_daily");
 
   const themeClasses: Record<string, string> = {
     flame: "from-rose-700 via-red-600 to-amber-600 border-rose-500/30",
@@ -199,15 +200,21 @@ export function DealsAdvertisementBanner() {
                     )}
 
                     {/* Optional Floating Countdown on Photo Banner */}
-                    {remaining && !remaining.isExpired && currentBanner.endDate && (
-                      <div className="mb-4 inline-flex items-center gap-2 rounded-xl bg-black/50 border border-white/20 px-3 py-1.5 backdrop-blur-md text-xs font-bold text-white shadow-sm">
+                    {remaining && !remaining.isExpired && (
+                      <div suppressHydrationWarning className="mb-4 inline-flex items-center gap-2 rounded-xl bg-black/50 border border-white/20 px-3 py-1.5 backdrop-blur-md text-xs font-bold text-white shadow-sm">
                         <Clock className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
-                        <span>Offer valid for:</span>
-                        <span className="font-mono text-amber-300">
-                          {remaining.days > 0 ? `${remaining.days}d ` : ""}
-                          {String(remaining.hours).padStart(2, "0")}h :{" "}
-                          {String(remaining.minutes).padStart(2, "0")}m :{" "}
-                          {String(remaining.seconds).padStart(2, "0")}s
+                        <span suppressHydrationWarning>{mounted && remaining.days === 0 ? "Deal ends tonight:" : "Offer valid for:"}</span>
+                        <span suppressHydrationWarning className="font-mono text-amber-300 font-bold">
+                          {mounted ? (
+                            <>
+                              {remaining.days > 0 ? `${remaining.days}d ` : ""}
+                              {String(remaining.hours).padStart(2, "0")}h :{" "}
+                              {String(remaining.minutes).padStart(2, "0")}m :{" "}
+                              {String(remaining.seconds).padStart(2, "0")}s
+                            </>
+                          ) : (
+                            "--h : --m : --s"
+                          )}
                         </span>
                       </div>
                     )}
@@ -246,6 +253,11 @@ export function DealsAdvertisementBanner() {
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-400 text-gray-950 px-2.5 py-0.5 text-xs font-black shadow-sm">
                       {currentBanner.discountHighlight || "UP TO 50% OFF"}
                     </span>
+                    {mounted && remaining.days === 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-600 text-white px-2.5 py-0.5 text-[11px] font-black shadow-sm animate-pulse">
+                        TODAY ONLY
+                      </span>
+                    )}
                   </div>
 
                   <h2 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight mb-2 drop-shadow-sm">
@@ -259,25 +271,29 @@ export function DealsAdvertisementBanner() {
 
                   {/* Countdown Timer Block */}
                   {remaining && !remaining.isExpired && (
-                    <div className="mb-6 flex items-center gap-2 sm:gap-3">
+                    <div suppressHydrationWarning className="mb-6 flex items-center gap-2 sm:gap-3">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80 mr-1">
                         <Clock className="h-4 w-4 text-amber-300 animate-pulse" />
-                        <span>Ends in:</span>
+                        <span suppressHydrationWarning>{mounted && remaining.days === 0 ? "Ends Tonight:" : "Ends in:"}</span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        {(!mounted || remaining.days > 0) && (
+                          <>
+                            <div className="flex flex-col items-center justify-center rounded-xl bg-black/30 border border-white/20 px-2.5 py-1.5 min-w-[3rem] backdrop-blur-md">
+                              <span suppressHydrationWarning className="text-base sm:text-lg font-black leading-none font-mono">
+                                {mounted ? String(remaining.days).padStart(2, "0") : "--"}
+                              </span>
+                              <span className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mt-0.5">
+                                Days
+                              </span>
+                            </div>
+                            <span className="font-bold text-white/60">:</span>
+                          </>
+                        )}
                         <div className="flex flex-col items-center justify-center rounded-xl bg-black/30 border border-white/20 px-2.5 py-1.5 min-w-[3rem] backdrop-blur-md">
-                          <span className="text-base sm:text-lg font-black leading-none font-mono">
-                            {String(remaining.days).padStart(2, "0")}
-                          </span>
-                          <span className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mt-0.5">
-                            Days
-                          </span>
-                        </div>
-                        <span className="font-bold text-white/60">:</span>
-                        <div className="flex flex-col items-center justify-center rounded-xl bg-black/30 border border-white/20 px-2.5 py-1.5 min-w-[3rem] backdrop-blur-md">
-                          <span className="text-base sm:text-lg font-black leading-none font-mono">
-                            {String(remaining.hours).padStart(2, "0")}
+                          <span suppressHydrationWarning className="text-base sm:text-lg font-black leading-none font-mono">
+                            {mounted ? String(remaining.hours).padStart(2, "0") : "--"}
                           </span>
                           <span className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mt-0.5">
                             Hours
@@ -285,8 +301,8 @@ export function DealsAdvertisementBanner() {
                         </div>
                         <span className="font-bold text-white/60">:</span>
                         <div className="flex flex-col items-center justify-center rounded-xl bg-black/30 border border-white/20 px-2.5 py-1.5 min-w-[3rem] backdrop-blur-md">
-                          <span className="text-base sm:text-lg font-black leading-none font-mono">
-                            {String(remaining.minutes).padStart(2, "0")}
+                          <span suppressHydrationWarning className="text-base sm:text-lg font-black leading-none font-mono">
+                            {mounted ? String(remaining.minutes).padStart(2, "0") : "--"}
                           </span>
                           <span className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mt-0.5">
                             Mins
@@ -294,8 +310,8 @@ export function DealsAdvertisementBanner() {
                         </div>
                         <span className="font-bold text-white/60">:</span>
                         <div className="flex flex-col items-center justify-center rounded-xl bg-black/30 border border-white/20 px-2.5 py-1.5 min-w-[3rem] backdrop-blur-md">
-                          <span className="text-base sm:text-lg font-black leading-none font-mono text-amber-300">
-                            {String(remaining.seconds).padStart(2, "0")}
+                          <span suppressHydrationWarning className="text-base sm:text-lg font-black leading-none font-mono text-amber-300">
+                            {mounted ? String(remaining.seconds).padStart(2, "0") : "--"}
                           </span>
                           <span className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mt-0.5">
                             Secs

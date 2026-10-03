@@ -88,6 +88,7 @@ export interface ErpProduct {
   is_new_arrival?: boolean;
   is_active: boolean | null;
   is_loose?: boolean | null;
+  preferred_supplier_id?: string | null;
   created_at: string;
   categories?: { id: string; name: string; slug: string } | null;
 }
@@ -266,6 +267,7 @@ export interface PurchaseBill {
   total_amount: number;
   invoice_pdf_url: string | null;
   notes: string | null;
+  payment_type?: "cash" | "credit";
   created_at: string;
   suppliers?: Supplier;
   purchase_items?: PurchaseItem[];
@@ -369,6 +371,7 @@ export interface ErpNotification {
 export interface SupplierPayment {
   id: string;
   supplier_id: string;
+  purchase_bill_id?: string | null;
   amount: number;
   payment_method: string;
   reference_number: string | null;

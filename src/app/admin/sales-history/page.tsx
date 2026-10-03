@@ -32,6 +32,7 @@ import { formatPrice, formatDate } from "@/utils/format";
 import { POS_PAYMENT_METHODS, POS_PAYMENT_LABELS } from "@/lib/erp/constants";
 import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
 import { downloadCsv } from "@/utils/export";
+import { printSystematicDocument } from "@/utils/document-print";
 import {
   getActiveFinancialYearCode,
   getFYDateRange,
@@ -184,6 +185,54 @@ export default function SalesHistoryPage() {
     openWhatsAppShare(msg, sale.customer_mobile ?? undefined);
   };
 
+  const printSalesRegister = () => {
+    printSystematicDocument(
+      {
+        docTitle: "SALES REGISTER AUDIT REPORT",
+        docBadge: "ACCOUNTS AUDIT COPY",
+        docDate: new Date().toLocaleDateString("en-IN", { dateStyle: "medium" }),
+        metadata: [
+          { label: "Active View", value: quickView === "today" ? "Today's Sales" : quickView === "current_fy" ? `FY ${getActiveFinancialYearCode()}` : quickView === "last10" ? "Last 10 Bills" : "All Bills" },
+          { label: "Total Filtered Bills", value: `${sales.length} bills` },
+        ],
+        columns: [
+          { header: "#", width: "35px", align: "center" },
+          { header: "Bill #", align: "left" },
+          { header: "Date & Time", align: "left" },
+          { header: "Customer Name", align: "left" },
+          { header: "Payment Mode", align: "left" },
+          { header: "Status", align: "center" },
+          { header: "Discount", align: "right" },
+          { header: "GST Amount", align: "right" },
+          { header: "Net Amount", align: "right" },
+        ],
+        rows: sales.map((s, idx) => ({
+          cells: [
+            idx + 1,
+            s.bill_number,
+            formatDate(s.created_at),
+            s.customer_name || "Walk-in Customer",
+            POS_PAYMENT_LABELS[s.payment_method] || s.payment_method,
+            s.sale_status,
+            formatPrice(Number(s.discount || 0) + Number(s.loyalty_discount || 0)),
+            formatPrice(Number(s.cgst || 0) + Number(s.sgst || 0) + Number(s.igst || 0)),
+            formatPrice(Number(s.total_amount || 0)),
+          ],
+        })),
+        summaryRows: [
+          { label: "Total Bills Listed", value: `${sales.length} records`, isBold: true },
+          { label: "Total Sales Turnover", value: formatPrice(sales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0)), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Official point-of-sale register record for Odhavram General Store.",
+          "Audited against physical register and electronic payment gateways.",
+        ],
+        signatories: ["Store Cashier", "Auditor / Shift In-Charge", "Store Manager Sign"],
+      },
+      "Sales-Register-Report"
+    );
+  };
+
   if (loading && !stats) {
     return (
       <div className="space-y-4">
@@ -203,7 +252,7 @@ export default function SalesHistoryPage() {
         <div>
           <h1 className="admin-page-title">Sales History</h1>
           <p className="mt-1 text-sm text-gray-600">
-            View, search, filter & reprint past bills
+            View, search, filter &amp; reprint past bills
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -218,6 +267,16 @@ export default function SalesHistoryPage() {
             >
               <Trash2 className="mr-1 h-4 w-4" />
               Clear All Bills & Stock
+            </Button>
+          )}
+          {sales.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={printSalesRegister}
+              className="gap-1.5 font-bold"
+            >
+              <Printer className="h-4 w-4 text-emerald-600" />
+              <span>Print Sales Register</span>
             </Button>
           )}
           <Button variant="outline" onClick={exportBills}>

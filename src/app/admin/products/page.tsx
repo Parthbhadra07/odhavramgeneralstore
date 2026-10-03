@@ -32,6 +32,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  EyeOff,
+  AlertCircle,
+  Table as TableIcon,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -83,6 +87,7 @@ export default function AdminProductsPage() {
   const [showBannerModal, setShowBannerModal] = useState(false);
   const [bannerConfig, setBannerConfig] = useState<DealBannerConfig>(dealBannerService.getDefaults());
   const [activeBannerIndex, setActiveBannerIndex] = useState<number>(0);
+  const [bannerViewMode, setBannerViewMode] = useState<"table" | "edit">("table");
   const [uploadingBannerImage, setUploadingBannerImage] = useState(false);
   const [savingBanner, setSavingBanner] = useState(false);
 
@@ -528,21 +533,86 @@ export default function AdminProductsPage() {
     const updated = [...(bannerConfig.banners || []), newBanner];
     setBannerConfig({ ...bannerConfig, banners: updated });
     setActiveBannerIndex(updated.length - 1);
+    setBannerViewMode("edit");
     toast.success(`Added new ${type === "photo" ? "Photo Advertising" : "Deals"} banner!`);
   };
 
-  const handleDeleteBanner = (indexToDelete: number) => {
+  const handleRenewBanner = async (index: number, duration: "today" | "3d" | "7d" = "today") => {
+    const list = [...(bannerConfig.banners || [])];
+    if (!list[index]) return;
+
+    let newEndDate = "realtime_daily";
+    let timerMode: "realtime_daily" | "custom" = "realtime_daily";
+    let message = "Banner renewed for today! Active until 23:59:59 tonight.";
+
+    if (duration === "3d") {
+      newEndDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      timerMode = "custom";
+      message = "Banner renewed and extended by 3 days!";
+    } else if (duration === "7d") {
+      newEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      timerMode = "custom";
+      message = "Banner renewed and extended by 7 days!";
+    }
+
+    list[index] = {
+      ...list[index],
+      enabled: true,
+      endDate: newEndDate,
+      timerMode,
+    };
+
+    const updatedConfig: DealBannerConfig = {
+      ...bannerConfig,
+      enabled: true,
+      banners: list,
+    };
+
+    setBannerConfig(updatedConfig);
+    try {
+      await dealBannerService.save(updatedConfig);
+      toast.success(message);
+    } catch {
+      toast.error("Failed to save renewed banner.");
+    }
+  };
+
+  const handleToggleBannerEnabled = async (index: number) => {
+    const list = [...(bannerConfig.banners || [])];
+    if (!list[index]) return;
+    const newState = !list[index].enabled;
+    list[index] = { ...list[index], enabled: newState };
+    const updatedConfig = { ...bannerConfig, banners: list };
+    setBannerConfig(updatedConfig);
+    try {
+      await dealBannerService.save(updatedConfig);
+      toast.success(newState ? "Banner enabled on home page" : "Banner hidden from home page");
+    } catch {
+      toast.error("Failed to update banner status");
+    }
+  };
+
+  const handleDeleteBanner = async (indexToDelete: number) => {
     const list = bannerConfig.banners || [];
+    let updatedBanners: DealBannerItem[] = [];
+    let updatedEnabled = bannerConfig.enabled;
     if (list.length <= 1) {
-      setBannerConfig({ ...bannerConfig, banners: [], enabled: false });
+      updatedBanners = [];
+      updatedEnabled = false;
       setActiveBannerIndex(0);
       toast.info("Banner deleted. No banners currently on home page.");
-      return;
+    } else {
+      updatedBanners = list.filter((_, idx) => idx !== indexToDelete);
+      setActiveBannerIndex((prev) => (prev >= updatedBanners.length ? Math.max(0, updatedBanners.length - 1) : prev));
+      toast.success("Banner deleted.");
     }
-    const updated = list.filter((_, idx) => idx !== indexToDelete);
-    setBannerConfig({ ...bannerConfig, banners: updated });
-    setActiveBannerIndex((prev) => (prev >= updated.length ? Math.max(0, updated.length - 1) : prev));
-    toast.success("Banner deleted.");
+    const updated = { ...bannerConfig, banners: updatedBanners, enabled: updatedEnabled };
+    setBannerConfig(updated);
+    try {
+      await dealBannerService.save(updated);
+    } catch {
+      // ignore
+    }
   };
 
   const handleMoveBanner = (index: number, direction: "up" | "down") => {
@@ -706,6 +776,7 @@ export default function AdminProductsPage() {
               dealBannerService.get().then((cfg) => {
                 setBannerConfig(cfg);
                 setActiveBannerIndex(0);
+                setBannerViewMode("table");
               });
               setShowBannerModal(true);
             }}
@@ -1182,8 +1253,8 @@ export default function AdminProductsPage() {
         </form>
       )}
 
-      {/* Filter Tabs & Search Bar */}
-      <div className="mb-4 space-y-3 border-b pb-4">
+      {/* Filter Tabs & Search Bar (Sticky above product list, beneath the 56px sticky top header) */}
+      <div className="sticky top-14 z-20 -mx-3 px-3 pt-2 pb-3 mb-4 bg-gray-50/95 backdrop-blur-xs border-b border-gray-200 shadow-2xs space-y-3 sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1457,20 +1528,29 @@ export default function AdminProductsPage() {
 
       {/* Product Tables Rendering (Single or Category-Grouped) */}
       {(() => {
-        const renderProductTable = (items: Product[]) => (
-          <div className="-mx-4 overflow-x-auto rounded-xl border bg-white shadow-sm sm:mx-0">
-            <table className="w-full min-w-[32rem] text-sm">
-              <thead className="border-b bg-gray-50 text-gray-700">
-                <tr>
-                  <th className="w-14 px-3 py-3 text-left">Photo</th>
-                  <th className="px-4 py-3 text-left">Product &amp; Barcode</th>
-                  <th className="px-4 py-3 text-left">Category</th>
-                  <th className="px-4 py-3 text-left">Price &amp; MRP</th>
-                  <th className="px-4 py-3 text-left">Stock</th>
-                  <th className="px-4 py-3 text-left">Offer &amp; Deal</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
+        const renderProductTable = (items: Product[], isGrouped = false) => (
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col">
+            {/* Scrollable table viewport */}
+            <div
+              className={cn(
+                "overflow-x-auto overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400",
+                isGrouped
+                  ? "max-h-[380px]"
+                  : "max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] min-h-[360px]"
+              )}
+            >
+              <table className="w-full min-w-[32rem] text-sm border-collapse">
+                <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50 text-gray-700 shadow-2xs">
+                  <tr>
+                    <th className="w-14 px-3 py-3 text-left bg-gray-50 font-bold">Photo</th>
+                    <th className="px-4 py-3 text-left bg-gray-50 font-bold">Product &amp; Barcode</th>
+                    <th className="px-4 py-3 text-left bg-gray-50 font-bold">Category</th>
+                    <th className="px-4 py-3 text-left bg-gray-50 font-bold">Price &amp; MRP</th>
+                    <th className="px-4 py-3 text-left bg-gray-50 font-bold">Stock</th>
+                    <th className="px-4 py-3 text-left bg-gray-50 font-bold">Offer &amp; Deal</th>
+                    <th className="px-4 py-3 text-right bg-gray-50 font-bold">Actions</th>
+                  </tr>
+                </thead>
               <tbody className="divide-y divide-gray-100">
                 {items.length === 0 ? (
                   <tr>
@@ -1686,12 +1766,23 @@ export default function AdminProductsPage() {
                 )}
               </tbody>
             </table>
+            </div>
+
+            {/* Table Footer status */}
+            <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50/90 px-4 py-2 text-xs text-gray-500">
+              <span>
+                Showing <strong className="font-semibold text-gray-800">{items.length}</strong> {items.length === 1 ? "product" : "products"}
+              </span>
+              <span className="text-[11px] text-gray-400 font-medium hidden sm:inline">
+                Scroll inside table to view all items
+              </span>
+            </div>
           </div>
         );
 
         if (groupByCategory) {
           return (
-            <div className="space-y-6">
+            <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-270px)] sm:max-h-[calc(100vh-250px)] pr-1 overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400">
               {groupedProductsByCategory.length === 0 ? (
                 <div className="rounded-xl border bg-white p-12 text-center text-gray-500">
                   <Package className="mx-auto h-8 w-8 text-gray-300 mb-2" />
@@ -1739,7 +1830,7 @@ export default function AdminProductsPage() {
                         <Plus className="h-3 w-3 mr-1" /> Add in this category
                       </Button>
                     </div>
-                    {renderProductTable(group.products)}
+                    {renderProductTable(group.products, true)}
                   </div>
                 ))
               )}
@@ -2170,8 +2261,8 @@ export default function AdminProductsPage() {
 
       {/* Home Page Deals & Advertising Banners Modal */}
       {showBannerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs">
-          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col overflow-hidden">
             {/* Modal Header (Fixed) */}
             <div className="flex items-center justify-between border-b p-4 sm:p-5 pb-3.5 shrink-0 bg-white z-10">
               <div className="flex items-center gap-3">
@@ -2183,7 +2274,7 @@ export default function AdminProductsPage() {
                     Home Page Deals &amp; Advertising Banners
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Manage multiple rotating promotional banners, graphic photo advertisements &amp; countdown deals
+                    Manage promotional banners, photo graphics, countdown deals &amp; real-time expiry
                   </p>
                 </div>
               </div>
@@ -2196,24 +2287,45 @@ export default function AdminProductsPage() {
               </button>
             </div>
 
-            {/* Top Toolbar: Master Visibility Switch & Add Banner Buttons (Fixed) */}
-            <div className="shrink-0 px-4 sm:px-5 pt-3.5 pb-2.5 border-b bg-gray-50/70 space-y-3 z-10">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={bannerConfig.enabled}
-                    onChange={(e) => setBannerConfig({ ...bannerConfig, enabled: e.target.checked })}
-                    className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <span className="text-sm font-bold text-gray-900">Display Banners on Home Page</span>
-                    <p className="text-[11px] text-gray-600">
-                      Show the animated carousel banner on the store home page
-                    </p>
-                  </div>
-                </label>
+            {/* Top Toolbar: Mode Switcher, Master Storefront Switch & Quick Add Buttons */}
+            <div className="shrink-0 px-4 sm:px-5 pt-3 pb-3 border-b bg-gray-50/80 space-y-3 z-10">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Mode Switcher Tabs */}
+                <div className="inline-flex rounded-xl bg-gray-200/80 p-1 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setBannerViewMode("table")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition",
+                      bannerViewMode === "table"
+                        ? "bg-white text-gray-900 shadow-xs font-bold"
+                        : "text-gray-600 hover:text-gray-900"
+                    )}
+                  >
+                    <TableIcon className="h-3.5 w-3.5 text-amber-600" />
+                    <span>Banners Table</span>
+                    <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-800">
+                      {(bannerConfig.banners || []).length}
+                    </span>
+                  </button>
+                  {(bannerConfig.banners || []).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setBannerViewMode("edit")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition",
+                        bannerViewMode === "edit"
+                          ? "bg-white text-gray-900 shadow-xs font-bold"
+                          : "text-gray-600 hover:text-gray-900"
+                      )}
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Edit Banner #{activeBannerIndex + 1}</span>
+                    </button>
+                  )}
+                </div>
 
+                {/* Add Buttons */}
                 <div className="flex items-center gap-2 shrink-0">
                   <Button
                     type="button"
@@ -2235,92 +2347,60 @@ export default function AdminProductsPage() {
                 </div>
               </div>
 
-              {/* Banner Tabs Strip */}
-              {(bannerConfig.banners || []).length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-bold uppercase tracking-wider text-gray-600">
-                      Configured Banners ({(bannerConfig.banners || []).length})
+              {/* Master Visibility Switch & Summary Metrics */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 sm:px-3.5">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={bannerConfig.enabled}
+                    onChange={(e) => setBannerConfig({ ...bannerConfig, enabled: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-xs sm:text-sm font-bold text-gray-900">
+                      Display Banners on Home Page
                     </span>
-                    <span className="text-[11px] text-gray-400">
-                      Click a tab to edit or reorder
+                    <span className="text-[11px] text-gray-600 block sm:inline sm:ml-2">
+                      (Master switch for carousel on storefront)
                     </span>
                   </div>
+                </label>
 
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
-                    {(bannerConfig.banners || []).map((banner, index) => {
-                      const isSelected = index === activeBannerIndex;
-                      return (
-                        <div
-                          key={banner.id || index}
-                          className={cn(
-                            "group relative flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition shrink-0 cursor-pointer",
-                            isSelected
-                              ? "border-blue-600 bg-blue-50/80 text-blue-900 shadow-2xs ring-1 ring-blue-500"
-                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                          )}
-                          onClick={() => setActiveBannerIndex(index)}
-                        >
-                          {banner.type === "photo" ? (
-                            <ImageIcon className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                          ) : (
-                            <Tag className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-                          )}
+                {/* Counter Badges */}
+                {(() => {
+                  const banners = bannerConfig.banners || [];
+                  const liveCount = banners.filter(
+                    (b) => b.enabled && (!b.endDate || !getOfferTimeRemaining(b.endDate).isExpired)
+                  ).length;
+                  const expiredCount = banners.filter(
+                    (b) => b.endDate && getOfferTimeRemaining(b.endDate).isExpired
+                  ).length;
+                  const disabledCount = banners.filter((b) => !b.enabled).length;
 
-                          <span className="truncate max-w-[120px] font-bold">
-                            {banner.title || `Banner #${index + 1}`}
-                          </span>
-
-                          {/* Active indicator dot */}
-                          <span
-                            className={cn(
-                              "h-2 w-2 rounded-full shrink-0",
-                              banner.enabled ? "bg-emerald-500" : "bg-gray-300"
-                            )}
-                            title={banner.enabled ? "Active" : "Disabled"}
-                          />
-
-                          {/* Move & Delete buttons on tab */}
-                          {isSelected && (
-                            <div className="ml-1 flex items-center gap-0.5 border-l border-gray-200 pl-1.5" onClick={(e) => e.stopPropagation()}>
-                              {(bannerConfig.banners || []).length > 1 && (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={index === 0}
-                                    onClick={() => handleMoveBanner(index, "up")}
-                                    className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
-                                    title="Move Left"
-                                  >
-                                    <ChevronLeft className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={index === (bannerConfig.banners || []).length - 1}
-                                    onClick={() => handleMoveBanner(index, "down")}
-                                    className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
-                                    title="Move Right"
-                                  >
-                                    <ChevronRight className="h-3 w-3" />
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBanner(index)}
-                                className="p-0.5 text-red-500 hover:text-red-700 transition"
-                                title="Delete this banner"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-white border border-gray-200 px-2 py-0.5 text-[11px] text-gray-700 shadow-2xs">
+                        Total: <strong className="font-bold">{banners.length}</strong>
+                      </span>
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 text-[11px] font-bold text-emerald-800 shadow-2xs">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Live on Home: {bannerConfig.enabled ? liveCount : 0}
+                      </span>
+                      {expiredCount > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-red-100 border border-red-300 px-2 py-0.5 text-[11px] font-bold text-red-800 shadow-2xs">
+                          <AlertCircle className="h-3 w-3 text-red-600" />
+                          Expired (Deleted from Home): {expiredCount}
+                        </span>
+                      )}
+                      {disabledCount > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-gray-100 border border-gray-300 px-2 py-0.5 text-[11px] text-gray-600">
+                          Paused: {disabledCount}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Scrollable Form Body with dedicated visible scrollbar */}
@@ -2356,13 +2436,426 @@ export default function AdminProductsPage() {
                     </Button>
                   </div>
                 </div>
+              ) : bannerViewMode === "table" ? (
+                /* TABLE VIEW FORMAT */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                        Banners Status Table ({(bannerConfig.banners || []).length})
+                      </span>
+                      <span className="text-[11px] text-gray-500">
+                        Expired banners are hidden from the store home page and listed below
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setActiveBannerIndex(0);
+                        setBannerViewMode("edit");
+                      }}
+                      className="text-xs font-semibold"
+                    >
+                      <Pencil className="h-3 w-3 mr-1" /> Switch to Editor
+                    </Button>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-2xs">
+                    <table className="w-full text-left text-xs text-gray-700 border-collapse">
+                      <thead className="bg-gray-50 text-[11px] font-bold uppercase tracking-wider text-gray-600 border-b border-gray-200">
+                        <tr>
+                          <th className="py-2.5 px-3 w-12 text-center">#</th>
+                          <th className="py-2.5 px-3 min-w-[220px]">Banner Details</th>
+                          <th className="py-2.5 px-3 w-28">Type &amp; Theme</th>
+                          <th className="py-2.5 px-3 min-w-[170px]">Countdown &amp; Expiry</th>
+                          <th className="py-2.5 px-3 min-w-[170px]">Home Page Status</th>
+                          <th className="py-2.5 px-3 text-right min-w-[200px]">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {bannerConfig.banners.map((banner, index) => {
+                          const rem = banner.endDate ? getOfferTimeRemaining(banner.endDate) : null;
+                          const isExpired = rem ? rem.isExpired : false;
+
+                          return (
+                            <tr
+                              key={banner.id || index}
+                              className={cn(
+                                "hover:bg-gray-50/80 transition",
+                                isExpired ? "bg-red-50/40" : ""
+                              )}
+                            >
+                              {/* Order & Reorder Column */}
+                              <td className="py-3 px-3 text-center align-middle">
+                                <span className="font-bold text-gray-600 text-xs">#{index + 1}</span>
+                                {(bannerConfig.banners || []).length > 1 && (
+                                  <div className="flex flex-col items-center mt-1">
+                                    <button
+                                      type="button"
+                                      disabled={index === 0}
+                                      onClick={() => handleMoveBanner(index, "up")}
+                                      className="text-gray-400 hover:text-gray-700 disabled:opacity-20 p-0.5"
+                                      title="Move Up"
+                                    >
+                                      <ChevronLeft className="h-3 w-3 rotate-90" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={index === (bannerConfig.banners || []).length - 1}
+                                      onClick={() => handleMoveBanner(index, "down")}
+                                      className="text-gray-400 hover:text-gray-700 disabled:opacity-20 p-0.5"
+                                      title="Move Down"
+                                    >
+                                      <ChevronRight className="h-3 w-3 rotate-90" />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Banner Preview & Content */}
+                              <td className="py-3 px-3 align-middle">
+                                <div className="flex items-start gap-2.5">
+                                  {banner.type === "photo" && banner.imageUrl ? (
+                                    <div className="h-10 w-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 shrink-0">
+                                      <img
+                                        src={banner.imageUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className={cn(
+                                        "h-10 w-10 rounded-lg flex items-center justify-center shrink-0 shadow-2xs",
+                                        banner.type === "photo"
+                                          ? "bg-blue-100 text-blue-700"
+                                          : "bg-rose-100 text-rose-700"
+                                      )}
+                                    >
+                                      {banner.type === "photo" ? (
+                                        <ImageIcon className="h-5 w-5" />
+                                      ) : (
+                                        <Tag className="h-5 w-5" />
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-gray-900 text-xs">
+                                        {banner.title || "Untitled Banner"}
+                                      </span>
+                                      {banner.badgeText && (
+                                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-600">
+                                          {banner.badgeText}
+                                        </span>
+                                      )}
+                                      {banner.discountHighlight && (
+                                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-extrabold text-amber-800">
+                                          {banner.discountHighlight}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {banner.subtitle && (
+                                      <p className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">
+                                        {banner.subtitle}
+                                      </p>
+                                    )}
+                                    {banner.buttonLink && (
+                                      <span className="text-[10px] text-blue-600 font-mono mt-0.5 block truncate max-w-xs">
+                                        Link: {banner.buttonLink}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Type & Theme */}
+                              <td className="py-3 px-3 align-middle">
+                                <div className="space-y-1">
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                                      banner.type === "photo"
+                                        ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                        : "bg-rose-50 text-rose-700 border border-rose-200"
+                                    )}
+                                  >
+                                    {banner.type === "photo" ? (
+                                      <ImageIcon className="h-2.5 w-2.5" />
+                                    ) : (
+                                      <Tag className="h-2.5 w-2.5" />
+                                    )}
+                                    {banner.type === "photo" ? "Photo Ad" : "Flash Deal"}
+                                  </span>
+                                  <div>
+                                    <span className="capitalize text-[10px] font-medium text-gray-500 block">
+                                      Theme: {banner.theme || "flame"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Countdown & Expiry Status */}
+                              <td className="py-3 px-3 align-middle">
+                                {isExpired ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-[11px] font-extrabold text-red-800 border border-red-300">
+                                      <AlertCircle className="h-3 w-3 text-red-600 shrink-0" />
+                                      EXPIRED
+                                    </span>
+                                    <p className="text-[10px] text-red-700 font-medium">
+                                      Countdown completed
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 font-mono">
+                                      {banner.endDate === "realtime_daily"
+                                        ? "Daily flash passed"
+                                        : banner.endDate
+                                        ? new Date(banner.endDate).toLocaleDateString()
+                                        : "Expired"}
+                                    </p>
+                                  </div>
+                                ) : rem ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-300">
+                                      <Clock className="h-3 w-3 text-emerald-600 animate-pulse" />
+                                      LIVE COUNTDOWN
+                                    </span>
+                                    <p className="text-[11px] font-mono font-bold text-emerald-900">
+                                      {rem.text}
+                                    </p>
+                                    <p className="text-[10px] text-gray-500">
+                                      {banner.endDate === "realtime_daily" || banner.timerMode === "realtime_daily"
+                                        ? "Ends 23:59:59 tonight"
+                                        : banner.endDate === "weekend"
+                                        ? "Ends Sunday midnight"
+                                        : "Custom target date"}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] text-gray-600">
+                                    <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                                      Always Active
+                                    </span>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">No timer set</p>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Home Page Status */}
+                              <td className="py-3 px-3 align-middle">
+                                {isExpired ? (
+                                  <div className="space-y-0.5">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-white shadow-2xs">
+                                      ❌ DELETED FROM HOME
+                                    </span>
+                                    <p className="text-[10px] text-red-700 font-medium">
+                                      Hidden from customers
+                                    </p>
+                                  </div>
+                                ) : !banner.enabled ? (
+                                  <div className="space-y-0.5">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-700">
+                                      ⏸️ Paused (Disabled)
+                                    </span>
+                                    <p className="text-[10px] text-gray-400">Turned off by admin</p>
+                                  </div>
+                                ) : !bannerConfig.enabled ? (
+                                  <div className="space-y-0.5">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-300">
+                                      ⚠️ Carousel Off
+                                    </span>
+                                    <p className="text-[10px] text-amber-700">Master switch off</p>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-0.5">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-white shadow-2xs">
+                                      🟢 LIVE ON HOME
+                                    </span>
+                                    <p className="text-[10px] text-emerald-700 font-medium">
+                                      Visible to customers
+                                    </p>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Row Actions */}
+                              <td className="py-3 px-3 align-middle text-right">
+                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                  {isExpired && (
+                                    <>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleRenewBanner(index, "today")}
+                                        className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] px-2 py-1 h-7 shadow-xs"
+                                        title="Renew banner to count down until 23:59:59 tonight and re-display on home page"
+                                      >
+                                        ⚡ Renew Today
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleRenewBanner(index, "3d")}
+                                        className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-semibold text-[10px] px-1.5 py-1 h-7"
+                                        title="Extend countdown by 3 days"
+                                      >
+                                        +3d
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setActiveBannerIndex(index);
+                                      setBannerViewMode("edit");
+                                    }}
+                                    className="text-xs font-semibold px-2 py-1 h-7 border-gray-300 text-gray-700 hover:bg-gray-100"
+                                    title="Edit banner content, timing, or photo"
+                                  >
+                                    <Pencil className="h-3 w-3 mr-1" /> Edit
+                                  </Button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleBannerEnabled(index)}
+                                    className="p-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 transition"
+                                    title={banner.enabled ? "Hide from home page" : "Enable banner"}
+                                  >
+                                    {banner.enabled ? (
+                                      <Eye className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                      <EyeOff className="h-4 w-4 text-gray-400" />
+                                    )}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteBanner(index)}
+                                    className="p-1.5 rounded-md border border-red-200 text-red-500 hover:bg-red-50 hover:text-red-700 transition"
+                                    title="Permanently delete this banner"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               ) : (
+                /* EDIT FORM VIEW */
                 (() => {
                   const currentBanner = (bannerConfig.banners || [])[activeBannerIndex];
-              if (!currentBanner) return null;
+                  if (!currentBanner) return null;
 
-              return (
-                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50/50 p-4 sm:p-5 space-y-4">
+                  const rem = currentBanner.endDate ? getOfferTimeRemaining(currentBanner.endDate) : null;
+                  const isCurrentExpired = rem ? rem.isExpired : false;
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Sub-header: Back Button & Banner Tabs */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setBannerViewMode("table")}
+                          className="text-xs font-semibold text-gray-700 hover:bg-gray-100 self-start"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Back to Banners Table
+                        </Button>
+
+                        {/* Banner Tabs Strip */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                          {(bannerConfig.banners || []).map((banner, index) => {
+                            const isSelected = index === activeBannerIndex;
+                            const bRem = banner.endDate ? getOfferTimeRemaining(banner.endDate) : null;
+                            const bExpired = bRem ? bRem.isExpired : false;
+
+                            return (
+                              <button
+                                key={banner.id || index}
+                                type="button"
+                                onClick={() => setActiveBannerIndex(index)}
+                                className={cn(
+                                  "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition shrink-0",
+                                  isSelected
+                                    ? "border-blue-600 bg-blue-50/80 text-blue-900 shadow-2xs ring-1 ring-blue-500"
+                                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                                )}
+                              >
+                                {banner.type === "photo" ? (
+                                  <ImageIcon className="h-3 w-3 text-blue-600" />
+                                ) : (
+                                  <Tag className="h-3 w-3 text-rose-600" />
+                                )}
+                                <span className="truncate max-w-[100px]">
+                                  {banner.title || `Banner #${index + 1}`}
+                                </span>
+                                {bExpired ? (
+                                  <span className="rounded bg-red-600 px-1 py-0.2 text-[9px] font-bold text-white">
+                                    EXPIRED
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={cn(
+                                      "h-2 w-2 rounded-full",
+                                      banner.enabled ? "bg-emerald-500" : "bg-gray-300"
+                                    )}
+                                  />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Expired Banner Alert Notice if expired */}
+                      {isCurrentExpired && (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-red-300 bg-red-50 p-3.5 text-red-900">
+                          <div className="flex items-center gap-2.5">
+                            <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                            <div>
+                              <p className="text-xs font-bold text-red-900">
+                                🔴 This banner is EXPIRED and has been automatically deleted from the Home Page.
+                              </p>
+                              <p className="text-[11px] text-red-700">
+                                Customers cannot see it. Click &quot;Renew for Today&quot; or update the countdown below to make it visible again.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleRenewBanner(activeBannerIndex, "today")}
+                              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs"
+                            >
+                              ⚡ Renew for Today
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRenewBanner(activeBannerIndex, "3d")}
+                              className="border-red-300 text-red-800 hover:bg-red-100 text-xs font-semibold"
+                            >
+                              +3 Days
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50/50 p-4 sm:p-5 space-y-4">
                   {/* Banner Header & Type Selector */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 pb-3">
                     <div className="flex items-center gap-3">
@@ -2578,23 +3071,125 @@ export default function AdminProductsPage() {
                       </div>
 
                       {/* Expiry Date */}
-                      <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-2.5">
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700">
                           Offer Expiry / Countdown Timer (Optional)
                         </label>
-                        <Input
-                          type="datetime-local"
-                          value={currentBanner.endDate ? currentBanner.endDate.slice(0, 16) : ""}
-                          onChange={(e) =>
-                            updateCurrentBanner({
-                              endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
-                            })
-                          }
-                          className="text-xs"
-                        />
-                        <span className="text-[11px] text-gray-500 mt-0.5 block">
-                          Leave blank if this advertising banner has no expiration date.
-                        </span>
+
+                        {/* Mode Buttons */}
+                        <div className="grid grid-cols-4 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentBanner({ endDate: "realtime_daily", timerMode: "realtime_daily" })}
+                            className={cn(
+                              "px-2 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 border",
+                              (currentBanner.endDate === "realtime_daily" || currentBanner.timerMode === "realtime_daily")
+                                ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Sparkles className="h-3 w-3" /> Daily Flash
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentBanner({ endDate: "weekend", timerMode: "weekend" })}
+                            className={cn(
+                              "px-2 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 border",
+                              (currentBanner.endDate === "weekend" || currentBanner.timerMode === "weekend")
+                                ? "bg-indigo-600 text-white border-indigo-700 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Calendar className="h-3 w-3" /> Weekend
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+                              updateCurrentBanner({ endDate: in3Days.toISOString(), timerMode: "custom" });
+                            }}
+                            className={cn(
+                              "px-2 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 border",
+                              (currentBanner.timerMode === "custom" || (currentBanner.endDate && currentBanner.endDate !== "realtime_daily" && currentBanner.endDate !== "weekend"))
+                                ? "bg-blue-600 text-white border-blue-700 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Clock className="h-3 w-3" /> Custom Date
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentBanner({ endDate: "", timerMode: undefined })}
+                            className={cn(
+                              "px-2 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 border",
+                              !currentBanner.endDate
+                                ? "bg-gray-700 text-white border-gray-800 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            No Timer
+                          </button>
+                        </div>
+
+                        {/* Custom Date Input if custom */}
+                        {(currentBanner.timerMode === "custom" || (currentBanner.endDate && currentBanner.endDate !== "realtime_daily" && currentBanner.endDate !== "weekend")) && (
+                          <div className="space-y-2 pt-1">
+                            <Input
+                              type="datetime-local"
+                              value={(() => {
+                                if (!currentBanner.endDate || currentBanner.endDate === "realtime_daily" || currentBanner.endDate === "weekend") return "";
+                                const d = new Date(currentBanner.endDate);
+                                if (isNaN(d.getTime())) return "";
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                              })()}
+                              onChange={(e) =>
+                                updateCurrentBanner({
+                                  endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
+                                  timerMode: "custom",
+                                })
+                              }
+                              className="text-xs bg-white"
+                            />
+                            {/* Quick Presets */}
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              <span className="text-[10px] text-gray-500 font-semibold mr-1">Presets:</span>
+                              {[
+                                { label: "+24 Hours", hours: 24 },
+                                { label: "+3 Days", hours: 72 },
+                                { label: "+7 Days", hours: 168 },
+                              ].map((p) => (
+                                <button
+                                  key={p.label}
+                                  type="button"
+                                  onClick={() => {
+                                    const d = new Date(Date.now() + p.hours * 60 * 60 * 1000);
+                                    updateCurrentBanner({ endDate: d.toISOString(), timerMode: "custom" });
+                                  }}
+                                  className="rounded px-2 py-0.5 text-[10px] font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 transition"
+                                >
+                                  {p.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Real-Time Remaining Preview */}
+                        {currentBanner.endDate && (() => {
+                          const rem = getOfferTimeRemaining(currentBanner.endDate);
+                          return (
+                            <div className="flex items-center gap-2 rounded-lg bg-amber-100/70 border border-amber-300/80 px-3 py-1.5 text-xs text-amber-950 font-medium">
+                              <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 animate-pulse" />
+                              <span>Live Clock Remaining:</span>
+                              <span className="font-mono font-bold text-amber-900">
+                                {rem.days > 0 ? `${rem.days}d ` : ""}
+                                {String(rem.hours).padStart(2, "0")}h : {String(rem.minutes).padStart(2, "0")}m : {String(rem.seconds).padStart(2, "0")}s
+                              </span>
+                              <span className="text-[10px] text-amber-700/80">({rem.text})</span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ) : (
@@ -2651,22 +3246,115 @@ export default function AdminProductsPage() {
                       </div>
 
                       {/* Banner Expiry / Countdown Timer */}
-                      <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-2.5">
+                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700">
                           Banner Countdown End Date &amp; Time
                         </label>
-                        <Input
-                          type="datetime-local"
-                          value={currentBanner.endDate ? currentBanner.endDate.slice(0, 16) : ""}
-                          onChange={(e) =>
-                            updateCurrentBanner({
-                              endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
-                            })
-                          }
-                          className="text-xs"
-                        />
-                        <span className="text-[11px] text-gray-500 mt-0.5 block">
-                          The live countdown clock on the home page will count down to this date and time.
+
+                        {/* Mode Buttons */}
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentBanner({ endDate: "realtime_daily", timerMode: "realtime_daily" })}
+                            className={cn(
+                              "px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 border",
+                              (!currentBanner.endDate || currentBanner.endDate === "realtime_daily" || currentBanner.timerMode === "realtime_daily")
+                                ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Sparkles className="h-3 w-3" /> Real-Time Daily
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateCurrentBanner({ endDate: "weekend", timerMode: "weekend" })}
+                            className={cn(
+                              "px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 border",
+                              (currentBanner.endDate === "weekend" || currentBanner.timerMode === "weekend")
+                                ? "bg-indigo-600 text-white border-indigo-700 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Calendar className="h-3 w-3" /> Weekend Special
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const in3Days = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+                              updateCurrentBanner({ endDate: in3Days.toISOString(), timerMode: "custom" });
+                            }}
+                            className={cn(
+                              "px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 border",
+                              (currentBanner.timerMode === "custom" || (currentBanner.endDate && currentBanner.endDate !== "realtime_daily" && currentBanner.endDate !== "weekend"))
+                                ? "bg-blue-600 text-white border-blue-700 shadow-xs"
+                                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            <Clock className="h-3 w-3" /> Custom Date
+                          </button>
+                        </div>
+
+                        {/* Custom Date Input if custom */}
+                        {(currentBanner.timerMode === "custom" || (currentBanner.endDate && currentBanner.endDate !== "realtime_daily" && currentBanner.endDate !== "weekend")) && (
+                          <div className="space-y-2 pt-1">
+                            <Input
+                              type="datetime-local"
+                              value={(() => {
+                                if (!currentBanner.endDate || currentBanner.endDate === "realtime_daily" || currentBanner.endDate === "weekend") return "";
+                                const d = new Date(currentBanner.endDate);
+                                if (isNaN(d.getTime())) return "";
+                                const pad = (n: number) => String(n).padStart(2, "0");
+                                return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                              })()}
+                              onChange={(e) =>
+                                updateCurrentBanner({
+                                  endDate: e.target.value ? new Date(e.target.value).toISOString() : "",
+                                  timerMode: "custom",
+                                })
+                              }
+                              className="text-xs bg-white"
+                            />
+                            {/* Quick Presets */}
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              <span className="text-[10px] text-gray-500 font-semibold mr-1">Presets:</span>
+                              {[
+                                { label: "+24 Hours", hours: 24 },
+                                { label: "+3 Days", hours: 72 },
+                                { label: "+7 Days", hours: 168 },
+                              ].map((p) => (
+                                <button
+                                  key={p.label}
+                                  type="button"
+                                  onClick={() => {
+                                    const d = new Date(Date.now() + p.hours * 60 * 60 * 1000);
+                                    updateCurrentBanner({ endDate: d.toISOString(), timerMode: "custom" });
+                                  }}
+                                  className="rounded px-2 py-0.5 text-[10px] font-semibold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 transition"
+                                >
+                                  {p.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Real-Time Remaining Preview */}
+                        {(() => {
+                          const rem = getOfferTimeRemaining(currentBanner.endDate || "realtime_daily");
+                          return (
+                            <div className="flex items-center gap-2 rounded-lg bg-amber-100/70 border border-amber-300/80 px-3 py-1.5 text-xs text-amber-950 font-medium">
+                              <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 animate-pulse" />
+                              <span>Live Clock Remaining:</span>
+                              <span className="font-mono font-bold text-amber-900">
+                                {rem.days > 0 ? `${rem.days}d ` : ""}
+                                {String(rem.hours).padStart(2, "0")}h : {String(rem.minutes).padStart(2, "0")}m : {String(rem.seconds).padStart(2, "0")}s
+                              </span>
+                              <span className="text-[10px] text-amber-700/80">({rem.text})</span>
+                            </div>
+                          );
+                        })()}
+                        <span className="text-[11px] text-gray-500 block">
+                          The live countdown clock counts down to this target in real time and never resets on website startup.
                         </span>
                       </div>
 
@@ -2730,45 +3418,55 @@ export default function AdminProductsPage() {
 
                   {/* Card Bottom Actions */}
                   <div className="flex items-center justify-between border-t border-gray-200 pt-3 text-xs">
-                    <span className="text-gray-500">
-                      Editing Banner #{activeBannerIndex + 1} of {(bannerConfig.banners || []).length}
-                    </span>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      onClick={() => handleDeleteBanner(activeBannerIndex)}
-                      className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold"
+                      onClick={() => setBannerViewMode("table")}
+                      className="text-gray-600 hover:text-gray-900 text-xs font-semibold"
                     >
-                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete This Banner
+                      <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Back to Banners Table
                     </Button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 text-[11px] hidden sm:inline">
+                        Editing #{activeBannerIndex + 1} of {(bannerConfig.banners || []).length}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteBanner(activeBannerIndex)}
+                        className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete This Banner
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              );
-            })()
+              </div>
+            );
+          })()
+        )}
+      </div>
+
+      {/* Sticky Modal Footer (Fixed at bottom so it never overflows screen) */}
+      <div className="flex items-center justify-between border-t p-4 sm:p-5 shrink-0 bg-gray-50/95 backdrop-blur-xs z-10">
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 font-medium">
+            {(bannerConfig.banners || []).length} banner(s) configured
+          </span>
+          {bannerViewMode === "edit" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setBannerViewMode("table")}
+              className="text-xs text-gray-700 hover:bg-gray-100 font-semibold"
+            >
+              <TableIcon className="h-3.5 w-3.5 mr-1 text-amber-600" /> View Banners Table
+            </Button>
           )}
         </div>
-
-        {/* Sticky Modal Footer (Fixed at bottom so it never overflows screen) */}
-        <div className="flex items-center justify-between border-t p-4 sm:p-5 shrink-0 bg-gray-50/95 backdrop-blur-xs z-10">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 font-medium">
-              {(bannerConfig.banners || []).length} banner(s) configured
-            </span>
-            {(bannerConfig.banners || []).length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => handleDeleteBanner(activeBannerIndex)}
-                className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs font-semibold"
-                title="Delete current active banner"
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Delete Current Banner
-              </Button>
-            )}
-          </div>
 
           <div className="flex items-center gap-2">
             <Button

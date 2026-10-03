@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Eye, Pencil, Plus, UserPlus, Check, Globe } from "lucide-react";
+import { Eye, Pencil, Plus, UserPlus, Check, Globe, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
 import type { CreditLedgerEntry, Customer, CustomerWithStats } from "@/types/erp";
@@ -18,6 +18,8 @@ import {
   KhataPartyForm,
   partyToForm,
 } from "@/components/erp/khata-party-book";
+import { printSystematicDocument } from "@/utils/document-print";
+import { printCreditStatementHtml } from "@/utils/credit-statement";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerWithStats[]>([]);
@@ -168,6 +170,54 @@ export default function CustomersPage() {
 
   const customersWithCredit = customers.filter((c) => c.credit_balance > 0);
 
+  const printCustomersDirectory = () => {
+    if (customers.length === 0) {
+      toast.error("No customers found to print.");
+      return;
+    }
+    const totalCredit = customers.reduce((s, c) => s + (c.credit_balance || 0), 0);
+    const totalPurchases = customers.reduce((s, c) => s + (c.total_purchase_amount || 0), 0);
+
+    printSystematicDocument({
+      docTitle: "CUSTOMER CRM DIRECTORY & BALANCE STATEMENT",
+      docBadge: "ACCOUNTS AUDIT COPY",
+      docNumber: `CUST-REG-${new Date().toISOString().slice(0, 10)}`,
+      metadata: [
+        { label: "Total Customers", value: customers.length },
+        { label: "Total Credit Due", value: formatPrice(totalCredit) },
+        { label: "Total Lifetime Value", value: formatPrice(totalPurchases) },
+        { label: "Date", value: formatDate(new Date().toISOString()) },
+      ],
+      columns: [
+        { header: "Customer Name", width: "22%" },
+        { header: "Mobile", width: "16%" },
+        { header: "Total Orders", align: "center", width: "12%" },
+        { header: "Lifetime Value", align: "right", width: "18%" },
+        { header: "Loyalty Pts", align: "center", width: "12%" },
+        { header: "Credit Due", align: "right", width: "20%" },
+      ],
+      rows: customers.map((c) => ({
+        cells: [
+          c.name,
+          c.mobile,
+          c.total_orders,
+          formatPrice(c.total_purchase_amount),
+          c.loyalty_points,
+          c.credit_balance > 0 ? formatPrice(c.credit_balance) : "—",
+        ],
+      })),
+      summaryRows: [
+        { label: "Total Customers", value: String(customers.length) },
+        { label: "Total Outstanding Credit", value: formatPrice(totalCredit), isBold: true, isHighlight: true },
+        { label: "Total Lifetime Customer Sales", value: formatPrice(totalPurchases) },
+      ],
+      notes: [
+        "Confidential Odhavram General Store Customer Directory.",
+      ],
+      signatories: ["Store Cashier", "Store Proprietor"],
+    });
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -177,10 +227,23 @@ export default function CustomersPage() {
             CRM, loyalty points, and credit (udhaar) tracking
           </p>
         </div>
-        <Button onClick={openForm} className="hidden lg:inline-flex">
-          <Plus className="mr-1 h-4 w-4" />
-          Add Customer
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {customers.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={printCustomersDirectory}
+              className="gap-1.5 font-bold"
+            >
+              <Printer className="h-4 w-4 text-emerald-600" />
+              <span>Print Customers Directory</span>
+            </Button>
+          )}
+          <Button onClick={openForm} className="hidden lg:inline-flex">
+            <Plus className="mr-1 h-4 w-4" />
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       <AdminFab label="Add Customer" icon={Plus} onClick={openForm} />
@@ -404,15 +467,30 @@ export default function CustomersPage() {
         title={`Credit Ledger — ${ledgerCustomer?.name ?? ""}`}
         size="lg"
       >
-        <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
-          Credit Due:{" "}
-          <strong>{formatPrice(ledgerCustomer?.credit_balance ?? 0)}</strong>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+          <div>
+            Credit Due:{" "}
+            <strong className="text-amber-900 dark:text-amber-300">
+              {formatPrice(ledgerCustomer?.credit_balance ?? 0)}
+            </strong>
+          </div>
+          {ledgerCustomer && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => printCreditStatementHtml(ledgerCustomer, ledger, null)}
+              className="gap-1 bg-white text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>Print Systematic Statement</span>
+            </Button>
+          )}
         </div>
-        <div className="space-y-2">
+        <div className="max-h-80 overflow-y-auto overscroll-contain scrollbar-thin space-y-2 pr-1">
           {ledger.map((entry, i) => (
             <div
               key={i}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm dark:border-gray-700"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm dark:border-gray-700 bg-white"
             >
               <div>
                 <p className="font-medium capitalize">{entry.type}</p>
@@ -425,16 +503,16 @@ export default function CustomersPage() {
               </div>
               <div className="text-right">
                 {entry.debit > 0 && (
-                  <p className="text-red-600">+{formatPrice(entry.debit)}</p>
+                  <p className="font-semibold text-red-600">+{formatPrice(entry.debit)}</p>
                 )}
                 {entry.credit > 0 && (
-                  <p className="text-green-600">−{formatPrice(entry.credit)}</p>
+                  <p className="font-semibold text-green-600">−{formatPrice(entry.credit)}</p>
                 )}
               </div>
             </div>
           ))}
           {ledger.length === 0 && (
-            <p className="text-center text-gray-500">No credit entries yet.</p>
+            <p className="text-center text-gray-500 py-6">No credit entries yet.</p>
           )}
         </div>
       </Modal>

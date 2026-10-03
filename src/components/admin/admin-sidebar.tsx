@@ -153,11 +153,11 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
   return (
     <aside
       className={cn(
-        "flex flex-col border-r border-gray-200 bg-white shadow-lg lg:shadow-none",
+        "flex flex-col border-r border-gray-200 bg-white shadow-lg lg:shadow-none h-full max-h-screen overflow-hidden",
         className
       )}
     >
-      <div className="flex items-center gap-2.5 border-b px-4 py-4">
+      <div className="flex items-center gap-2.5 border-b px-4 py-4 shrink-0 bg-white z-10">
         <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-green-200 bg-white p-0.5 shadow-sm">
           <Image
             src="/logo.png"
@@ -172,7 +172,7 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
           <span className="block text-[10px] font-semibold uppercase tracking-wider text-green-600">Admin Portal</span>
         </div>
       </div>
-      <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+      <nav className="flex-1 space-y-4 overflow-y-auto p-3 overscroll-contain scrollbar-thin scrollbar-thumb-gray-300 hover:scrollbar-thumb-gray-400">
         {navGroups.map((group) => (
           <div key={group.label}>
             <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -214,66 +214,88 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
             </div>
           </div>
         ))}
+
+        {/* Unified System Controls & Session Actions (Integrated into slide bar as a single part) */}
+        <div className="pt-2 border-t border-gray-100">
+          <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            System &amp; Session
+          </p>
+          <div className="space-y-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                void requestNotificationPermission();
+                unlockNotificationAudio();
+                testNotification();
+              }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              <BellRing className="h-4 w-4 text-green-600 shrink-0" />
+              <span className="flex-1 text-left truncate">Test notification</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) {
+                  unlockNotificationAudio();
+                  playNewOrderSound(`toggle-${Date.now()}`);
+                  toast.success("Order alert sound on");
+                } else {
+                  toast.message("Order alert sound off");
+                }
+              }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              {soundEnabled ? (
+                <Volume2 className="h-4 w-4 text-green-600 shrink-0" />
+              ) : (
+                <VolumeX className="h-4 w-4 text-gray-400 shrink-0" />
+              )}
+              <span className="flex-1 text-left truncate">
+                {soundEnabled ? "Order sound on" : "Order sound off"}
+              </span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.2 text-[10px] font-semibold",
+                  soundEnabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"
+                )}
+              >
+                {soundEnabled ? "ON" : "OFF"}
+              </span>
+            </button>
+
+            <Link
+              href="/dashboard"
+              onClick={onNavigate}
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-green-50 hover:text-green-700"
+            >
+              <UserCircle className="h-4 w-4 text-green-600 shrink-0" />
+              <span className="flex-1 truncate">My Profile &amp; Password</span>
+            </Link>
+
+            <Link
+              href="/"
+              onClick={onNavigate}
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              <Store className="h-4 w-4 text-green-600 shrink-0" />
+              <span className="flex-1 truncate">← Back to Store</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left truncate">Logout</span>
+            </button>
+          </div>
+        </div>
       </nav>
-      <div className="border-t p-3">
-        <button
-          type="button"
-          onClick={() => {
-            void requestNotificationPermission();
-            unlockNotificationAudio();
-            testNotification();
-          }}
-          className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-        >
-          <BellRing className="h-4 w-4 text-green-600" />
-          Test notification
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const next = !soundEnabled;
-            setSoundEnabled(next);
-            if (next) {
-              unlockNotificationAudio();
-              playNewOrderSound(`toggle-${Date.now()}`);
-              toast.success("Order alert sound on");
-            } else {
-              toast.message("Order alert sound off");
-            }
-          }}
-          className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-        >
-          {soundEnabled ? (
-            <Volume2 className="h-4 w-4 text-green-600" />
-          ) : (
-            <VolumeX className="h-4 w-4" />
-          )}
-          {soundEnabled ? "Order sound on" : "Order sound off"}
-        </button>
-        <Link
-          href="/dashboard"
-          onClick={onNavigate}
-          className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700"
-        >
-          <UserCircle className="h-4 w-4 text-green-600" />
-          My Profile &amp; Password
-        </Link>
-        <Link
-          href="/"
-          onClick={onNavigate}
-          className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-        >
-          ← Back to Store
-        </Link>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-        >
-          <LogOut className="h-4 w-4" />
-          Logout
-        </button>
-      </div>
     </aside>
   );
 }

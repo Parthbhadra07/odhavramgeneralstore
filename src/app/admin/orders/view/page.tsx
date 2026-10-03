@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, ShieldCheck, MessageCircle } from "lucide-react";
+import Link from "next/link";
+import { Plus, Trash2, Save, ShieldCheck, MessageCircle, Printer } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { orderService } from "@/services/order.service";
 import { productService } from "@/services/product.service";
@@ -272,7 +273,17 @@ function AdminOrderDetailContent() {
           </h1>
           <p className="text-sm text-gray-600">{formatDate(order.created_at)}</p>
         </div>
-        <OrderStatusBadge status={order.order_status} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/orders/invoice?id=${order.id}`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-xs hover:bg-gray-50 transition-colors"
+          >
+            <Printer className="h-3.5 w-3.5 text-emerald-600" />
+            Print Systematic Invoice
+          </Link>
+          <OrderStatusBadge status={order.order_status} />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -495,9 +506,9 @@ function AdminOrderDetailContent() {
             <Save className="h-4 w-4" /> Save Changes
           </Button>
         </div>
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="-mx-4 max-h-[380px] overflow-y-auto overscroll-contain scrollbar-thin px-4 sm:mx-0 sm:px-0">
         <table className="mb-4 w-full min-w-[32rem] text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 backdrop-blur-xs">
             <tr className="border-b text-left">
               <th className="py-2">Item</th>
               <th className="py-2">Qty</th>

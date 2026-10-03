@@ -28,6 +28,7 @@ export const purchaseService = {
     billNumber: string;
     invoiceDate: string;
     supplierId: string;
+    paymentType?: "credit" | "cash";
     items: {
       productId: string;
       barcode?: string;
@@ -47,6 +48,8 @@ export const purchaseService = {
     const {
       data: { user },
     } = await supabase.auth.getUser();
+
+    const paymentType = params.paymentType ?? "credit";
 
     let subtotal = 0;
     let cgst = 0;
@@ -87,6 +90,7 @@ export const purchaseService = {
         bill_number: params.billNumber,
         invoice_date: params.invoiceDate,
         supplier_id: params.supplierId,
+        payment_type: paymentType,
         subtotal,
         cgst,
         sgst,
@@ -106,12 +110,13 @@ export const purchaseService = {
     );
     if (itemsErr) throw itemsErr;
 
-    // Update product catalog latest purchase price, selling price, and mrp
+    // Update product catalog latest purchase price, selling price, mrp, AND learn preferred supplier
     for (const item of params.items) {
       try {
         await supabase
           .from("products")
           .update({
+            preferred_supplier_id: params.supplierId,
             purchase_price: item.purchaseRate,
             ...(item.sellingPrice ? { price: item.sellingPrice, selling_price: item.sellingPrice } : {}),
             ...(item.mrp ? { mrp: item.mrp } : {}),
@@ -121,19 +126,35 @@ export const purchaseService = {
       } catch {}
     }
 
-    const { data: supplier } = await supabase
-      .from("suppliers")
-      .select("outstanding_amount")
-      .eq("id", params.supplierId)
-      .single();
+    if (paymentType === "cash") {
+      // Instant cash settlement: record payment audit voucher, do not increase debt
+      try {
+        await supabase.from("supplier_payments").insert({
+          supplier_id: params.supplierId,
+          amount: total,
+          payment_method: "cash",
+          reference_number: `CASH-PUR-${params.billNumber}`,
+          notes: `Instant Cash settlement for Purchase Bill #${params.billNumber}`,
+          payment_date: params.invoiceDate,
+          created_by: user?.id ?? null,
+        });
+      } catch {}
+    } else {
+      // Credit purchase: add to supplier's outstanding balance
+      const { data: supplier } = await supabase
+        .from("suppliers")
+        .select("outstanding_amount")
+        .eq("id", params.supplierId)
+        .single();
 
-    await supabase
-      .from("suppliers")
-      .update({
-        outstanding_amount: Number(supplier?.outstanding_amount ?? 0) + total,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", params.supplierId);
+      await supabase
+        .from("suppliers")
+        .update({
+          outstanding_amount: Number(supplier?.outstanding_amount ?? 0) + total,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", params.supplierId);
+    }
 
     return this.getById(billId) as Promise<PurchaseBill>;
   },
@@ -294,21 +315,29 @@ export const purchaseService = {
     if (error) throw error;
 
     if (bill.supplier_id) {
-      const { data: supplier } = await supabase
-        .from("suppliers")
-        .select("outstanding_amount")
-        .eq("id", bill.supplier_id)
-        .single();
-      await supabase
-        .from("suppliers")
-        .update({
-          outstanding_amount: Math.max(
-            0,
-            Number(supplier?.outstanding_amount ?? 0) - Number(bill.total_amount)
-          ),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", bill.supplier_id);
+      if (bill.payment_type !== "cash") {
+        const { data: supplier } = await supabase
+          .from("suppliers")
+          .select("outstanding_amount")
+          .eq("id", bill.supplier_id)
+          .single();
+        await supabase
+          .from("suppliers")
+          .update({
+            outstanding_amount: Math.max(
+              0,
+              Number(supplier?.outstanding_amount ?? 0) - Number(bill.total_amount)
+            ),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", bill.supplier_id);
+      } else {
+        await supabase
+          .from("supplier_payments")
+          .delete()
+          .eq("supplier_id", bill.supplier_id)
+          .eq("reference_number", `CASH-PUR-${bill.bill_number}`);
+      }
     }
   },
 

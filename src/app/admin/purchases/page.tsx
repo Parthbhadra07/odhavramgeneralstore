@@ -38,6 +38,7 @@ import { Modal } from "@/components/admin/modal";
 import { BarcodeScanner } from "@/components/erp/barcode-scanner";
 import { formatPrice, formatDate } from "@/utils/format";
 import { printReceipt } from "@/components/erp/receipt-print";
+import { printSystematicDocument } from "@/utils/document-print";
 import { lineItemInclusiveGst } from "@/utils/gst";
 import { APP_NAME, STORE_ADDRESS } from "@/lib/constants";
 
@@ -66,6 +67,7 @@ const emptyForm = {
   billNumber: "",
   invoiceDate: new Date().toISOString().slice(0, 10),
   supplierId: "",
+  paymentType: "credit" as "credit" | "cash",
   productId: "",
   barcode: "",
   lotNumber: "",
@@ -459,11 +461,14 @@ export default function PurchasesPage() {
         billNumber,
         invoiceDate,
         supplierId,
+        paymentType: form.paymentType,
         items: itemsToSave,
       });
 
       toast.success(
-        `Purchase Invoice ${billNumber} saved successfully (${itemsToSave.length} items) — Stock inwarded!`
+        `Purchase ${billNumber} saved as ${
+          form.paymentType === "cash" ? "CASH PURCHASE" : "CREDIT PURCHASE"
+        } (${itemsToSave.length} items) — Stock inwarded!`
       );
       setShowForm(false);
       setForm(emptyForm);
@@ -494,6 +499,7 @@ export default function PurchasesPage() {
       billNumber: bill.bill_number,
       invoiceDate: bill.invoice_date,
       supplierId: bill.supplier_id,
+      paymentType: (bill.payment_type as "cash" | "credit") ?? "credit",
       productId: item.product_id,
       barcode: item.barcode ?? "",
       lotNumber: item.lot_number ?? "",
@@ -592,6 +598,7 @@ export default function PurchasesPage() {
       </div>
       <div><strong>Supplier:</strong> ${bill.suppliers?.name ?? "Wholesale Supplier"}</div>
       ${bill.suppliers?.gst_number ? `<div><strong>GSTIN:</strong> ${bill.suppliers.gst_number}</div>` : ""}
+      <div><strong>Payment Terms:</strong> ${bill.payment_type === "cash" ? "💵 CASH PURCHASE (PAID)" : "📋 CREDIT PURCHASE (UDHAAR)"}</div>
       <hr style="border-top:1px dashed #000;margin:8px 0"/>
       <div style="margin-bottom:6px"><strong>INWARD PRODUCTS (${items.length}):</strong></div>
       ${itemsRows}
@@ -618,6 +625,109 @@ export default function PurchasesPage() {
     document.body.appendChild(receiptHtml);
     printReceipt("purchase-print", "80mm");
     document.body.removeChild(receiptHtml);
+  };
+
+  // Systematic A4 Purchase Voucher / GRN Print
+  const printPurchaseA4 = (bill: PurchaseBill) => {
+    const items = bill.purchase_items ?? [];
+    printSystematicDocument(
+      {
+        docTitle: "PURCHASE INWARD VOUCHER / GRN",
+        docBadge: "ACCOUNTS & INWARD VOUCHER",
+        docNumber: bill.bill_number,
+        docDate: formatDate(bill.invoice_date),
+        partyTitle: "Distributor / Supplier Details",
+        partyDetails: {
+          name: bill.suppliers?.name ?? "Wholesale Supplier",
+          mobile: bill.suppliers?.mobile ?? undefined,
+          address: bill.suppliers?.address ?? undefined,
+          gstin: bill.suppliers?.gst_number ?? undefined,
+        },
+        metadata: [
+          { label: "Invoice Date", value: formatDate(bill.invoice_date) },
+          {
+            label: "Payment Terms",
+            value:
+              bill.payment_type === "cash"
+                ? "💵 CASH PURCHASE (Paid Full On Spot)"
+                : "📋 CREDIT PURCHASE (On Account / Udhaar)",
+          },
+          { label: "Items Count", value: `${items.length} product(s)` },
+          { label: "Total Units", value: `${items.reduce((acc, i) => acc + i.quantity, 0)} units` },
+        ],
+        columns: [
+          { header: "#", width: "35px", align: "center" },
+          { header: "Product / Item Inward", align: "left" },
+          { header: "Barcode / Batch", align: "left" },
+          { header: "Expiry", align: "center" },
+          { header: "Qty", align: "right" },
+          { header: "Unit Rate", align: "right" },
+          { header: "GST %", align: "center" },
+          { header: "Total Amount", align: "right" },
+        ],
+        rows: items.map((it, idx) => ({
+          cells: [
+            idx + 1,
+            it.products?.name ?? "Item",
+            [it.barcode ? `Barcode: ${it.barcode}` : "", it.batch_number ? `Batch: ${it.batch_number}` : ""].filter(Boolean).join(" · ") || "—",
+            it.expiry_date ? formatDate(it.expiry_date) : "—",
+            `${it.quantity} units`,
+            formatPrice(Number(it.purchase_rate || 0)),
+            `${it.gst_percentage || 0}%`,
+            formatPrice(Number(it.total_amount || 0)),
+          ],
+        })),
+        summaryRows: [
+          { label: "Taxable Subtotal", value: formatPrice(bill.subtotal) },
+          { label: "Input Tax Credit (CGST + SGST)", value: formatPrice(Number(bill.cgst || 0) + Number(bill.sgst || 0) + Number(bill.igst || 0)) },
+          { label: "Total Invoice Amount", value: formatPrice(bill.total_amount), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Merchandise physically verified, counted, and recorded in store inventory ledger.",
+          "Payment to be settled as per agreed credit terms with supplier.",
+        ],
+        signatories: ["Goods Received By", "Storekeeper Sign", "Authorized Signatory"],
+      },
+      `Purchase-Voucher-${bill.bill_number}`
+    );
+  };
+
+  const printPurchaseRegister = () => {
+    printSystematicDocument(
+      {
+        docTitle: "PURCHASE REGISTER AUDIT REPORT",
+        docBadge: "ACCOUNTS & TAX AUDIT COPY",
+        docDate: new Date().toLocaleDateString("en-IN", { dateStyle: "medium" }),
+        columns: [
+          { header: "#", width: "35px", align: "center" },
+          { header: "Bill #", align: "left" },
+          { header: "Date", align: "left" },
+          { header: "Supplier / Distributor", align: "left" },
+          { header: "Items", align: "center" },
+          { header: "GST Amount", align: "right" },
+          { header: "Total Amount", align: "right" },
+        ],
+        rows: bills.map((b, idx) => ({
+          cells: [
+            idx + 1,
+            b.bill_number,
+            formatDate(b.invoice_date),
+            b.suppliers?.name ?? "—",
+            `${(b.purchase_items ?? []).length} items`,
+            formatPrice(Number(b.cgst || 0) + Number(b.sgst || 0) + Number(b.igst || 0)),
+            formatPrice(b.total_amount),
+          ],
+        })),
+        summaryRows: [
+          { label: "Total Inward Bills", value: `${bills.length} bills`, isBold: true },
+          { label: "Total Purchase Turnover", value: formatPrice(bills.reduce((acc, b) => acc + Number(b.total_amount || 0), 0)), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Complete record of wholesale distributor purchase invoices inwarded into inventory.",
+        ],
+      },
+      "Purchase-Register-Report"
+    );
   };
 
   const supplierOptions = suppliers.map((s) => ({ value: s.id, label: s.name }));
@@ -655,6 +765,17 @@ export default function PurchasesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {bills.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={printPurchaseRegister}
+              className="gap-1.5 font-bold"
+            >
+              <Printer className="h-4 w-4 text-emerald-600" />
+              <span>Print Purchase Register</span>
+            </Button>
+          )}
           <Button onClick={openAddForm} className="gap-1.5 font-bold shadow-xs">
             <Plus className="h-4 w-4" />
             <span>New Purchase Bill</span>
@@ -736,7 +857,7 @@ export default function PurchasesPage() {
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2.5 block">
                 1. Distributor &amp; Invoice Header
               </span>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Input
                   label="Supplier Bill / Invoice #"
                   placeholder="e.g. INV-8942 / PUR-001"
@@ -760,6 +881,46 @@ export default function PurchasesPage() {
                   error={errors.supplierId}
                   required
                 />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">
+                    Payment Terms
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, paymentType: "cash" })}
+                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                        form.paymentType === "cash"
+                          ? "bg-emerald-600 text-white shadow-xs"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span>💵 Cash</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, paymentType: "credit" })}
+                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                        form.paymentType === "credit"
+                          ? "bg-amber-600 text-white shadow-xs"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span>📋 Credit (Udhaar)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 text-xs">
+                {form.paymentType === "cash" ? (
+                  <p className="text-emerald-700 font-medium">
+                    ✓ <strong>Cash Purchase:</strong> Paid on the spot — will NOT increase supplier outstanding payable debt.
+                  </p>
+                ) : (
+                  <p className="text-amber-700 font-medium">
+                    • <strong>Credit Purchase:</strong> Udhaar / On Account — will be added to supplier's outstanding balance.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1309,6 +1470,21 @@ export default function PurchasesPage() {
             },
           },
           {
+            key: "payment_type",
+            header: "Payment",
+            cell: (b) => (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                  b.payment_type === "cash"
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                    : "bg-amber-100 text-amber-800 border border-amber-300"
+                }`}
+              >
+                {b.payment_type === "cash" ? "💵 Cash" : "📋 Credit"}
+              </span>
+            ),
+          },
+          {
             key: "total",
             header: "Total Inward Amount",
             cell: (b) => (
@@ -1329,7 +1505,8 @@ export default function PurchasesPage() {
           <>
             <ActionButton icon={Pencil} label="Edit Purchase" onClick={() => openEdit(b)} variant="primary" />
             <ActionButton icon={Eye} label="View Purchase" onClick={() => setViewBill(b)} />
-            <ActionButton icon={Printer} label="Print Purchase" onClick={() => printPurchase(b)} />
+            <ActionButton icon={Printer} label="Print A4 Voucher" onClick={() => printPurchaseA4(b)} />
+            <ActionButton icon={Printer} label="Print Thermal Slip" onClick={() => printPurchase(b)} />
             <ActionButton icon={Trash2} label="Delete Purchase" onClick={() => handleDelete(b.id)} variant="danger" />
           </>
         )}
@@ -1345,7 +1522,7 @@ export default function PurchasesPage() {
         {viewBill && (
           <div className="space-y-4 text-xs sm:text-sm">
             {/* Header Voucher Card */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 rounded-xl bg-slate-50 p-4 border border-slate-200">
               <div>
                 <span className="text-[10px] uppercase font-bold text-slate-400 block">Bill Number</span>
                 <span className="font-mono font-bold text-slate-900 text-sm">{viewBill.bill_number}</span>
@@ -1357,6 +1534,18 @@ export default function PurchasesPage() {
               <div>
                 <span className="text-[10px] uppercase font-bold text-slate-400 block">Distributor</span>
                 <span className="font-bold text-slate-900">{viewBill.suppliers?.name ?? "—"}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Payment Terms</span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
+                    viewBill.payment_type === "cash"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-800"
+                  }`}
+                >
+                  {viewBill.payment_type === "cash" ? "💵 Cash (Paid)" : "📋 Credit (Udhaar)"}
+                </span>
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Amount</span>
@@ -1420,7 +1609,11 @@ export default function PurchasesPage() {
               </table>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button onClick={() => printPurchaseA4(viewBill)} variant="outline" className="gap-1.5 font-bold">
+                <Printer className="h-4 w-4 text-emerald-600" />
+                <span>Print A4 Voucher</span>
+              </Button>
               <Button onClick={() => printPurchase(viewBill)} variant="outline" className="gap-1.5 font-bold">
                 <Printer className="h-4 w-4" />
                 <span>Print Thermal Receipt</span>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { erpReportsService } from "@/services/erp";
-import { formatPrice } from "@/utils/format";
+import { formatPrice, formatDate } from "@/utils/format";
 import { Button } from "@/components/ui/button";
 import type { ProfitReport } from "@/types/erp";
 import {
@@ -26,6 +26,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
+import { printSystematicDocument } from "@/utils/document-print";
 
 type Period = "today" | "month" | "financial_year" | "custom";
 type LayoutMode = "accounting_t" | "schedule_iii";
@@ -76,7 +77,55 @@ export default function ProfitLossPage() {
   }, [period, selectedFY, selectedQuarter, dateFrom, dateTo]);
 
   const handlePrint = () => {
-    window.print();
+    if (!pl) return;
+    printSystematicDocument(
+      {
+        docTitle: "STATEMENT OF PROFIT & LOSS",
+        docBadge: "SCHEDULE III FINANCIAL STATEMENT",
+        docDate: new Date().toLocaleDateString("en-IN", { dateStyle: "medium" }),
+        financialYear: `FY ${selectedFY}`,
+        metadata: [
+          { label: "Accounting Period", value: period === "today" ? "Today" : period === "month" ? "Current Month" : period === "financial_year" ? `FY ${selectedFY} ${selectedQuarter !== "all" ? `(${selectedQuarter})` : ""}` : `${formatDate(dateFrom)} to ${formatDate(dateTo)}` },
+          { label: "Financial Year", value: `FY ${selectedFY}` },
+          { label: "Accounting Standard", value: "Indian GAAP / Schedule III Format" },
+        ],
+        columns: [
+          { header: "#", width: "40px", align: "center" },
+          { header: "Accounting Particulars", align: "left" },
+          { header: "Classification", align: "left" },
+          { header: "Amount", align: "right" },
+        ],
+        rows: [
+          { cells: [1, "I. Revenue from Operations (Gross Turnover)", "Revenue", formatPrice(pl.revenue)] },
+          { cells: [2, "II. Less: Sales Returns & Customer Allowances", "Deduction", `- ${formatPrice(pl.salesReturns)}`] },
+          { cells: [3, "III. Net Revenue from Operations (I - II)", "Net Revenue", formatPrice(pl.netSales ?? (pl.revenue - pl.salesReturns))] },
+          { cells: [4, "IV. Cost of Goods Sold (Materials Consumed / COGS)", "Direct Cost", formatPrice(pl.cogs)] },
+          { cells: [5, "V. Gross Profit Margin (III - IV)", "Trading Profit", formatPrice(pl.grossProfit)] },
+          { cells: [6, "VI. Other Operating Income (Delivery Fees + Return Credits)", "Other Income", `+ ${formatPrice(Number(pl.deliveryCharges || 0) + Number(pl.purchaseReturns || 0))}`] },
+          { cells: [7, "VII. Store Operating Overheads & Expenses", "Indirect Expenses", `- ${formatPrice(pl.expenses)}`] },
+          ...(pl.expensesBreakdown || []).map((e, idx) => ({
+            cells: [
+              `7.${idx + 1}`,
+              `   • ${e.category} Expenses`,
+              "Expense Breakdown",
+              `- ${formatPrice(e.amount)}`,
+            ],
+          })),
+          { cells: [8, "VIII. Sales & Bill Level Price Discounts", "Discounts", `- ${formatPrice(pl.discounts)}`] },
+          { cells: [9, "IX. Net Profit / (Loss) for the Period", "Bottom Line Profit", formatPrice(pl.netProfit)] },
+        ],
+        summaryRows: [
+          { label: "Gross Profit Margin", value: formatPrice(pl.grossProfit), isBold: true },
+          { label: "Net Profit / (Loss)", value: formatPrice(pl.netProfit), isBold: true, isHighlight: true },
+        ],
+        notes: [
+          "Financial statement generated in accordance with standard retail double-entry principles.",
+          "Inventory valuation calculated on FIFO / average landed acquisition cost basis.",
+        ],
+        signatories: ["Store Accountant", "Internal Auditor", "Proprietor / Authorized Signatory"],
+      },
+      `Profit-Loss-Statement-FY${selectedFY}`
+    );
   };
 
   const exportCsv = () => {
