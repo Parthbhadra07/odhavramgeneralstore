@@ -140,9 +140,13 @@ export default function ProfitLossPage() {
     if (!pl) return;
     const rows = [
       { Section: "1. Trading Account (Revenue)", Item: "Gross Sales Turnover", Amount: pl.revenue },
+      { Section: "1. Trading Account (Revenue)", Item: "POS Sales Turnover", Amount: pl.posRevenue ?? pl.revenue },
+      { Section: "1. Trading Account (Revenue)", Item: "Online Goods Turnover (Excl. Delivery)", Amount: pl.onlineProductSales ?? 0 },
       { Section: "1. Trading Account (Revenue)", Item: "Less: Sales Returns", Amount: -pl.salesReturns },
       { Section: "1. Trading Account (Revenue)", Item: "Net Sales Turnover", Amount: pl.netSales ?? (pl.revenue - pl.salesReturns) },
-      { Section: "1. Trading Account (Cost)", Item: "Cost of Goods Sold (COGS)", Amount: pl.cogs },
+      { Section: "1. Trading Account (Cost)", Item: "POS Cost of Goods Sold", Amount: pl.posCogs ?? (pl.cogs - (pl.onlineCogs ?? 0)) },
+      { Section: "1. Trading Account (Cost)", Item: "Online Orders Cost of Goods Sold", Amount: pl.onlineCogs ?? 0 },
+      { Section: "1. Trading Account (Cost)", Item: "Total Cost of Goods Sold (COGS)", Amount: pl.cogs },
       { Section: "1. Trading Account (Profit)", Item: "Gross Profit", Amount: pl.grossProfit },
       { Section: "2. Operating Revenue", Item: "Delivery Charges Inward", Amount: pl.deliveryCharges },
       { Section: "2. Operating Revenue", Item: "Purchase Return Credits", Amount: pl.purchaseReturns },
@@ -351,6 +355,11 @@ export default function ProfitLossPage() {
             <p className="mt-1 text-2xl font-extrabold text-emerald-950">{formatPrice(grossProfit)}</p>
             <p className="mt-0.5 text-xs text-emerald-700">
               Turnover − COGS ({formatPrice(cogs)})
+              {pl.onlineCogs !== undefined && pl.onlineCogs > 0 && (
+                <span className="block text-[10px] text-emerald-800 font-medium mt-0.5">
+                  POS Goods: {formatPrice(pl.posCogs ?? (cogs - pl.onlineCogs))} · Online Goods: {formatPrice(pl.onlineCogs)}
+                </span>
+              )}
             </p>
           </div>
 
@@ -428,7 +437,12 @@ export default function ProfitLossPage() {
                           <div className="flex justify-between items-start">
                             <div>
                               <span className="font-semibold text-slate-900">To Cost of Goods Sold (COGS)</span>
-                              <p className="text-[10px] text-slate-500">Direct purchase cost of inventory sold</p>
+                              <p className="text-[10px] text-slate-500">
+                                Purchase cost of inventory sold
+                                {pl.onlineCogs !== undefined && pl.onlineCogs > 0 ? (
+                                  <> (POS: {formatPrice(pl.posCogs ?? (cogs - pl.onlineCogs))} · Online: {formatPrice(pl.onlineCogs)})</>
+                                ) : null}
+                              </p>
                             </div>
                             <span className="font-mono font-bold text-slate-900">{formatPrice(cogs)}</span>
                           </div>
@@ -690,7 +704,14 @@ export default function ProfitLossPage() {
                       </td>
                     </tr>
                     <tr>
-                      <td className="p-2.5 pl-6">Cost of Goods Sold (COGS)</td>
+                      <td className="p-2.5 pl-6">
+                        Cost of Goods Sold (COGS)
+                        {pl.onlineCogs !== undefined && pl.onlineCogs > 0 && (
+                          <span className="block text-[10px] font-normal text-slate-500">
+                            POS Sales Cost: {formatPrice(pl.posCogs ?? (cogs - pl.onlineCogs))} · Online Orders Cost: {formatPrice(pl.onlineCogs)}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-2.5 text-right font-mono">{formatPrice(cogs)}</td>
                       <td className="p-2.5 text-right font-mono"></td>
                     </tr>

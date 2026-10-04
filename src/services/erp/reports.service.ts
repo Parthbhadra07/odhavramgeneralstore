@@ -47,7 +47,7 @@ export const erpReportsService = {
         .eq("sale_status", "completed"),
       supabase
         .from("orders")
-        .select("total_amount, delivery_charge, order_items(price, quantity)")
+        .select("total_amount, delivery_charge, order_items(price, quantity, product_id, products(purchase_price, price))")
         .gte("created_at", from)
         .lte("created_at", to)
         .neq("order_status", "cancelled"),
@@ -64,6 +64,7 @@ export const erpReportsService = {
     );
 
     let deliveryCharges = 0;
+    let onlineCogs = 0;
     for (const r of orderRows) {
       const tot = Number(r.total_amount || 0);
       let del = r.delivery_charge != null && !Number.isNaN(Number(r.delivery_charge))
@@ -77,6 +78,16 @@ export const erpReportsService = {
         del = Math.max(0, tot - sub);
       }
       deliveryCharges += (del ?? 0);
+
+      // Cost of goods sold for online orders in this order
+      if (Array.isArray((r as any).order_items)) {
+        for (const item of (r as any).order_items) {
+          const prod = item.products as { purchase_price?: number; price?: number } | null;
+          const pp = Number(prod?.purchase_price ?? 0);
+          const unitCost = pp > 0 ? pp : Number(item.price ?? prod?.price ?? 0) * 0.85;
+          onlineCogs += Number(item.quantity || 1) * unitCost;
+        }
+      }
     }
 
     // Pure merchandise sales (Gross Merchandise Value without delivery charges)
@@ -91,6 +102,7 @@ export const erpReportsService = {
       posRevenue,
       onlineRevenue: onlineGrossTotal,
       onlineProductRevenue,
+      onlineCogs,
       discounts,
       deliveryCharges,
       deliveryFuelExpense,
@@ -107,6 +119,7 @@ export const erpReportsService = {
       purchaseReturnRes,
       salesReturnRes,
       posItemsRes,
+      orderItemsRes,
       purchaseBillsRes,
     ] = await Promise.all([
       this.salesInRange(from, to),
@@ -124,10 +137,16 @@ export const erpReportsService = {
         .lte("return_date", to.slice(0, 10)),
       supabase
         .from("pos_sale_items")
-        .select("quantity, rate, product_id, pos_sales!inner(created_at, sale_status), products(purchase_price)")
+        .select("quantity, rate, product_id, pos_sales!inner(created_at, sale_status), products(purchase_price, price)")
         .gte("pos_sales.created_at", from)
         .lte("pos_sales.created_at", to)
         .eq("pos_sales.sale_status", "completed"),
+      supabase
+        .from("order_items")
+        .select("quantity, price, product_id, orders!inner(created_at, order_status), products(purchase_price, price)")
+        .gte("orders.created_at", from)
+        .lte("orders.created_at", to)
+        .neq("orders.order_status", "cancelled"),
       supabase
         .from("purchase_bills")
         .select("total_amount")
@@ -160,13 +179,31 @@ export const erpReportsService = {
       amount,
     }));
 
-    // Cost of Goods Sold from line items
-    let cogs = 0;
+    // Cost of Goods Sold from line items: POS sales merchandise cost
+    let posCogs = 0;
     for (const item of posItemsRes.data ?? []) {
-      const pp =
-        (item.products as { purchase_price?: number } | null)?.purchase_price ?? 0;
-      cogs += item.quantity * Number(pp);
+      const prod = item.products as { purchase_price?: number; price?: number } | null;
+      const pp = Number(prod?.purchase_price ?? 0);
+      const unitCost = pp > 0 ? pp : Number(item.rate ?? prod?.price ?? 0) * 0.85;
+      posCogs += Number(item.quantity || 1) * unitCost;
     }
+
+    // Cost of Goods Sold from online orders merchandise cost
+    let onlineCogs = 0;
+    const directOrderItems = orderItemsRes.data ?? [];
+    if (directOrderItems.length > 0) {
+      for (const item of directOrderItems) {
+        const prod = item.products as { purchase_price?: number; price?: number } | null;
+        const pp = Number(prod?.purchase_price ?? 0);
+        const unitCost = pp > 0 ? pp : Number(item.price ?? prod?.price ?? 0) * 0.85;
+        onlineCogs += Number(item.quantity || 1) * unitCost;
+      }
+    } else {
+      onlineCogs = sales.onlineCogs ?? 0;
+    }
+
+    // Combined Cost of Goods Sold
+    const cogs = Math.round((posCogs + onlineCogs) * 100) / 100;
 
     // Standard Double-Entry Accounting Equations
     // 1. Trading Account (Goods Sold):
@@ -192,7 +229,9 @@ export const erpReportsService = {
       posRevenue: sales.posRevenue,
       onlineRevenue: sales.onlineRevenue,
       onlineProductSales: sales.onlineProductRevenue,
-      cogs: Math.round(cogs * 100) / 100,
+      cogs,
+      posCogs: Math.round(posCogs * 100) / 100,
+      onlineCogs: Math.round(onlineCogs * 100) / 100,
       grossProfit,
       grossProfitMargin,
       purchaseReturns,

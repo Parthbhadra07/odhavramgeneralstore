@@ -441,7 +441,14 @@ export default function AdminReportsPage() {
                     <span className="font-mono">{formatPrice(netSales)}</span>
                   </div>
                   <div className="flex justify-between py-1 text-slate-700">
-                    <span>2. Cost of Goods Sold (Purchase Cost)</span>
+                    <div>
+                      <span>2. Cost of Goods Sold (Purchase Cost)</span>
+                      {profitLoss.onlineCogs !== undefined && profitLoss.onlineCogs > 0 && (
+                        <p className="text-[10px] text-slate-400">
+                          POS: {formatPrice(profitLoss.posCogs ?? (cogs - profitLoss.onlineCogs))} · Online: {formatPrice(profitLoss.onlineCogs)}
+                        </p>
+                      )}
+                    </div>
                     <span className="font-mono font-bold text-slate-900">- {formatPrice(cogs)}</span>
                   </div>
                   <div className="flex justify-between py-1.5 bg-emerald-50 px-2 rounded font-extrabold text-emerald-950 border border-emerald-200">

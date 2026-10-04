@@ -639,6 +639,8 @@ export interface ProfitReport {
   onlineRevenue?: number;
   onlineProductSales?: number;
   cogs: number;
+  posCogs?: number;
+  onlineCogs?: number;
   grossProfit: number;
   grossProfitMargin?: number;
   purchaseReturns: number;
