@@ -2,17 +2,51 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, X, Store } from "lucide-react";
+import { Menu, X, Store, Bell } from "lucide-react";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { AdminPrinterSettings } from "@/components/admin/admin-printer-settings";
 import { BluetoothDevicePickerModal } from "@/components/admin/bluetooth-device-picker-modal";
 import { DesktopInstallPrompt } from "@/components/admin/desktop-install-prompt";
 import { FinancialYearSwitcher } from "@/components/admin/financial-year-switcher";
 import { OfflineStatusBanner } from "@/components/erp/offline-status-banner";
-import { AdminOrderNotificationsProvider } from "@/components/admin/admin-order-notifications-provider";
+import {
+  AdminOrderNotificationsProvider,
+  useAdminOrderNotifications,
+} from "@/components/admin/admin-order-notifications-provider";
 import { useDailyAutoRefill } from "@/hooks/use-daily-auto-refill";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
+
+function AdminNotificationBell({ compact }: { compact?: boolean }) {
+  const { soundEnabled, testNotification, newOrderCount } =
+    useAdminOrderNotifications();
+
+  return (
+    <button
+      type="button"
+      onClick={testNotification}
+      title={
+        soundEnabled
+          ? "Online Order Alerts Active — Click to test chime"
+          : "Alerts Muted — Click to test sound"
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition shadow-xs",
+        soundEnabled
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+          : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+      )}
+    >
+      <Bell className="h-3.5 w-3.5 text-emerald-600" />
+      {!compact && <span>{soundEnabled ? "Alerts On" : "Muted"}</span>}
+      {newOrderCount > 0 && (
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white animate-pulse">
+          {newOrderCount}
+        </span>
+      )}
+    </button>
+  );
+}
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -67,6 +101,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <OfflineStatusBanner compact />
             </div>
             <div className="flex items-center gap-3">
+              <AdminNotificationBell />
               <FinancialYearSwitcher />
               <DesktopInstallPrompt />
               <AdminPrinterSettings />
@@ -98,6 +133,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              <AdminNotificationBell compact />
               <FinancialYearSwitcher compact />
               <OfflineStatusBanner compact />
               <div className="hidden sm:inline-flex">

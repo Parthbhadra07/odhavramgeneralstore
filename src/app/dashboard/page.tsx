@@ -16,12 +16,18 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  ShoppingBag,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { profileSchema } from "@/lib/validators";
 import { authService } from "@/services/auth.service";
+import { orderService } from "@/services/order.service";
+import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { formatPrice, formatDate } from "@/utils/format";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import type { Order } from "@/types/database";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -41,6 +47,16 @@ export default function ProfilePage() {
     emailOtp?: string;
     sentEmail?: string;
   } | null>(null);
+
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+
+  useEffect(() => {
+    if (user?.id) {
+      orderService.getByUser(user.id).then((ords) => {
+        setRecentOrders(ords.slice(0, 3));
+      }).catch(() => {});
+    }
+  }, [user]);
 
   const {
     register,
@@ -425,6 +441,76 @@ export default function ProfilePage() {
               </Button>
             </div>
           </form>
+        )}
+      </div>
+
+      {/* Recent Online Orders Widget on Customer Dashboard */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 text-green-700">
+              <ShoppingBag className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Recent Online Orders</h2>
+              <p className="text-xs text-slate-500">Track and view your recent grocery orders</p>
+            </div>
+          </div>
+          <Link
+            href="/dashboard/orders"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-800"
+          >
+            All Purchases <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        {recentOrders.length === 0 ? (
+          <div className="py-8 text-center">
+            <ShoppingBag className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+            <p className="text-sm font-semibold text-slate-700">No online orders placed yet</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Explore fresh groceries and household essentials in our store!
+            </p>
+            <Link
+              href="/products"
+              className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-xs font-semibold text-white hover:bg-green-700 transition"
+            >
+              Start Shopping
+            </Link>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {recentOrders.map((ord) => (
+              <div
+                key={ord.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 transition hover:border-green-200 hover:bg-green-50/20"
+              >
+                <div>
+                  <p className="font-mono text-xs font-bold text-green-800">
+                    {ord.order_number ?? ord.id.slice(0, 8)}
+                  </p>
+                  <p className="text-[11px] text-slate-500">{formatDate(ord.created_at)}</p>
+                </div>
+                <div>
+                  <OrderStatusBadge status={ord.order_status} />
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-slate-900">{formatPrice(ord.total_amount)}</p>
+                  <p className="text-[10px] text-slate-500">
+                    {Number(ord.delivery_charge ?? 0) === 0 ? "Free Delivery" : `+${formatPrice(Number(ord.delivery_charge))} del.`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/dashboard/orders/view?id=${ord.id}`}
+                    className="rounded-lg bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-green-800 shadow-xs transition"
+                  >
+                    View Details
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

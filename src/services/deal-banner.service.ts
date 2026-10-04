@@ -215,9 +215,37 @@ export const dealBannerService = {
   },
 
   async get(): Promise<DealBannerConfig> {
-    let loadedConfig: DealBannerConfig | null = null;
+    // 1. Try server API route first (handles service-role database sync cleanly)
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/banners", { cache: "no-store" });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.banners)) {
+            if (json.banners.length === 0) {
+              const emptyConfig: DealBannerConfig = { enabled: false, banners: [] };
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyConfig));
+              } catch {}
+              return emptyConfig;
+            }
+            const banners: DealBannerItem[] = (json.banners as any[]).map((row: any) => deserializeRowToBanner(row));
+            const config: DealBannerConfig = {
+              enabled: banners.some((b: DealBannerItem) => b.enabled),
+              banners,
+            };
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+            } catch {}
+            return config;
+          }
+        }
+      } catch {
+        // network or server error, try direct Supabase
+      }
+    }
 
-    // 1. Try Supabase first if available
+    // 2. Direct Supabase client query
     try {
       const supabase = createClient();
       if (supabase) {
@@ -226,70 +254,50 @@ export const dealBannerService = {
           .select("*")
           .order("created_at", { ascending: true });
 
-        if (!error && Array.isArray(data) && data.length > 0) {
-          const banners = data.map(deserializeRowToBanner);
-          loadedConfig = {
-            enabled: banners.some((b) => b.enabled),
+        if (!error && Array.isArray(data)) {
+          if (data.length === 0) {
+            const emptyConfig: DealBannerConfig = { enabled: false, banners: [] };
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyConfig));
+              } catch {}
+            }
+            return emptyConfig;
+          }
+          const banners: DealBannerItem[] = (data || []).map((row: any) => deserializeRowToBanner(row));
+          const config: DealBannerConfig = {
+            enabled: banners.some((b: DealBannerItem) => b.enabled),
             banners,
           };
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+            } catch {}
+          }
+          return config;
         }
       }
     } catch {
-      // Supabase unavailable or network offline, proceed to localStorage cache
+      // offline fallback
     }
 
-    // 2. Check localStorage cache if Supabase didn't return data
-    if (!loadedConfig && typeof window !== "undefined") {
+    // 3. Offline localStorage cache fallback
+    if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored) as Partial<DealBannerConfig>;
-          if (Array.isArray(parsed.banners) && parsed.banners.length > 0) {
-            loadedConfig = {
-              enabled: parsed.enabled ?? true,
+          if (Array.isArray(parsed.banners)) {
+            return {
+              enabled: parsed.enabled ?? (parsed.banners.length > 0),
               banners: parsed.banners,
             };
           }
         }
-
-        // Migrate from legacy single banner key if available
-        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-        if (!loadedConfig && legacy) {
-          const parsedLegacy = JSON.parse(legacy);
-          const migratedBanner: DealBannerItem = {
-            id: "legacy-deal-banner",
-            type: "deal",
-            enabled: parsedLegacy.enabled ?? true,
-            title: parsedLegacy.title || DEFAULT_DEAL_BANNER.title,
-            subtitle: parsedLegacy.subtitle || DEFAULT_DEAL_BANNER.subtitle,
-            badgeText: parsedLegacy.badgeText || DEFAULT_DEAL_BANNER.badgeText,
-            discountHighlight: parsedLegacy.discountHighlight || DEFAULT_DEAL_BANNER.discountHighlight,
-            endDate: parsedLegacy.endDate || "realtime_daily",
-            timerMode: parsedLegacy.endDate ? "custom" : "realtime_daily",
-            buttonText: parsedLegacy.buttonText || DEFAULT_DEAL_BANNER.buttonText,
-            buttonLink: parsedLegacy.buttonLink || DEFAULT_DEAL_BANNER.buttonLink,
-            theme: parsedLegacy.theme || "flame",
-            imageUrl: parsedLegacy.bannerImageUrl || null,
-            displayOrder: 1,
-          };
-          loadedConfig = {
-            enabled: parsedLegacy.enabled ?? true,
-            banners: [migratedBanner, DEFAULT_PHOTO_BANNER],
-          };
-        }
-      } catch {
-        // fallback to defaults on error
-      }
-    }
-
-    const config = loadedConfig || dealBannerService.getDefaults();
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
       } catch {}
     }
-    return config;
+
+    return dealBannerService.getDefaults();
   },
 
   async renewBanner(id: string, duration: "today" | "24h" | "3d" | "7d" = "today"): Promise<DealBannerConfig> {
@@ -308,7 +316,7 @@ export const dealBannerService = {
       timerMode = "custom";
     }
 
-    const updatedBanners = (config.banners || []).map((b) => {
+    const updatedBanners = (config.banners || []).map((b: DealBannerItem) => {
       if (b.id === id) {
         return {
           ...b,
@@ -330,10 +338,56 @@ export const dealBannerService = {
   },
 
   async deleteBanner(id: string): Promise<DealBannerConfig> {
+    // 1. Try server API delete
+    try {
+      const res = await fetch("/api/banners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) {
+          const remaining: DealBannerItem[] = Array.isArray(json.banners)
+            ? (json.banners as any[]).map((row: any) => deserializeRowToBanner(row))
+            : [];
+          const updatedConfig: DealBannerConfig = {
+            enabled: remaining.some((b: DealBannerItem) => b.enabled),
+            banners: remaining,
+          };
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedConfig));
+              window.dispatchEvent(new Event("deal-banner-updated"));
+            } catch {}
+          }
+          return updatedConfig;
+        }
+      }
+    } catch (err) {
+      console.warn("[dealBannerService] API delete notice:", err);
+    }
+
+    // 2. Direct Supabase delete fallback
+    try {
+      const supabase = createClient();
+      if (supabase) {
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        if (isUUID) {
+          await supabase.from("deal_banners").delete().eq("id", id);
+        } else {
+          await supabase
+            .from("deal_banners")
+            .delete()
+            .ilike("subtitle", `%"originalId":"${id}"%`);
+        }
+      }
+    } catch {}
+
     const current = await dealBannerService.get();
     const updated: DealBannerConfig = {
       ...current,
-      banners: (current.banners || []).filter((b) => b.id !== id),
+      banners: (current.banners || []).filter((b: DealBannerItem) => b.id !== id),
     };
     if (updated.banners.length === 0) {
       updated.enabled = false;
@@ -342,17 +396,43 @@ export const dealBannerService = {
   },
 
   async save(config: DealBannerConfig): Promise<DealBannerConfig> {
-    // 1. Save to localStorage immediately and notify listeners
+    // 1. Save to database via /api/banners (bypasses RLS issues with service role)
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/banners", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "save", banners: config.banners || [] }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.banners)) {
+            const savedBanners: DealBannerItem[] = (json.banners as any[]).map((row: any) => deserializeRowToBanner(row));
+            const savedConfig: DealBannerConfig = {
+              enabled: savedBanners.some((b: DealBannerItem) => b.enabled),
+              banners: savedBanners,
+            };
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(savedConfig));
+              window.dispatchEvent(new Event("deal-banner-updated"));
+            } catch {}
+            return savedConfig;
+          }
+        }
+      } catch (err) {
+        console.warn("[dealBannerService] API save error:", err);
+      }
+    }
+
+    // 2. Save to localStorage immediately and notify listeners
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
         window.dispatchEvent(new Event("deal-banner-updated"));
-      } catch {
-        // ignore storage error
-      }
+      } catch {}
     }
 
-    // 2. Sync to Supabase in background
+    // 3. Direct Supabase sync fallback
     try {
       const supabase = createClient();
       if (supabase) {

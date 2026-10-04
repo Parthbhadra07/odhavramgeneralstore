@@ -65,6 +65,8 @@ export const analyticsService = {
       todayOnlineItemsSubtotal: orderStats.todayItemsSubtotal,
       todayOnlineDeliveryCharges: orderStats.todayDeliveryCharges,
       todayOnlineOrders: orderStats.todayOrders,
+      recentOnlineOrders: orderStats.recentOrders,
+      pendingOnlineOrders: orderStats.pendingOrdersList,
       monthlyOnlineItemsSubtotal: orderStats.monthlyItemsSubtotal,
       monthlyOnlineDeliveryCharges: orderStats.monthlyDeliveryCharges,
       todayPosSales: posToday.total,

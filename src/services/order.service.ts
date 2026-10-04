@@ -134,7 +134,27 @@ export const orderService = {
 
     const { data, error } = await query;
     if (error) throw error;
-    return (data ?? []) as Order[];
+
+    // Auto-resolve delivery_charge and subtotal if delivery_charge column was missing in DB
+    const resolved = (data ?? []).map((o: any) => {
+      const tot = Number(o.total_amount || 0);
+      let del = o.delivery_charge != null && !Number.isNaN(Number(o.delivery_charge))
+        ? Number(o.delivery_charge)
+        : null;
+      if (del == null && Array.isArray(o.order_items) && o.order_items.length > 0) {
+        const sub = o.order_items.reduce(
+          (s: number, i: any) => s + Number(i.price || 0) * Number(i.quantity || 1),
+          0
+        );
+        del = Math.max(0, tot - sub);
+      }
+      return {
+        ...o,
+        delivery_charge: del ?? 0,
+      };
+    });
+
+    return resolved as Order[];
   },
 
   async generateOrderNumber(): Promise<string> {
@@ -329,6 +349,36 @@ export const orderService = {
       console.warn("Customer sync on order:", err);
     }
 
+    // Insert order notification into database for admin alerts
+    try {
+      await supabase.from("notifications").insert({
+        type: "new_order",
+        title: `New Online Order #${orderNumber}`,
+        message: `Order #${orderNumber} received from ${params.customerName || "Customer"} · ₹${Number(params.totalAmount).toFixed(2)}`,
+        reference_type: "order",
+        reference_id: order.id,
+        is_read: false,
+      });
+    } catch (notifErr) {
+      console.warn("Could not insert order notification:", notifErr);
+    }
+
+    // Dispatch browser event for real-time sound and alert in any open admin tabs
+    if (typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("new-order-received", {
+            detail: {
+              id: order.id,
+              order_number: orderNumber,
+              customer_name: params.customerName,
+              total_amount: params.totalAmount,
+            },
+          })
+        );
+      } catch {}
+    }
+
     const full = await this.getById(order.id);
     if (full) return full;
 
@@ -382,6 +432,34 @@ export const orderService = {
 
     if (error) throw new Error(parseDbError(error));
     return data as Order;
+  },
+
+  async wipeDeliveryCharge(orderId: string): Promise<Order> {
+    const supabase = requireClient();
+    const existing = await this.getById(orderId);
+    if (!existing) throw new Error("Order not found");
+
+    // Calculate actual line items subtotal
+    const itemsSubtotal = (existing.order_items && existing.order_items.length > 0)
+      ? existing.order_items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0)
+      : Math.max(0, Number(existing.total_amount) - Number(existing.delivery_charge ?? 0));
+
+    // Update order with 0 delivery charge and total_amount equal to items subtotal
+    const updated = await this.updateOrderTotals({
+      orderId,
+      totalAmount: itemsSubtotal,
+      deliveryCharge: 0,
+    });
+
+    try {
+      await supabase.from("tracking_history").insert({
+        order_id: orderId,
+        status: existing.order_status,
+        note: "Delivery fee wiped / waived (Free Delivery applied by store)",
+      });
+    } catch {}
+
+    return updated;
   },
 
   async assignDeliveryPerson(orderId: string, deliveryPerson: string) {
@@ -723,47 +801,78 @@ export const orderService = {
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const { data: orders } = await supabase
+    // Resilient query: select * and order_items without assuming delivery_charge column exists in DB
+    let orders: any[] = [];
+    const { data: withItems, error: itemsError } = await supabase
       .from("orders")
-      .select("id, order_number, customer_name, customer_phone, total_amount, delivery_charge, order_status, created_at, payment_status, tracking_notes")
-      .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER");
+      .select("*, order_items(price, quantity)")
+      .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER")
+      .order("created_at", { ascending: false });
 
-    const all = orders ?? [];
+    if (!itemsError && withItems) {
+      orders = withItems;
+    } else {
+      const { data: fallback } = await supabase
+        .from("orders")
+        .select("*")
+        .or("tracking_notes.is.null,tracking_notes.neq.DELETED_ORDER")
+        .order("created_at", { ascending: false });
+      orders = fallback ?? [];
+    }
+
+    const all = orders;
     const active = (o: { order_status: string }) =>
       !["delivered", "cancelled"].includes(o.order_status);
 
-    const todayOrders = all
-      .filter((o) => new Date(o.created_at) >= today && o.order_status !== "cancelled")
-      .map((o) => {
-        const del = Math.max(0, Number(o.delivery_charge ?? 0));
-        const tot = Number(o.total_amount ?? 0);
-        const sub = Math.max(0, tot - del);
-        return {
-          id: o.id,
-          order_number: o.order_number || o.id?.slice(0, 8),
-          customer_name: o.customer_name || "Customer",
-          customer_phone: o.customer_phone || "",
-          order_status: o.order_status,
-          created_at: o.created_at,
-          payment_status: o.payment_status,
-          subtotal: sub,
-          delivery_charge: del,
-          total_amount: tot,
-        };
-      })
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const mapOrder = (o: any) => {
+      const tot = Number(o.total_amount ?? 0);
+      let sub = 0;
+      let del = 0;
 
-    const monthOrders = all
-      .filter((o) => new Date(o.created_at) >= monthStart && o.order_status !== "cancelled")
-      .map((o) => {
-        const del = Math.max(0, Number(o.delivery_charge ?? 0));
-        const tot = Number(o.total_amount ?? 0);
-        return {
-          subtotal: Math.max(0, tot - del),
-          delivery_charge: del,
-          total_amount: tot,
-        };
-      });
+      if (o.delivery_charge != null && !Number.isNaN(Number(o.delivery_charge))) {
+        del = Math.max(0, Number(o.delivery_charge));
+        sub = Math.max(0, tot - del);
+      } else if (Array.isArray(o.order_items) && o.order_items.length > 0) {
+        sub = o.order_items.reduce(
+          (s: number, i: any) => s + Number(i.price || 0) * Number(i.quantity || 1),
+          0
+        );
+        del = Math.max(0, tot - sub);
+      } else {
+        sub = tot;
+        del = 0;
+      }
+
+      return {
+        id: o.id,
+        order_number: o.order_number || o.id?.slice(0, 8),
+        customer_name: o.customer_name || "Customer",
+        customer_phone: o.customer_phone || "",
+        order_status: o.order_status,
+        created_at: o.created_at,
+        payment_status: o.payment_status,
+        payment_method: o.payment_method,
+        subtotal: sub,
+        delivery_charge: del,
+        total_amount: tot,
+      };
+    };
+
+    const mappedAll = all.map(mapOrder);
+
+    const todayOrders = mappedAll.filter(
+      (o) => new Date(o.created_at) >= today && o.order_status !== "cancelled"
+    );
+
+    const monthOrders = mappedAll.filter(
+      (o) => new Date(o.created_at) >= monthStart && o.order_status !== "cancelled"
+    );
+
+    // Recent orders: last 10 orders across store
+    const recentOrders = mappedAll.slice(0, 10);
+
+    // Pending orders list requiring action
+    const pendingOrdersList = mappedAll.filter((o) => active(o));
 
     const todaySales = todayOrders.reduce((s, o) => s + o.total_amount, 0);
     const todayDeliveryCharges = todayOrders.reduce((s, o) => s + o.delivery_charge, 0);
@@ -781,6 +890,8 @@ export const orderService = {
       todayItemsSubtotal,
       todayDeliveryCharges,
       todayOrders,
+      recentOrders,
+      pendingOrdersList,
       monthlySales,
       monthlyItemsSubtotal,
       monthlyDeliveryCharges,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Search, Eye, Printer, Trash2 } from "lucide-react";
+import { Search, Eye, Printer, Trash2, Truck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { orderService } from "@/services/order.service";
 import { useAdminOrderNotifications } from "@/hooks/use-admin-order-notifications";
@@ -22,6 +22,8 @@ export default function AdminOrdersPage() {
   const [dateTo, setDateTo] = useState("");
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [wipingDeliveryOrder, setWipingDeliveryOrder] = useState<Order | null>(null);
+  const [wiping, setWiping] = useState(false);
 
   const load = useCallback(() => {
     orderService
@@ -43,6 +45,23 @@ export default function AdminOrdersPage() {
       toast.error(err instanceof Error ? err.message : "Failed to delete order");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleWipeDelivery = async () => {
+    if (!wipingDeliveryOrder) return;
+    setWiping(true);
+    try {
+      await orderService.wipeDeliveryCharge(wipingDeliveryOrder.id);
+      toast.success(
+        `Delivery fee wiped for order #${wipingDeliveryOrder.order_number || wipingDeliveryOrder.id.slice(0, 8)}. Delivery is now FREE!`
+      );
+      setWipingDeliveryOrder(null);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to wipe delivery fee");
+    } finally {
+      setWiping(false);
     }
   };
 
@@ -202,7 +221,19 @@ export default function AdminOrdersPage() {
                       Del: {Number(order.delivery_charge ?? 0) === 0 ? (
                         <span className="font-semibold text-emerald-700">FREE</span>
                       ) : (
-                        <span className="font-semibold text-blue-700">+{formatPrice(Number(order.delivery_charge))}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="font-semibold text-blue-700">
+                            +{formatPrice(Number(order.delivery_charge))}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setWipingDeliveryOrder(order)}
+                            className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 cursor-pointer"
+                            title="Wipe delivery fee for this order"
+                          >
+                            Wipe fee
+                          </button>
+                        </span>
                       )}
                     </div>
                   </td>
@@ -213,6 +244,23 @@ export default function AdminOrdersPage() {
                     {formatDate(order.created_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setWipingDeliveryOrder(order)}
+                      className={cn(
+                        "mr-2 inline-flex transition-colors cursor-pointer",
+                        Number(order.delivery_charge ?? 0) > 0
+                          ? "text-blue-600 hover:text-blue-800"
+                          : "text-gray-400 hover:text-gray-600"
+                      )}
+                      title={
+                        Number(order.delivery_charge ?? 0) > 0
+                          ? "Wipe Delivery Fee (Make FREE)"
+                          : "Delivery fee is already FREE"
+                      }
+                    >
+                      <Truck className="h-4 w-4" />
+                    </button>
                     <Link
                       href={`/admin/orders/view?id=${order.id}`}
                       className="mr-2 inline-flex text-green-700 hover:text-green-900"
@@ -291,6 +339,85 @@ export default function AdminOrdersPage() {
                 className="bg-red-600 hover:bg-red-700 text-white"
               >
                 Delete Order
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {wipingDeliveryOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600 shrink-0">
+                <Truck className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Wipe Delivery Fee?</h3>
+                <p className="text-xs text-gray-500 font-mono">
+                  #{wipingDeliveryOrder.order_number ?? wipingDeliveryOrder.id.slice(0, 8)}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm text-gray-600">
+              Make delivery <strong>FREE (₹0.00)</strong> for customer{" "}
+              <strong>{wipingDeliveryOrder.customer_name || "Customer"}</strong>?
+            </p>
+
+            <div className="mt-3 space-y-1.5 rounded-lg bg-blue-50/70 border border-blue-200 p-3 text-xs text-blue-900">
+              <div className="flex justify-between">
+                <span>Items Subtotal:</span>
+                <span className="font-bold">
+                  {formatPrice(
+                    Math.max(
+                      0,
+                      Number(wipingDeliveryOrder.total_amount) -
+                        Number(wipingDeliveryOrder.delivery_charge ?? 0)
+                    )
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between text-blue-700">
+                <span>Current Delivery Fee:</span>
+                <span className="line-through font-semibold">
+                  {Number(wipingDeliveryOrder.delivery_charge ?? 0) === 0
+                    ? "FREE"
+                    : formatPrice(Number(wipingDeliveryOrder.delivery_charge))}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-blue-200 pt-1.5 font-bold text-emerald-800 text-sm">
+                <span>New Grand Total:</span>
+                <span>
+                  {formatPrice(
+                    Math.max(
+                      0,
+                      Number(wipingDeliveryOrder.total_amount) -
+                        Number(wipingDeliveryOrder.delivery_charge ?? 0)
+                    )
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-2 text-[11px] text-gray-500">
+              💡 The order total will be reduced to the items subtotal, and the delivery charge will be set to FREE in the system.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                disabled={wiping}
+                onClick={() => setWipingDeliveryOrder(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                loading={wiping}
+                onClick={handleWipeDelivery}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+              >
+                ✨ Wipe Delivery Fee
               </Button>
             </div>
           </div>

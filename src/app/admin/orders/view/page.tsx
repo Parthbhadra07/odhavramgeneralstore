@@ -358,13 +358,34 @@ function AdminOrderDetailContent() {
               Free delivery on orders above {formatPrice(FREE_DELIVERY_MIN)} ·
               standard {formatPrice(STANDARD_DELIVERY_CHARGE)}
             </p>
-            <button
-              type="button"
-              onClick={() => setDeliveryCharge(calculateDeliveryCharge(subtotal))}
-              className="text-xs font-medium text-green-700 hover:underline"
-            >
-              Apply standard delivery ({formatPrice(calculateDeliveryCharge(subtotal))})
-            </button>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeliveryCharge(calculateDeliveryCharge(subtotal))}
+                className="text-xs font-medium text-green-700 hover:underline cursor-pointer"
+              >
+                Apply standard ({formatPrice(calculateDeliveryCharge(subtotal))})
+              </button>
+              <span className="text-gray-300">·</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  setDeliveryCharge(0);
+                  if (order?.id) {
+                    try {
+                      await orderService.wipeDeliveryCharge(order.id);
+                      toast.success("Delivery fee wiped! Order total updated to items subtotal.");
+                      load();
+                    } catch (e: unknown) {
+                      toast.error(e instanceof Error ? e.message : "Failed to wipe delivery fee");
+                    }
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:underline bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer"
+              >
+                ✨ Wipe Delivery Fee (Make FREE)
+              </button>
+            </div>
             <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold">
               <span>Grand total</span>
               <span className="text-green-800">{formatPrice(grandTotal)}</span>
