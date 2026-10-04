@@ -143,6 +143,20 @@ export function AdminOrderNotificationsProvider({
     return () => window.removeEventListener("new-order-received", handleOrderEvent);
   }, [triggerNewOrderAlert]);
 
+  // Listen to orders-marked-seen to instantly clear unread badge counter
+  useEffect(() => {
+    const handleMarkedSeen = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.orderId) {
+        setNewOrderCount(0);
+      } else {
+        setNewOrderCount((c) => Math.max(0, c - 1));
+      }
+    };
+    window.addEventListener("orders-marked-seen", handleMarkedSeen);
+    return () => window.removeEventListener("orders-marked-seen", handleMarkedSeen);
+  }, []);
+
   // Realtime Supabase Channel subscriptions + Periodic 10-second polling fallback
   useEffect(() => {
     const supabase = createClient();

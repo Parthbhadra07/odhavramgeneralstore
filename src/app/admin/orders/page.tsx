@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Search, Eye, Printer, Trash2, Truck, Sparkles } from "lucide-react";
+import { Search, Eye, Printer, Trash2, Truck, Sparkles, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { orderService } from "@/services/order.service";
 import { useAdminOrderNotifications } from "@/hooks/use-admin-order-notifications";
@@ -24,6 +24,7 @@ export default function AdminOrdersPage() {
   const [deleting, setDeleting] = useState(false);
   const [wipingDeliveryOrder, setWipingDeliveryOrder] = useState<Order | null>(null);
   const [wiping, setWiping] = useState(false);
+  const [markingSeen, setMarkingSeen] = useState(false);
 
   const load = useCallback(() => {
     orderService
@@ -65,7 +66,31 @@ export default function AdminOrdersPage() {
     }
   };
 
-  const { newOrderCount } = useAdminOrderNotifications(load);
+  const { newOrderCount, clearCount } = useAdminOrderNotifications(load);
+
+  const handleMarkAllSeen = async () => {
+    setMarkingSeen(true);
+    try {
+      await orderService.markOrdersSeen();
+      clearCount();
+      toast.success("All online orders marked as read");
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark orders as read");
+    } finally {
+      setMarkingSeen(false);
+    }
+  };
+
+  const handleMarkSingleSeen = async (orderId: string, orderNumber?: string | null) => {
+    try {
+      await orderService.markOrdersSeen(orderId);
+      toast.success(`Order #${orderNumber || orderId.slice(0, 8)} marked as read`);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark order as read");
+    }
+  };
 
   useEffect(() => {
     load();
@@ -139,8 +164,14 @@ export default function AdminOrdersPage() {
               <span>Print Orders Summary</span>
             </Button>
           )}
-          <Button variant="outline" onClick={() => orderService.markOrdersSeen().then(load)}>
-            Mark all seen
+          <Button
+            variant="outline"
+            disabled={markingSeen}
+            onClick={handleMarkAllSeen}
+            className="gap-1.5 font-bold border-green-300 text-green-800 hover:bg-green-50 cursor-pointer"
+          >
+            <CheckCheck className="h-4 w-4 text-green-600" />
+            <span>{markingSeen ? "Marking as read..." : "Mark all as read"}</span>
           </Button>
         </div>
       </div>
@@ -204,8 +235,17 @@ export default function AdminOrdersPage() {
                     order.order_status === "received" && "bg-amber-50/80"
                   )}
                 >
-                  <td className="px-4 py-3 font-mono text-xs font-semibold">
-                    {order.order_number ?? order.id.slice(0, 8)}
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs font-semibold">
+                        {order.order_number ?? order.id.slice(0, 8)}
+                      </span>
+                      {order.is_new && (
+                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-extrabold text-amber-800 uppercase tracking-wider animate-pulse">
+                          NEW
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     {order.customer_name ?? order.users?.name ?? "—"}
@@ -244,6 +284,16 @@ export default function AdminOrdersPage() {
                     {formatDate(order.created_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {order.is_new && (
+                      <button
+                        type="button"
+                        onClick={() => handleMarkSingleSeen(order.id, order.order_number)}
+                        className="mr-2 inline-flex text-emerald-600 hover:text-emerald-800 transition-colors cursor-pointer"
+                        title="Mark order as read"
+                      >
+                        <CheckCheck className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setWipingDeliveryOrder(order)}

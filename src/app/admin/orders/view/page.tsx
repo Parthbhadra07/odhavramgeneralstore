@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Plus, Trash2, Save, ShieldCheck, MessageCircle, Printer } from "lucide-react";
+import { Plus, Trash2, Save, ShieldCheck, MessageCircle, Printer, CheckCheck } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { orderService } from "@/services/order.service";
 import { productService } from "@/services/product.service";
@@ -82,6 +82,9 @@ function AdminOrderDetailContent() {
         setDeliveryCharge(
           resolveDeliveryCharge(sub, o.total_amount, o.delivery_charge)
         );
+        if (o.is_new) {
+          void orderService.markOrdersSeen(o.id);
+        }
       }
     });
   };
@@ -282,6 +285,20 @@ function AdminOrderDetailContent() {
             <Printer className="h-3.5 w-3.5 text-emerald-600" />
             Print Systematic Invoice
           </Link>
+          {order.is_new && (
+            <button
+              type="button"
+              onClick={async () => {
+                await orderService.markOrdersSeen(order.id);
+                setOrder((prev) => prev ? { ...prev, is_new: false } : null);
+                toast.success("Order marked as read");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
+            >
+              <CheckCheck className="h-3.5 w-3.5 text-emerald-600" />
+              Mark as read
+            </button>
+          )}
           <OrderStatusBadge status={order.order_status} />
         </div>
       </div>

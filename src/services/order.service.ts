@@ -745,9 +745,37 @@ export const orderService = {
     }
   },
 
-  async markOrdersSeen() {
-    const supabase = requireClient();
-    await supabase.from("orders").update({ is_new: false }).eq("is_new", true);
+  async markOrdersSeen(orderId?: string): Promise<void> {
+    // 1. Try server API route first (handles service-role DB bypass and notifications update)
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch("/api/orders/mark-seen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(orderId ? { orderId } : {}),
+        });
+        if (res.ok) {
+          window.dispatchEvent(new CustomEvent("orders-marked-seen", { detail: { orderId } }));
+          return;
+        }
+      } catch (err) {
+        console.warn("[orderService] mark-seen API notice:", err);
+      }
+    }
+
+    // 2. Direct Supabase client fallback
+    try {
+      const supabase = requireClient();
+      if (orderId) {
+        await supabase.from("orders").update({ is_new: false }).eq("id", orderId);
+      } else {
+        await supabase.from("orders").update({ is_new: false }).or("is_new.eq.true,is_new.is.null");
+      }
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("orders-marked-seen", { detail: { orderId } }));
+    }
   },
 
   async updateOrder(params: {

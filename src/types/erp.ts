@@ -637,6 +637,7 @@ export interface ProfitReport {
   revenue: number;
   posRevenue?: number;
   onlineRevenue?: number;
+  onlineProductSales?: number;
   cogs: number;
   grossProfit: number;
   grossProfitMargin?: number;
@@ -649,6 +650,8 @@ export interface ProfitReport {
   expensesBreakdown?: { category: string; amount: number }[];
   discounts: number;
   deliveryCharges: number;
+  deliveryFuelExpense?: number;
+  netDeliveryProfit?: number;
   netProfit: number;
   netProfitMargin?: number;
   inventoryValue: number;

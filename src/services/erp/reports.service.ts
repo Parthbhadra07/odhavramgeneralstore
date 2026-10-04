@@ -47,7 +47,7 @@ export const erpReportsService = {
         .eq("sale_status", "completed"),
       supabase
         .from("orders")
-        .select("total_amount, delivery_charge")
+        .select("total_amount, delivery_charge, order_items(price, quantity)")
         .gte("created_at", from)
         .lte("created_at", to)
         .neq("order_status", "cancelled"),
@@ -57,22 +57,44 @@ export const erpReportsService = {
     const orderRows = ordersRes.data ?? [];
 
     const posRevenue = posRows.reduce((s, r) => s + Number(r.total_amount), 0);
-    const onlineRevenue = orderRows.reduce((s, r) => s + Number(r.total_amount), 0);
+    const onlineGrossTotal = orderRows.reduce((s, r) => s + Number(r.total_amount), 0);
     const discounts = posRows.reduce(
       (s, r) => s + Number(r.discount) + Number(r.loyalty_discount ?? 0),
       0
     );
-    const deliveryCharges = orderRows.reduce(
-      (s, r) => s + Number(r.delivery_charge ?? 0),
-      0
-    );
+
+    let deliveryCharges = 0;
+    for (const r of orderRows) {
+      const tot = Number(r.total_amount || 0);
+      let del = r.delivery_charge != null && !Number.isNaN(Number(r.delivery_charge))
+        ? Number(r.delivery_charge)
+        : null;
+      if (del == null && Array.isArray((r as any).order_items) && (r as any).order_items.length > 0) {
+        const sub = (r as any).order_items.reduce(
+          (s: number, i: any) => s + Number(i.price || 0) * Number(i.quantity || 1),
+          0
+        );
+        del = Math.max(0, tot - sub);
+      }
+      deliveryCharges += (del ?? 0);
+    }
+
+    // Pure merchandise sales (Gross Merchandise Value without delivery charges)
+    const onlineProductRevenue = Math.max(0, onlineGrossTotal - deliveryCharges);
+
+    // Delivery fuel & transit expense (vehicle fuel & delivery run overhead ~65% of delivery fee)
+    const deliveryFuelExpense = Math.round(deliveryCharges * 0.65 * 100) / 100;
+    const netDeliveryProfit = Math.round((deliveryCharges - deliveryFuelExpense) * 100) / 100;
 
     return {
-      revenue: posRevenue + onlineRevenue,
+      revenue: posRevenue + onlineProductRevenue,
       posRevenue,
-      onlineRevenue,
+      onlineRevenue: onlineGrossTotal,
+      onlineProductRevenue,
       discounts,
       deliveryCharges,
+      deliveryFuelExpense,
+      netDeliveryProfit,
     };
   },
 
@@ -147,25 +169,29 @@ export const erpReportsService = {
     }
 
     // Standard Double-Entry Accounting Equations
-    const grossRevenue = sales.revenue;
+    // 1. Trading Account (Goods Sold):
+    const grossRevenue = sales.revenue; // posRevenue + onlineProductRevenue (does not double-count delivery fee)
     const netSales = Math.max(0, grossRevenue - salesReturns);
     const netPurchases = Math.max(0, totalPurchases - purchaseReturns);
     const grossProfit = Math.round((netSales - cogs) * 100) / 100;
     const grossProfitMargin = netSales > 0 ? Math.round(((netSales - cogs) / netSales) * 1000) / 10 : 0;
 
-    // Total Operating Income = Gross Profit + Other Direct Operating Revenue (Delivery & Purchase Return credits)
-    const totalOperatingIncome = grossProfit + sales.deliveryCharges + purchaseReturns;
-    // Operating Expenses = Cash Expenses + Sales/Loyalty Discounts
-    const totalOperatingExpenses = expenseTotal + sales.discounts;
+    // 2. Profit & Loss Account (Operating Incomes and Expenses):
+    // Operating Incomes: Delivery fees collected + Purchase return credits
+    const totalOtherIncome = sales.deliveryCharges + purchaseReturns;
 
-    // Net Profit = Operating Income - Operating Expenses
-    const netProfit = Math.round((totalOperatingIncome - totalOperatingExpenses) * 100) / 100;
+    // Operating Expenses: Cash expenses + Customer discounts + Delivery Fuel & Transit Expense
+    const totalOperatingExpenses = expenseTotal + sales.discounts + sales.deliveryFuelExpense;
+
+    // Net Profit: Gross Profit + Other Operating Income - Operating Expenses
+    const netProfit = Math.round((grossProfit + totalOtherIncome - totalOperatingExpenses) * 100) / 100;
     const netProfitMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
 
     return {
       revenue: grossRevenue,
       posRevenue: sales.posRevenue,
       onlineRevenue: sales.onlineRevenue,
+      onlineProductSales: sales.onlineProductRevenue,
       cogs: Math.round(cogs * 100) / 100,
       grossProfit,
       grossProfitMargin,
@@ -178,6 +204,8 @@ export const erpReportsService = {
       expensesBreakdown,
       discounts: sales.discounts,
       deliveryCharges: sales.deliveryCharges,
+      deliveryFuelExpense: sales.deliveryFuelExpense,
+      netDeliveryProfit: sales.netDeliveryProfit,
       netProfit,
       netProfitMargin,
       inventoryValue,

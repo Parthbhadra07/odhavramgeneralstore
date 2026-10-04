@@ -96,13 +96,13 @@ export default function ProfitLossPage() {
           { header: "Amount", align: "right" },
         ],
         rows: [
-          { cells: [1, "I. Revenue from Operations (Gross Turnover)", "Revenue", formatPrice(pl.revenue)] },
+          { cells: [1, "I. Revenue from Operations (Gross Merchandise Turnover)", "Revenue", formatPrice(pl.revenue)] },
           { cells: [2, "II. Less: Sales Returns & Customer Allowances", "Deduction", `- ${formatPrice(pl.salesReturns)}`] },
-          { cells: [3, "III. Net Revenue from Operations (I - II)", "Net Revenue", formatPrice(pl.netSales ?? (pl.revenue - pl.salesReturns))] },
+          { cells: [3, "III. Net Merchandise Revenue (I - II)", "Net Revenue", formatPrice(pl.netSales ?? (pl.revenue - pl.salesReturns))] },
           { cells: [4, "IV. Cost of Goods Sold (Materials Consumed / COGS)", "Direct Cost", formatPrice(pl.cogs)] },
-          { cells: [5, "V. Gross Profit Margin (III - IV)", "Trading Profit", formatPrice(pl.grossProfit)] },
-          { cells: [6, "VI. Other Operating Income (Delivery Fees + Return Credits)", "Other Income", `+ ${formatPrice(Number(pl.deliveryCharges || 0) + Number(pl.purchaseReturns || 0))}`] },
-          { cells: [7, "VII. Store Operating Overheads & Expenses", "Indirect Expenses", `- ${formatPrice(pl.expenses)}`] },
+          { cells: [5, "V. Gross Profit Margin on Merchandise (III - IV)", "Trading Profit", formatPrice(pl.grossProfit)] },
+          { cells: [6, "VI. Other Operating Income (Delivery Fees Inward + Return Credits)", "Other Income", `+ ${formatPrice(Number(pl.deliveryCharges || 0) + Number(pl.purchaseReturns || 0))}`] },
+          { cells: [7, "VII. Store Operating Overheads & Expenses", "Indirect Expenses", `- ${formatPrice(pl.expenses + (pl.deliveryFuelExpense || 0))}`] },
           ...(pl.expensesBreakdown || []).map((e, idx) => ({
             cells: [
               `7.${idx + 1}`,
@@ -111,6 +111,14 @@ export default function ProfitLossPage() {
               `- ${formatPrice(e.amount)}`,
             ],
           })),
+          ...(Number(pl.deliveryFuelExpense || 0) > 0 ? [{
+            cells: [
+              `7.${(pl.expensesBreakdown || []).length + 1}`,
+              `   • Delivery Vehicle Fuel & Transit Expenses`,
+              "Delivery Transit Cost",
+              `- ${formatPrice(pl.deliveryFuelExpense || 0)}`,
+            ],
+          }] : []),
           { cells: [8, "VIII. Sales & Bill Level Price Discounts", "Discounts", `- ${formatPrice(pl.discounts)}`] },
           { cells: [9, "IX. Net Profit / (Loss) for the Period", "Bottom Line Profit", formatPrice(pl.netProfit)] },
         ],
@@ -165,7 +173,8 @@ export default function ProfitLossPage() {
 
   // Profit & Loss Section
   const otherIncome = (pl?.deliveryCharges ?? 0) + (pl?.purchaseReturns ?? 0);
-  const operatingExpenses = (pl?.expenses ?? 0) + (pl?.discounts ?? 0);
+  const deliveryFuel = pl?.deliveryFuelExpense ?? 0;
+  const operatingExpenses = (pl?.expenses ?? 0) + (pl?.discounts ?? 0) + deliveryFuel;
   const netProfit = pl?.netProfit ?? 0;
   const isNetProfit = netProfit >= 0;
 
@@ -541,6 +550,19 @@ export default function ProfitLossPage() {
                             )}
                           </div>
 
+                          {/* Delivery Vehicle Fuel & Transit Expenses */}
+                          {(pl.deliveryFuelExpense ?? 0) > 0 && (
+                            <div className="flex justify-between items-center text-slate-700">
+                              <div>
+                                <span>To Delivery Vehicle Fuel &amp; Transit Cost</span>
+                                <p className="text-[10px] text-slate-400">Fuel &amp; vehicle transit cost during customer delivery</p>
+                              </div>
+                              <span className="font-mono font-semibold text-rose-700">
+                                {formatPrice(pl.deliveryFuelExpense ?? 0)}
+                              </span>
+                            </div>
+                          )}
+
                           {/* Sales Discounts Allowed */}
                           {pl.discounts > 0 && (
                             <div className="flex justify-between items-center text-slate-700">
@@ -588,7 +610,12 @@ export default function ProfitLossPage() {
 
                           {pl.deliveryCharges > 0 && (
                             <div className="flex justify-between items-center text-slate-800">
-                              <span>By Delivery Charges Collected</span>
+                              <div>
+                                <span>By Delivery Charges Inward</span>
+                                <p className="text-[10px] text-slate-400">
+                                  Gross: {formatPrice(pl.deliveryCharges)} · Net Margin: {formatPrice(pl.netDeliveryProfit ?? (pl.deliveryCharges - (pl.deliveryFuelExpense ?? 0)))}
+                                </p>
+                              </div>
                               <span className="font-mono font-semibold">{formatPrice(pl.deliveryCharges)}</span>
                             </div>
                           )}
