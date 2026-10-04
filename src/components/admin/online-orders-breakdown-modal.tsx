@@ -61,7 +61,8 @@ export function OnlineOrdersBreakdownModal({
   const displayDelivery = isToday
     ? todayDeliveryCharges
     : monthlyDeliveryCharges ?? todayDeliveryCharges;
-  const displayTotal = isToday ? todaySales : monthlySales ?? todaySales;
+  // Online orders grand total is strictly items subtotal + delivery fee (isolated from any POS sales)
+  const displayTotal = displayItems + displayDelivery;
 
   return (
     <Modal

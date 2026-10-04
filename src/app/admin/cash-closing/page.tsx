@@ -46,7 +46,7 @@ export default function CashClosingPage() {
         rows: [
           { cells: [1, "Opening Cash Float in Register", "Cash Inward", formatPrice(c.opening_cash)] },
           { cells: [2, "Direct Counter Cash Sales", "Cash Sales", formatPrice(c.cash_sales)] },
-          { cells: [3, "UPI QR & Online Payments", "Digital Sales", formatPrice(c.upi_sales)] },
+          { cells: [3, "Counter POS UPI & QR Sales", "Digital Sales", formatPrice(c.upi_sales)] },
           { cells: [4, "Card / POS Terminal Payments", "Card Sales", formatPrice(c.card_sales)] },
           { cells: [5, "Daily Cash Expenses & Payouts", "Cash Outflow", `- ${formatPrice(c.expenses)}`] },
         ],

@@ -334,7 +334,7 @@ export default function AdminDashboardPage() {
         todayItemsSubtotal={metrics.todayOnlineItemsSubtotal ?? 0}
         todayDeliveryCharges={metrics.todayOnlineDeliveryCharges ?? 0}
         todayOrders={metrics.todayOnlineOrders ?? []}
-        monthlySales={metrics.monthlyRevenue}
+        monthlySales={metrics.monthlyOnlineSales}
         monthlyItemsSubtotal={metrics.monthlyOnlineItemsSubtotal}
         monthlyDeliveryCharges={metrics.monthlyOnlineDeliveryCharges}
       />
