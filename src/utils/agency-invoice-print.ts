@@ -143,8 +143,94 @@ export function generateAgencyInvoiceHtml(
 
   // Items formatting
   const items = sale.pos_sale_items ?? [];
+  const billDiscount = Math.max(
+    0,
+    (Number(sale.discount) || 0) + (Number(sale.loyalty_discount) || 0)
+  );
+
+  // Pre-calculate gross amounts and detect explicit item discounts
+  let rawGrossSum = 0;
+  let explicitItemDiscountsSum = 0;
+
+  const itemDiscounts = items.map((item) => {
+    const qty = Number(item.quantity) || 1;
+    const rate = Number(item.rate) || 0;
+    const lineGross = Math.round(qty * rate * 100) / 100;
+    rawGrossSum += lineGross;
+
+    const anyItem = item as any;
+    let discPct = 0;
+    let discAmt = 0;
+    let cleanName = item.product_name;
+
+    // 1. Direct discount fields on item
+    if (anyItem.discount_percent != null && Number(anyItem.discount_percent) > 0) {
+      discPct = Number(anyItem.discount_percent);
+      discAmt = Math.round(lineGross * (discPct / 100) * 100) / 100;
+    } else if (anyItem.discountPercent != null && Number(anyItem.discountPercent) > 0) {
+      discPct = Number(anyItem.discountPercent);
+      discAmt = Math.round(lineGross * (discPct / 100) * 100) / 100;
+    } else if (anyItem.discount_percentage != null && Number(anyItem.discount_percentage) > 0) {
+      discPct = Number(anyItem.discount_percentage);
+      discAmt = Math.round(lineGross * (discPct / 100) * 100) / 100;
+    } else if (anyItem.discount_amount != null && Number(anyItem.discount_amount) > 0) {
+      discAmt = Number(anyItem.discount_amount);
+      discPct = lineGross > 0 ? Math.round((discAmt / lineGross) * 10000) / 100 : 0;
+    } else if (anyItem.discount != null && Number(anyItem.discount) > 0) {
+      discAmt = Number(anyItem.discount);
+      discPct = lineGross > 0 ? Math.round((discAmt / lineGross) * 10000) / 100 : 0;
+    }
+
+    // 2. Extracted from product_name pattern (e.g. "NAME (5% off)")
+    if (discPct === 0 && item.product_name) {
+      const match = item.product_name.match(/^(.*?)\s*\(([0-9.]+)%\s*off\)\s*$/i);
+      if (match) {
+        cleanName = match[1].trim();
+        discPct = Number(match[2]) || 0;
+        discAmt = Math.round(lineGross * (discPct / 100) * 100) / 100;
+      }
+    }
+
+    // 3. Difference between gross (qty * rate) and stored total_amount
+    if (discAmt === 0 && item.total_amount != null && Number(item.total_amount) > 0) {
+      const storedTotal = Number(item.total_amount);
+      if (storedTotal < lineGross - 0.01) {
+        discAmt = Math.round((lineGross - storedTotal) * 100) / 100;
+        discPct = lineGross > 0 ? Math.round((discAmt / lineGross) * 10000) / 100 : 0;
+      }
+    }
+
+    explicitItemDiscountsSum += discAmt;
+    return { discPct, discAmt, cleanName, lineGross, qty, rate };
+  });
+
+  // If there is an overall bill discount not fully covered by explicit item discounts,
+  // distribute the remaining bill discount across items
+  const remainingBillDiscount = Math.max(0, billDiscount - explicitItemDiscountsSum);
+  if (remainingBillDiscount > 0 && rawGrossSum > 0) {
+    const eligible = itemDiscounts.filter((d) => d.discAmt === 0);
+    const targetList = eligible.length > 0 ? eligible : itemDiscounts;
+    const targetGrossSum = targetList.reduce((s, it) => s + it.lineGross, 0);
+
+    if (targetGrossSum > 0) {
+      let allocated = 0;
+      targetList.forEach((it, idx) => {
+        if (idx === targetList.length - 1) {
+          const share = Math.round((remainingBillDiscount - allocated) * 100) / 100;
+          it.discAmt += share;
+        } else {
+          const share = Math.round((it.lineGross / targetGrossSum) * remainingBillDiscount * 100) / 100;
+          it.discAmt += share;
+          allocated += share;
+        }
+        it.discPct = it.lineGross > 0 ? Math.round((it.discAmt / it.lineGross) * 10000) / 100 : 0;
+      });
+    }
+  }
+
   let totalQty = 0;
   let totalGross = 0;
+  let totalDiscountAmount = 0;
   let totalTaxable = 0;
   let totalSgst = 0;
   let totalCgst = 0;
@@ -158,25 +244,30 @@ export function generateAgencyInvoiceHtml(
 
   const rowsHtml = items
     .map((item, idx) => {
-      const qty = Number(item.quantity) || 1;
-      const rate = Number(item.rate) || 0;
-      const mrp = Number(item.rate); // MRP fallback to rate or base
+      const d = itemDiscounts[idx];
+      const qty = d.qty;
+      const rate = d.rate;
+      const mrp = Number((item as any).mrp) || rate;
       const gstPct = Number(item.gst_percentage) || 5;
+      const lineGross = d.lineGross;
+      const lineDiscount = d.discAmt;
+      const discPct = d.discPct;
 
-      const lineGross = Math.round(qty * rate * 100) / 100;
-      // Taxable value
-      const taxable = Math.round((lineGross / (1 + gstPct / 100)) * 100) / 100;
-      const totalTax = Math.round((lineGross - taxable) * 100) / 100;
+      const lineNet = Math.max(0, Math.round((lineGross - lineDiscount) * 100) / 100);
+
+      // Taxable value based on net line total
+      const taxable = Math.round((lineNet / (1 + gstPct / 100)) * 100) / 100;
+      const totalTax = Math.round((lineNet - taxable) * 100) / 100;
       const halfTax = Math.round((totalTax / 2) * 100) / 100;
       const halfPct = (gstPct / 2).toFixed(2);
-      const disPct = "0.00";
 
       totalQty += qty;
       totalGross += lineGross;
+      totalDiscountAmount += lineDiscount;
       totalTaxable += taxable;
       totalSgst += halfTax;
       totalCgst += halfTax;
-      totalItemAmount += lineGross;
+      totalItemAmount += lineNet;
 
       // Slab aggregation
       if (!gstSlabs[gstPct]) {
@@ -188,20 +279,28 @@ export function generateAgencyInvoiceHtml(
 
       const hsn = item.barcode ? item.barcode.slice(0, 8) : "21039020";
 
+      // Dis.% cell: show formatted percentage if > 0, otherwise blank (exact photo format)
+      const disPctDisplay =
+        discPct > 0
+          ? discPct % 1 === 0
+            ? discPct.toFixed(0)
+            : discPct.toFixed(2)
+          : "";
+
       return `<tr>
         <td style="text-align:center;">${idx + 1}</td>
         <td style="text-align:center;font-family:monospace;">${hsn}</td>
-        <td style="text-align:left;font-weight:600;">${item.product_name.toUpperCase()}</td>
+        <td style="text-align:left;font-weight:600;">${d.cleanName.toUpperCase()}</td>
         <td style="text-align:right;">${mrp.toFixed(2)}</td>
         <td style="text-align:center;font-weight:700;">${qty}</td>
         <td style="text-align:right;">${rate.toFixed(2)}</td>
-        <td style="text-align:right;">${disPct}</td>
+        <td style="text-align:right;font-weight:600;">${disPctDisplay}</td>
         <td style="text-align:right;">${taxable.toFixed(2)}</td>
         <td style="text-align:center;">${halfPct}</td>
         <td style="text-align:right;">${halfTax.toFixed(2)}</td>
         <td style="text-align:center;">${halfPct}</td>
         <td style="text-align:right;">${halfTax.toFixed(2)}</td>
-        <td style="text-align:right;font-weight:700;">${lineGross.toFixed(2)}</td>
+        <td style="text-align:right;font-weight:700;">${lineNet.toFixed(2)}</td>
       </tr>`;
     })
     .join("");
@@ -231,8 +330,9 @@ export function generateAgencyInvoiceHtml(
 
   const finalTotal = Number(sale.total_amount) || totalItemAmount;
   const roundOff =
-    Number(sale.round_off) ||
-    Math.round((finalTotal - Math.floor(finalTotal)) * 100) / 100;
+    sale.round_off !== undefined && sale.round_off !== null
+      ? Number(sale.round_off)
+      : Math.round((finalTotal - totalItemAmount) * 100) / 100;
   const amountWords = numberToIndianWords(finalTotal);
   const custBalance = options?.customerBalance ?? 0;
 
@@ -579,7 +679,7 @@ export function generateAgencyInvoiceHtml(
             <td colspan="4" style="text-align:right;">Totals:</td>
             <td style="text-align:center;">${totalQty}</td>
             <td style="text-align:right;">${totalGross.toFixed(2)}</td>
-            <td style="text-align:right;">0.00</td>
+            <td style="text-align:right;">${totalDiscountAmount > 0 ? totalDiscountAmount.toFixed(2) : "0.00"}</td>
             <td style="text-align:right;">${totalTaxable.toFixed(2)}</td>
             <td></td>
             <td style="text-align:right;">${totalSgst.toFixed(2)}</td>
@@ -631,6 +731,11 @@ export function generateAgencyInvoiceHtml(
               <td>Balance:</td>
               <td style="text-align:right;font-weight:700;">${custBalance > 0 ? custBalance.toFixed(2) : "0.00"}</td>
             </tr>
+            ${totalDiscountAmount > 0 ? `
+            <tr>
+              <td>Discount:</td>
+              <td style="text-align:right;font-weight:700;">-${totalDiscountAmount.toFixed(2)}</td>
+            </tr>` : ""}
             <tr>
               <td>Other +/-:</td>
               <td style="text-align:right;">0.00</td>
