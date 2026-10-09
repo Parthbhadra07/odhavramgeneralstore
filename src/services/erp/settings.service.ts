@@ -26,6 +26,11 @@ const DEFAULT_SETTINGS: Omit<StoreSettings, "id" | "created_at" | "updated_at"> 
   loyalty_points_per_100: 1,
   loyalty_min_points_redeem: 0,
   gemini_api_key: null,
+  bank_name: "TAMILNAD MERCANTILE BANK LTD",
+  bank_account_no: "391700050900006",
+  bank_ifsc: "TMBL0000391",
+  bank_branch: null,
+  invoice_terms: "1. GOODS ONCE SOLD WILL NOT BE ACCEPTED.\n2. CHEQUE RETURN CHARGES RS.500 WILL BE TAKEN EXTRA.\n3. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION.",
 };
 
 let cachedSettings: StoreSettings | null = null;
@@ -130,6 +135,11 @@ export const settingsService = {
       "receipt_header_text",
       "receipt_footer_text",
       "receipt_width",
+      "bank_name",
+      "bank_account_no",
+      "bank_ifsc",
+      "bank_branch",
+      "invoice_terms",
     ]);
 
     if (current.id === "default") {

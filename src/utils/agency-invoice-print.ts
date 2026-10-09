@@ -240,10 +240,29 @@ export function printAgencyGstInvoice(
   const custBalance = options?.customerBalance ?? 0;
 
   const bankName =
-    options?.bankDetails?.bankName || "TAMILNAD MERCANTILE BANK LTD";
+    options?.bankDetails?.bankName ||
+    settings?.bank_name ||
+    "TAMILNAD MERCANTILE BANK LTD";
   const bankAcc =
-    options?.bankDetails?.accountNo || "391700050900006";
-  const bankIfsc = options?.bankDetails?.ifsc || "TMBL0000391";
+    options?.bankDetails?.accountNo ||
+    settings?.bank_account_no ||
+    "391700050900006";
+  const bankIfsc =
+    options?.bankDetails?.ifsc ||
+    settings?.bank_ifsc ||
+    "TMBL0000391";
+  const bankBranch = settings?.bank_branch || "";
+
+  const termsRaw =
+    options?.customMessage ||
+    settings?.invoice_terms ||
+    "1. GOODS ONCE SOLD WILL NOT BE ACCEPTED.\n2. CHEQUE RETURN CHARGES RS.500 WILL BE TAKEN EXTRA.\n3. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION.";
+  const termsHtml = termsRaw
+    .split("\n")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => `<div>${t}</div>`)
+    .join("");
 
   const billNumber = sale.bill_number;
 
@@ -455,7 +474,6 @@ export function printAgencyGstInvoice(
           <div class="seller-title">${storeName}</div>
           <div class="seller-sub">${storeAddress}</div>
           <div class="seller-sub"><strong>MO. NO.:</strong> ${storeMobile}</div>
-          <div class="seller-sub"><strong>GST No.:</strong> ${gstNo}</div>
         </div>
 
         <!-- Invoice Meta -->
@@ -552,14 +570,12 @@ export function printAgencyGstInvoice(
           </div>
 
           <div class="terms-box">
-            <div>1. GOODS ONCE SOLD WILL NOT BE ACCEPTED.</div>
-            <div>2. CHEQUE RETURN CHARGES RS.500 WILL BE TAKEN EXTRA.</div>
-            <div>3. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION.</div>
+            ${termsHtml}
           </div>
 
           <div class="bank-box">
             <strong>BANK DETAIL:</strong> ${bankName}<br/>
-            <strong>A/C. No.:</strong> ${bankAcc}, <strong>IFSC:</strong> ${bankIfsc}
+            <strong>A/C. No.:</strong> ${bankAcc}, <strong>IFSC:</strong> ${bankIfsc}${bankBranch ? `, <strong>BRANCH:</strong> ${bankBranch}` : ""}
           </div>
         </div>
 

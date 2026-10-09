@@ -455,6 +455,11 @@ export interface StoreSettings {
   loyalty_points_per_100?: number;
   loyalty_min_points_redeem?: number;
   gemini_api_key?: string | null;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_ifsc?: string | null;
+  bank_branch?: string | null;
+  invoice_terms?: string | null;
   created_at: string;
   updated_at: string;
 }

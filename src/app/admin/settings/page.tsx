@@ -7,6 +7,7 @@ import {
   Printer,
   Calendar,
   Award,
+  Landmark,
 } from "lucide-react";
 import {
   getFinancialYearList,
@@ -71,6 +72,11 @@ export default function AdminSettingsPage() {
     loyalty_point_value: 1,
     loyalty_points_per_100: 1,
     loyalty_min_points_redeem: 0,
+    bank_name: "",
+    bank_account_no: "",
+    bank_ifsc: "",
+    bank_branch: "",
+    invoice_terms: "",
   });
 
   useEffect(() => {
@@ -101,6 +107,11 @@ export default function AdminSettingsPage() {
         loyalty_point_value: Number(s.loyalty_point_value ?? 1),
         loyalty_points_per_100: Number(s.loyalty_points_per_100 ?? 1),
         loyalty_min_points_redeem: Number(s.loyalty_min_points_redeem ?? 0),
+        bank_name: s.bank_name ?? "TAMILNAD MERCANTILE BANK LTD",
+        bank_account_no: s.bank_account_no ?? "391700050900006",
+        bank_ifsc: s.bank_ifsc ?? "TMBL0000391",
+        bank_branch: s.bank_branch ?? "",
+        invoice_terms: s.invoice_terms ?? "1. GOODS ONCE SOLD WILL NOT BE ACCEPTED.\n2. CHEQUE RETURN CHARGES RS.500 WILL BE TAKEN EXTRA.\n3. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION.",
       });
       setLoading(false);
     });
@@ -129,6 +140,11 @@ export default function AdminSettingsPage() {
         loyalty_point_value: form.loyalty_point_value,
         loyalty_points_per_100: form.loyalty_points_per_100,
         loyalty_min_points_redeem: form.loyalty_min_points_redeem,
+        bank_name: form.bank_name.trim() || null,
+        bank_account_no: form.bank_account_no.trim() || null,
+        bank_ifsc: form.bank_ifsc.trim() || null,
+        bank_branch: form.bank_branch.trim() || null,
+        invoice_terms: form.invoice_terms.trim() || null,
       });
       setActiveFinancialYearCode(form.active_financial_year);
       setLocalReceiptWidth(form.receipt_width);
@@ -226,6 +242,67 @@ export default function AdminSettingsPage() {
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 rows={3}
               />
+            </div>
+          </div>
+        </section>
+
+        {/* WHOLESALE TAX INVOICE & AGENCY PRINT SETTINGS */}
+        <section className="rounded-xl border bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Landmark className="h-5 w-5 text-green-700" />
+            <div>
+              <h2 className="font-semibold text-gray-900">Wholesale Invoice &amp; Agency Print Settings</h2>
+              <p className="text-xs text-gray-500">
+                Configure bank account details, branch, and terms &amp; conditions printed on wholesale tax invoices
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Bank Name</label>
+              <Input
+                placeholder="e.g. TAMILNAD MERCANTILE BANK LTD"
+                value={form.bank_name}
+                onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Account Number</label>
+              <Input
+                placeholder="e.g. 391700050900006"
+                value={form.bank_account_no}
+                onChange={(e) => setForm({ ...form, bank_account_no: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">IFSC Code</label>
+              <Input
+                placeholder="e.g. TMBL0000391"
+                value={form.bank_ifsc}
+                onChange={(e) => setForm({ ...form, bank_ifsc: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Branch (Optional)</label>
+              <Input
+                placeholder="e.g. Vapi Main Branch"
+                value={form.bank_branch}
+                onChange={(e) => setForm({ ...form, bank_branch: e.target.value })}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium">Invoice Terms &amp; Conditions</label>
+              <textarea
+                value={form.invoice_terms}
+                onChange={(e) => setForm({ ...form, invoice_terms: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                rows={4}
+                placeholder="1. GOODS ONCE SOLD WILL NOT BE ACCEPTED.&#10;2. CHEQUE RETURN CHARGES RS.500 WILL BE TAKEN EXTRA.&#10;3. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION."
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Each line will appear as a separate term on printed wholesale tax invoices.
+              </p>
             </div>
           </div>
         </section>
