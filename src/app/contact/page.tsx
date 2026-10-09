@@ -60,7 +60,7 @@ export default function ContactPage() {
           <h2 className="mb-2 text-lg font-semibold text-green-900">Order by Phone</h2>
           <p className="text-green-800">
             Call {STORE_PHONE} to place your order directly. We deliver locally
-            around Vapi.
+            around , vapi.
           </p>
           <a
             href={STORE_PHONE_TEL}

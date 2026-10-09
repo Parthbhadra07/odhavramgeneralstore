@@ -28,7 +28,9 @@ import {
   Navigation,
   CheckCircle2,
   Tag,
+  Maximize2,
 } from "lucide-react";
+import { ImageModal } from "@/components/ui/image-modal";
 import { toast } from "sonner";
 import { useCartStore } from "@/store/cart-store";
 import { useAuth } from "@/hooks/use-auth";
@@ -158,6 +160,11 @@ export function MobileCatalogView({
   const [activeView, setActiveView] = useState<"catalog" | "categories">(
     isCategoriesTab ? "categories" : "catalog"
   );
+  const [previewImage, setPreviewImage] = useState<{
+    url: string;
+    name: string;
+    price?: number;
+  } | null>(null);
 
   useEffect(() => {
     setActiveView(searchParams.get("view") === "categories" ? "categories" : "catalog");
@@ -983,27 +990,49 @@ export function MobileCatalogView({
                           />
                         </button>
 
-                        {/* Product Photo */}
-                        <Link
-                          href={`/products/view?slug=${encodeURIComponent(product.slug)}`}
-                          className="block relative h-28 w-full overflow-hidden rounded-xl bg-gray-50 flex items-center justify-center p-1"
-                        >
-                          {product.image_url ? (
-                            <img
-                              src={product.image_url}
-                              alt={product.name}
-                              className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                              loading="lazy"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLElement).style.display = "none";
+                        {/* Product Photo (Fit to screen & proportional) */}
+                        <div className="relative aspect-square w-full max-h-36 sm:max-h-40 overflow-hidden rounded-xl bg-white border border-gray-100 flex items-center justify-center p-1.5">
+                          <Link
+                            href={`/products/view?slug=${encodeURIComponent(product.slug)}`}
+                            className="h-full w-full flex items-center justify-center"
+                          >
+                            {product.image_url ? (
+                              <img
+                                src={product.image_url}
+                                alt={product.name}
+                                className="max-h-full max-w-full w-auto h-auto object-contain transition-transform group-hover:scale-105"
+                                loading="lazy"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center text-gray-300">
+                                <ShoppingBag className="h-8 w-8 text-gray-300" />
+                              </div>
+                            )}
+                          </Link>
+
+                          {/* Quick Fit-to-screen photo preview */}
+                          {product.image_url && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setPreviewImage({
+                                  url: product.image_url!,
+                                  name: product.name,
+                                  price: product.price,
+                                });
                               }}
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center justify-center text-gray-300">
-                              <ShoppingBag className="h-8 w-8 text-gray-300" />
-                            </div>
+                              className="absolute bottom-1 right-1 p-1 rounded-md bg-white/90 text-gray-500 hover:text-green-700 shadow-2xs backdrop-blur-2xs transition"
+                              title="Fit to screen photo preview"
+                            >
+                              <Maximize2 className="h-3 w-3" />
+                            </button>
                           )}
-                        </Link>
+                        </div>
 
                         {/* Pagination indicator dots */}
                         <div className="mt-1 flex items-center justify-center gap-1">
@@ -1530,6 +1559,18 @@ export function MobileCatalogView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Fullscreen Fit-to-screen photo modal */}
+      {previewImage && (
+        <ImageModal
+          isOpen={!!previewImage}
+          onClose={() => setPreviewImage(null)}
+          src={previewImage.url}
+          alt={previewImage.name}
+          title={previewImage.name}
+          subtitle={previewImage.price != null ? formatPrice(previewImage.price) : undefined}
+        />
       )}
     </div>
   );

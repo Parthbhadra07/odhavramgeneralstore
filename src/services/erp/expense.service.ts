@@ -34,6 +34,27 @@ export const expenseService = {
     return data as Expense;
   },
 
+  async update(
+    id: string,
+    expense: {
+      expense_date?: string;
+      category?: ExpenseCategory;
+      amount?: number;
+      notes?: string | null;
+      receipt_url?: string | null;
+    }
+  ): Promise<Expense> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from("expenses")
+      .update(expense)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as Expense;
+  },
+
   async delete(id: string): Promise<void> {
     const supabase = requireClient();
     const { error } = await supabase.from("expenses").delete().eq("id", id);

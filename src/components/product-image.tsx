@@ -6,6 +6,7 @@ const PLACEHOLDER = "/images/product-placeholder.svg";
 
 type ProductImageProps = Omit<ImageProps, "src"> & {
   src?: string | null;
+  fit?: "contain" | "cover" | "fill" | "scale-down";
 };
 
 /**
@@ -19,10 +20,19 @@ export function ProductImage({
   fill,
   sizes,
   priority,
+  fit,
   ...rest
 }: ProductImageProps) {
   const imageSrc = src?.trim() || PLACEHOLDER;
   const isLocal = imageSrc.startsWith("/");
+
+  const resolvedFit =
+    fit ||
+    (className?.includes("object-cover")
+      ? "cover"
+      : className?.includes("object-contain")
+      ? "contain"
+      : "contain");
 
   // Local / public files — use Next.js Image (aliased to avoid DOM Image conflict)
   if (isLocal) {
@@ -52,7 +62,7 @@ export function ProductImage({
           inset: 0,
           width: "100%",
           height: "100%",
-          objectFit: "cover",
+          objectFit: resolvedFit,
         }}
         loading={priority ? "eager" : "lazy"}
       />

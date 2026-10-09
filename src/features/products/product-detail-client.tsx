@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ProductImage } from "@/components/product-image";
+import { ImageModal } from "@/components/ui/image-modal";
 import { formatPrice } from "@/utils/format";
 import { AddToCartButton } from "@/features/products/add-to-cart-button";
 import { Badge } from "@/components/ui/badge";
 import { productService } from "@/services/product.service";
 import type { Product } from "@/types/database";
 import Link from "next/link";
+import { Maximize2 } from "lucide-react";
 
 export function ProductDetailClient() {
   const searchParams = useSearchParams();
@@ -16,6 +18,7 @@ export function ProductDetailClient() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
 
   useEffect(() => {
     if (!slug) {
@@ -55,15 +58,27 @@ export function ProductDetailClient() {
         </p>
       )}
       <div className="grid gap-8 lg:grid-cols-2">
-        <div className="relative aspect-square overflow-hidden rounded-2xl bg-gray-50">
+        <div className="relative aspect-square overflow-hidden rounded-2xl bg-white border border-gray-100 p-6 flex items-center justify-center shadow-xs group">
           <ProductImage
             src={product.image_url}
             alt={product.name}
             fill
-            className="object-cover"
+            fit="contain"
+            className="object-contain p-4 transition-transform duration-300 group-hover:scale-105"
             priority
             sizes="(max-width: 1024px) 100vw, 50vw"
           />
+          {product.image_url && (
+            <button
+              type="button"
+              onClick={() => setShowImageModal(true)}
+              className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm border border-gray-200 backdrop-blur-xs transition hover:bg-white hover:text-green-700 hover:border-green-300"
+              title="Click to view full photo fit to screen"
+            >
+              <Maximize2 className="h-3.5 w-3.5 text-green-700" />
+              <span>Fit to Screen</span>
+            </button>
+          )}
         </div>
         <div>
           {product.categories && (
@@ -90,6 +105,17 @@ export function ProductDetailClient() {
           </div>
         </div>
       </div>
+
+      {showImageModal && (
+        <ImageModal
+          isOpen={showImageModal}
+          onClose={() => setShowImageModal(false)}
+          src={product.image_url}
+          alt={product.name}
+          title={product.name}
+          subtitle={`${formatPrice(product.price)} · ${product.categories?.name || "General Item"}`}
+        />
+      )}
     </div>
   );
 }

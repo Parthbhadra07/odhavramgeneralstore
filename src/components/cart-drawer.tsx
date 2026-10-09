@@ -85,7 +85,8 @@ export function CartDrawer() {
                         src={item.product?.image_url}
                         alt={item.product?.name ?? "Product"}
                         fill
-                        className="object-cover"
+                        fit="contain"
+                        className="object-contain p-1"
                       />
                     </div>
                     <div className="flex-1 min-w-0">
