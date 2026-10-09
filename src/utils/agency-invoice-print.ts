@@ -118,15 +118,12 @@ export interface AgencyInvoicePrintOptions {
 }
 
 /**
- * Prints a B2B Agency / FMCG Wholesale GST Tax Invoice exactly formatted
- * like the standard Agency / Wholesale accounting bill invoice (photo format).
+ * Generates the complete HTML document for the B2B Agency / FMCG Wholesale GST Tax Invoice.
  */
-export function printAgencyGstInvoice(
+export function generateAgencyInvoiceHtml(
   sale: PosSale,
   options?: AgencyInvoicePrintOptions
-): boolean {
-  if (typeof window === "undefined") return false;
-
+): string {
   const settings = options?.settings;
   const storeName = (settings?.store_name || APP_NAME).toUpperCase();
   const storeAddress = settings?.store_address || STORE_ADDRESS;
@@ -282,7 +279,7 @@ export function printAgencyGstInvoice(
         print-color-adjust: exact !important;
       }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
         font-size: 11px;
         color: #000;
         background: #fff;
@@ -291,10 +288,11 @@ export function printAgencyGstInvoice(
         line-height: 1.25;
       }
       .page-border {
-        border: 1.5px solid #000;
+        border: 2px solid #000;
         width: 100%;
         max-width: 900px;
         margin: 0 auto;
+        background: #fff;
       }
       table {
         border-collapse: collapse;
@@ -302,31 +300,29 @@ export function printAgencyGstInvoice(
       }
       th, td {
         border: 1px solid #000;
-        padding: 3px 4px;
+        padding: 3.5px 4px;
         font-size: 10.5px;
-      }
-      .noborder td {
-        border: none;
-        padding: 1px 3px;
       }
       .header-grid {
         display: flex;
-        border-bottom: 1.5px solid #000;
+        border-bottom: 1px solid #000;
       }
       .header-seller {
-        flex: 1.3;
-        padding: 6px 8px;
-        border-right: 1.5px solid #000;
+        flex: 1.35;
+        padding: 8px 10px;
+        border-right: 1px solid #000;
       }
       .seller-title {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 900;
         letter-spacing: -0.01em;
-        margin: 0 0 2px 0;
+        margin: 0 0 3px 0;
+        text-transform: uppercase;
       }
       .seller-sub {
-        font-size: 10px;
-        margin: 1px 0;
+        font-size: 10.5px;
+        margin: 2px 0;
+        color: #000;
       }
       .header-meta {
         flex: 1;
@@ -337,66 +333,86 @@ export function printAgencyGstInvoice(
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 4px 8px;
+        padding: 6px 10px;
         border-bottom: 1px solid #000;
-        background: #fdfdfd;
+        background: #f2f2f2;
       }
       .inv-word {
-        font-size: 14px;
-        font-weight: 800;
+        font-size: 15px;
+        font-weight: 900;
         text-transform: uppercase;
+        letter-spacing: 0.04em;
       }
       .inv-number {
-        font-size: 20px;
+        font-size: 22px;
         font-weight: 900;
         font-family: monospace, sans-serif;
       }
       .inv-details-table {
         width: 100%;
-        font-size: 10.5px;
+        height: 100%;
       }
       .inv-details-table td {
         border: none;
-        padding: 2px 8px;
+        padding: 3px 10px;
+        font-size: 10.5px;
       }
       .buyer-box {
-        border-bottom: 1.5px solid #000;
-        padding: 5px 8px;
+        border-bottom: 1px solid #000;
+        padding: 6px 10px;
         background: #fff;
       }
       .buyer-to {
-        font-weight: 800;
-        font-size: 12px;
+        font-weight: 900;
+        font-size: 12.5px;
       }
       .items-table {
         width: 100%;
         border-collapse: collapse;
       }
       .items-table th {
-        background: #f4f4f4;
-        font-weight: 800;
+        background: #f0f0f0;
+        font-weight: 900;
         text-align: center;
         font-size: 10px;
-        padding: 4px 2px;
+        padding: 5px 3px;
+        border: 1px solid #000;
+        border-top: none;
+        text-transform: uppercase;
       }
       .items-table td {
-        padding: 3.5px 3px;
+        padding: 3.5px 4px;
         font-size: 10px;
+        border: 1px solid #000;
       }
+      /* Outer table edges collapse seamlessly into .page-border (no doubled lines) */
+      .items-table th:first-child,
+      .items-table td:first-child {
+        border-left: none;
+      }
+      .items-table th:last-child,
+      .items-table td:last-child {
+        border-right: none;
+      }
+      /* Clean, balanced accounting bold line for Totals row */
       .items-table .totals-row td {
-        font-weight: 800;
-        background: #fafafa;
-        border-top: 1.5px solid #000;
-        border-bottom: 1.5px solid #000;
+        font-weight: 900;
+        background: #f4f4f4;
+        border-top: 2px solid #000 !important;
+        border-bottom: 2px solid #000 !important;
+        font-size: 10.5px;
+        padding: 4px;
       }
+      /* border-top: none avoids double-line artifact with totals-row border-bottom */
       .bottom-section {
         display: flex;
-        border-top: 1.5px solid #000;
+        width: 100%;
+        border-top: none;
       }
       .bottom-left {
-        flex: 1.5;
-        border-right: 1.5px solid #000;
-        padding: 4px;
+        flex: 1.45;
+        border-right: 1px solid #000;
+        padding: 6px 8px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -407,61 +423,90 @@ export function printAgencyGstInvoice(
         flex-direction: column;
       }
       .gst-slab-table {
-        margin-bottom: 5px;
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 6px;
       }
       .gst-slab-table th {
-        background: #eee;
+        background: #f0f0f0;
+        font-weight: 900;
         font-size: 9.5px;
-        padding: 2px;
+        padding: 3px 4px;
+        border: 1px solid #000;
+        text-transform: uppercase;
       }
       .gst-slab-table td {
         font-size: 9.5px;
-        padding: 2px 3px;
+        padding: 2.5px 4px;
+        border: 1px solid #000;
       }
       .words-box {
         font-size: 10px;
-        margin-top: 4px;
-        padding-top: 3px;
-        border-top: 1px dashed #666;
+        margin: 5px 0 4px 0;
+        line-height: 1.35;
       }
       .terms-box {
         font-size: 9px;
         margin-top: 4px;
-        line-height: 1.3;
-        color: #222;
+        line-height: 1.35;
+        color: #000;
       }
       .bank-box {
         font-size: 9.5px;
-        margin-top: 4px;
+        margin-top: 6px;
+        line-height: 1.35;
         font-family: monospace, sans-serif;
       }
       .calc-table {
         width: 100%;
-        font-size: 11px;
+        border-collapse: collapse;
       }
       .calc-table td {
-        padding: 3px 6px;
-        border: none;
-        border-bottom: 1px solid #ddd;
+        padding: 4px 8px;
+        font-size: 10.5px;
+        border: 1px solid #000;
       }
+      .calc-table tr:first-child td {
+        border-top: none;
+      }
+      .calc-table tr td:first-child {
+        border-left: none;
+      }
+      .calc-table tr td:last-child {
+        border-right: none;
+      }
+      /* Clean, balanced accounting bold line for Net Amount */
       .calc-table .net-row td {
-        font-size: 14px;
+        font-size: 13.5px;
         font-weight: 900;
-        border-top: 1.5px solid #000;
-        border-bottom: 1.5px solid #000;
-        background: #fbfbfb;
+        border-top: 2px solid #000 !important;
+        border-bottom: 2px solid #000 !important;
+        background: #f4f4f4;
+        padding: 6px 8px;
       }
+      /* border-top: none avoids double-line artifact with net-row border-bottom */
       .sign-box {
-        padding: 10px 8px 6px;
+        padding: 8px 10px 6px;
         text-align: right;
         margin-top: auto;
+        border-top: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 75px;
       }
       .sign-label {
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 800;
+        text-transform: uppercase;
       }
-      .sign-space {
-        height: 40px;
+      .sign-line {
+        font-size: 10px;
+        font-weight: 700;
+        border-top: 1px solid #000;
+        display: inline-block;
+        padding-top: 2px;
+        align-self: flex-end;
       }
     </style>
   </head>
@@ -584,7 +629,7 @@ export function printAgencyGstInvoice(
           <table class="calc-table">
             <tr>
               <td>Balance:</td>
-              <td style="text-align:right;font-weight:600;">${custBalance > 0 ? custBalance.toFixed(2) : "0.00"}</td>
+              <td style="text-align:right;font-weight:700;">${custBalance > 0 ? custBalance.toFixed(2) : "0.00"}</td>
             </tr>
             <tr>
               <td>Other +/-:</td>
@@ -607,16 +652,29 @@ export function printAgencyGstInvoice(
           <!-- Signatory Box -->
           <div class="sign-box">
             <div class="sign-label">For, ${storeName}</div>
-            <div class="sign-space"></div>
-            <div style="font-size:10px;border-top:1px solid #444;display:inline-block;padding-top:2px;">
-              Authorized Signatory
-            </div>
+            <div style="height: 36px;"></div>
+            <div class="sign-line">Authorized Signatory</div>
           </div>
         </div>
       </div>
     </div>
   </body>
 </html>`;
+
+  return html;
+}
+
+/**
+ * Prints a B2B Agency / FMCG Wholesale GST Tax Invoice exactly formatted
+ * like the standard Agency / Wholesale accounting bill invoice (photo format).
+ */
+export function printAgencyGstInvoice(
+  sale: PosSale,
+  options?: AgencyInvoicePrintOptions
+): boolean {
+  if (typeof window === "undefined") return false;
+
+  const html = generateAgencyInvoiceHtml(sale, options);
 
   // Mount hidden iframe and print
   const iframe = document.createElement("iframe");
