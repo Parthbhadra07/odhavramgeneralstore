@@ -182,23 +182,32 @@ export function ReceiptPrint({
       <div className="receipt-line" />
 
       <table className="receipt-table">
+        <colgroup>
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "47%" }} />
+          <col style={{ width: "13%" }} />
+          <col style={{ width: "16%" }} />
+          <col style={{ width: "16%" }} />
+        </colgroup>
         <thead>
           <tr>
-            <th>Item</th>
-            <th>Qty</th>
-            <th>Rate</th>
-            <th>Amt</th>
+            <th className="receipt-col-idx">#</th>
+            <th className="receipt-col-name">Item</th>
+            <th className="receipt-col-qty">Qty</th>
+            <th className="receipt-col-rate">Rate</th>
+            <th className="receipt-col-amt">Amt</th>
           </tr>
         </thead>
         <tbody>
           {data.items.map((item, i) => (
             <tr key={i}>
-              <td style={{ whiteSpace: "pre-wrap" }}>
+              <td className="receipt-col-idx">{i + 1}</td>
+              <td className="receipt-col-name" style={{ whiteSpace: "pre-wrap" }}>
                 {wrapName(item.name, dim.nameMaxLen)}
               </td>
-              <td>{item.quantity}</td>
-              <td>{formatPrice(item.rate)}</td>
-              <td>{formatPrice(item.amount)}</td>
+              <td className="receipt-col-qty">{item.quantity}</td>
+              <td className="receipt-col-rate">{formatPrice(item.rate)}</td>
+              <td className="receipt-col-amt">{formatPrice(item.amount)}</td>
             </tr>
           ))}
         </tbody>

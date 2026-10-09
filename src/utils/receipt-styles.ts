@@ -181,14 +181,29 @@ export function getReceiptPreviewStyles(
       word-wrap: break-word;
       overflow-wrap: break-word;
     }
+    ${scope} .receipt-table th.receipt-col-idx,
+    ${scope} .receipt-table td.receipt-col-idx {
+      text-align: left;
+      padding-right: 2px;
+      font-weight: 600;
+    }
+    ${scope} .receipt-table th.receipt-col-name,
+    ${scope} .receipt-table td.receipt-col-name {
+      text-align: left;
+      padding-right: 4px;
+    }
+    ${scope} .receipt-table th.receipt-col-qty,
+    ${scope} .receipt-table td.receipt-col-qty {
+      text-align: center;
+    }
+    ${scope} .receipt-table th.receipt-col-rate,
+    ${scope} .receipt-table td.receipt-col-rate,
+    ${scope} .receipt-table th.receipt-col-amt,
+    ${scope} .receipt-table td.receipt-col-amt {
+      text-align: right;
+    }
     ${scope} .receipt-table th:first-child,
-    ${scope} .receipt-table td:first-child { text-align: left; padding-right: 4px; }
-    ${scope} .receipt-table th:nth-child(2),
-    ${scope} .receipt-table td:nth-child(2) { text-align: center; }
-    ${scope} .receipt-table th:nth-child(3),
-    ${scope} .receipt-table td:nth-child(3),
-    ${scope} .receipt-table th:nth-child(4),
-    ${scope} .receipt-table td:nth-child(4) { text-align: right; }
+    ${scope} .receipt-table td:first-child { text-align: left; }
     ${scope} .receipt-table th { font-weight: 700; }
     ${scope} .receipt-logo {
       display: block;
@@ -308,14 +323,29 @@ export function getReceiptPrintStyles(
       word-wrap: break-word;
       overflow-wrap: break-word;
     }
+    .receipt-table th.receipt-col-idx,
+    .receipt-table td.receipt-col-idx {
+      text-align: left;
+      padding-right: 2px;
+      font-weight: 600;
+    }
+    .receipt-table th.receipt-col-name,
+    .receipt-table td.receipt-col-name {
+      text-align: left;
+      padding-right: 4px;
+    }
+    .receipt-table th.receipt-col-qty,
+    .receipt-table td.receipt-col-qty {
+      text-align: center;
+    }
+    .receipt-table th.receipt-col-rate,
+    .receipt-table td.receipt-col-rate,
+    .receipt-table th.receipt-col-amt,
+    .receipt-table td.receipt-col-amt {
+      text-align: right;
+    }
     .receipt-table th:first-child,
-    .receipt-table td:first-child { text-align: left; padding-right: 4px; }
-    .receipt-table th:nth-child(2),
-    .receipt-table td:nth-child(2) { text-align: center; }
-    .receipt-table th:nth-child(3),
-    .receipt-table td:nth-child(3),
-    .receipt-table th:nth-child(4),
-    .receipt-table td:nth-child(4) { text-align: right; }
+    .receipt-table td:first-child { text-align: left; }
     .receipt-table th { font-weight: 700; }
     .receipt-logo {
       display: block;

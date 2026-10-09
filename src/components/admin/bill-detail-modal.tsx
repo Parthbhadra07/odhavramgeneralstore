@@ -146,6 +146,7 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
             <table className="w-full min-w-[480px] text-sm">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="p-3 text-center w-12">#</th>
                   <th className="p-3 text-left">Product</th>
                   <th className="p-3 text-right">Qty</th>
                   <th className="p-3 text-right">Rate</th>
@@ -154,8 +155,11 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
                 </tr>
               </thead>
               <tbody>
-                {(sale.pos_sale_items ?? []).map((item) => (
+                {(sale.pos_sale_items ?? []).map((item, idx) => (
                   <tr key={item.id} className="border-t">
+                    <td className="p-3 text-center text-xs font-mono text-gray-500">
+                      {idx + 1}
+                    </td>
                     <td className="p-3">
                       <p>{item.product_name}</p>
                       {item.barcode && (
