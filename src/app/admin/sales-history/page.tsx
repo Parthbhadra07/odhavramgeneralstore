@@ -14,6 +14,8 @@ import {
   IndianRupee,
   Trash2,
   AlertTriangle,
+  Pencil,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { posService } from "@/services/erp";
@@ -21,8 +23,10 @@ import type { PosSale, PosSaleFilters, PosSalesHistoryStats } from "@/types/erp"
 import { StatCard } from "@/components/admin/stat-card";
 import { ResponsiveTable } from "@/components/admin/responsive-table";
 import { BillDetailModal } from "@/components/admin/bill-detail-modal";
+import { EditBillModal } from "@/components/admin/edit-bill-modal";
 import { Modal } from "@/components/admin/modal";
 import { useAuth } from "@/hooks/use-auth";
+import { useStoreSettings } from "@/hooks/use-store-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +37,7 @@ import { POS_PAYMENT_METHODS, POS_PAYMENT_LABELS } from "@/lib/erp/constants";
 import { openWhatsAppShare, invoiceShareMessage } from "@/utils/whatsapp";
 import { downloadCsv } from "@/utils/export";
 import { printSystematicDocument } from "@/utils/document-print";
+import { printAgencyGstInvoice } from "@/utils/agency-invoice-print";
 import {
   getActiveFinancialYearCode,
   getFYDateRange,
@@ -55,12 +60,14 @@ const defaultFilters: PosSaleFilters = {
 
 export default function SalesHistoryPage() {
   const { isAdmin } = useAuth();
+  const { settings } = useStoreSettings();
   const [stats, setStats] = useState<PosSalesHistoryStats | null>(null);
   const [sales, setSales] = useState<PosSale[]>([]);
   const [filters, setFilters] = useState<PosSaleFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [quickView, setQuickView] = useState<"all" | "today" | "current_fy" | "last10">("all");
 
   const [saleToDelete, setSaleToDelete] = useState<PosSale | null>(null);
@@ -136,7 +143,7 @@ export default function SalesHistoryPage() {
         formatDate(s.created_at),
         s.customer_name ?? "Walk-in",
         s.customer_mobile ?? "",
-        POS_PAYMENT_LABELS[s.payment_method],
+        (POS_PAYMENT_LABELS as Record<string, string>)[s.payment_method] || s.payment_method,
         s.subtotal,
         Number(s.discount) + Number(s.loyalty_discount ?? 0),
         Number(s.cgst) + Number(s.sgst) + Number(s.igst),
@@ -185,6 +192,23 @@ export default function SalesHistoryPage() {
     openWhatsAppShare(msg, sale.customer_mobile ?? undefined);
   };
 
+  const handlePrintTaxInvoice = async (sale: PosSale) => {
+    try {
+      if (sale.pos_sale_items && sale.pos_sale_items.length > 0) {
+        printAgencyGstInvoice(sale, { settings });
+      } else {
+        const full = await posService.getById(sale.id);
+        if (full) {
+          printAgencyGstInvoice(full, { settings });
+        } else {
+          toast.error("Could not load sale items for printing");
+        }
+      }
+    } catch (e) {
+      toast.error("Failed to print tax invoice");
+    }
+  };
+
   const printSalesRegister = () => {
     printSystematicDocument(
       {
@@ -212,7 +236,7 @@ export default function SalesHistoryPage() {
             s.bill_number,
             formatDate(s.created_at),
             s.customer_name || "Walk-in Customer",
-            POS_PAYMENT_LABELS[s.payment_method] || s.payment_method,
+            (POS_PAYMENT_LABELS as Record<string, string>)[s.payment_method] || s.payment_method,
             s.sale_status,
             formatPrice(Number(s.discount || 0) + Number(s.loyalty_discount || 0)),
             formatPrice(Number(s.cgst || 0) + Number(s.sgst || 0) + Number(s.igst || 0)),
@@ -484,7 +508,7 @@ export default function SalesHistoryPage() {
             key: "payment",
             header: "Payment",
             hideOnMobile: true,
-            cell: (s) => POS_PAYMENT_LABELS[s.payment_method],
+            cell: (s) => (POS_PAYMENT_LABELS as Record<string, string>)[s.payment_method] || s.payment_method,
           },
           {
             key: "total",
@@ -527,8 +551,31 @@ export default function SalesHistoryPage() {
         ]}
         actions={(s) => (
           <div className="flex flex-wrap justify-end gap-1">
-            <Button size="sm" variant="outline" onClick={() => setSelectedSaleId(s.id)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedSaleId(s.id)}
+              title="View Details / Receipts"
+            >
               <Eye className="h-3 w-3" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+              onClick={() => setEditingSaleId(s.id)}
+              title="Edit Bill"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+              onClick={() => handlePrintTaxInvoice(s)}
+              title="Print Tax Invoice (Photo Wholesale Format)"
+            >
+              <FileText className="h-3 w-3" />
             </Button>
             <Button
               size="sm"
@@ -536,7 +583,7 @@ export default function SalesHistoryPage() {
               onClick={() => {
                 setSelectedSaleId(s.id);
               }}
-              title="Reprint"
+              title="Thermal Receipt Print"
             >
               <Printer className="h-3 w-3" />
             </Button>
@@ -564,6 +611,13 @@ export default function SalesHistoryPage() {
       <BillDetailModal
         saleId={selectedSaleId}
         onClose={() => setSelectedSaleId(null)}
+        onUpdated={load}
+      />
+
+      <EditBillModal
+        saleId={editingSaleId}
+        open={!!editingSaleId}
+        onClose={() => setEditingSaleId(null)}
         onUpdated={load}
       />
 

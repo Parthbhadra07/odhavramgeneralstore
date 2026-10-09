@@ -3,6 +3,8 @@ import type {
   PosPaymentMethod,
 } from "@/lib/erp/constants";
 
+export type { ExpenseCategory, PosPaymentMethod };
+
 export type StockMovementType =
   | "opening"
   | "opening_stock"
@@ -330,6 +332,29 @@ export interface PosSaleItem {
   gst_percentage: number;
   gst_amount: number;
   total_amount: number;
+}
+
+export interface UpdateSaleItemInput {
+  id?: string;
+  productId: string;
+  productName: string;
+  barcode?: string | null;
+  lotId?: string | null;
+  quantity: number;
+  rate: number;
+  gstPercentage: number;
+  unit?: string | null;
+  packMultiplier?: number | null;
+}
+
+export interface UpdateSaleParams {
+  customerName?: string | null;
+  customerMobile?: string | null;
+  paymentMethod?: PosPaymentMethod;
+  notes?: string | null;
+  discount?: number;
+  roundOff?: boolean;
+  items: UpdateSaleItemInput[];
 }
 
 export interface Expense {

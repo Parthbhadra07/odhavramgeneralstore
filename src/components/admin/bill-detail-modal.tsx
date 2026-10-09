@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, RotateCcw, XCircle, Trash2, AlertTriangle } from "lucide-react";
+import { Copy, RotateCcw, XCircle, Trash2, AlertTriangle, Pencil, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/admin/modal";
+import { EditBillModal } from "@/components/admin/edit-bill-modal";
+import { printAgencyGstInvoice } from "@/utils/agency-invoice-print";
 import { ReceiptActions } from "@/components/erp/receipt-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +29,7 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
   const [sale, setSale] = useState<PosSale | null>(null);
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [restoreStockOnDelete, setRestoreStockOnDelete] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
@@ -116,7 +119,7 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
                 {sale.sale_status}
               </Badge>
               <Badge variant="info">
-                {POS_PAYMENT_LABELS[sale.payment_method]}
+                {(POS_PAYMENT_LABELS as Record<string, string>)[sale.payment_method] || sale.payment_method}
               </Badge>
             </div>
           </div>
@@ -200,6 +203,38 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
             </div>
           </div>
 
+          {/* Wholesale Agency Tax Invoice (Photo Format) & Edit Shortcut */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50/70 p-3.5 shadow-sm">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-950">
+                GST Tax Invoice (Wholesale Agency / Photo Format)
+              </p>
+              <p className="text-xs text-gray-600">
+                Print complete tax invoice matching the agency format with HSN, SGST/CGST split &amp; bank terms.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-500 bg-white font-bold text-emerald-800 hover:bg-emerald-100 shadow-sm"
+                onClick={() => printAgencyGstInvoice(sale, { settings })}
+              >
+                <Printer className="mr-1.5 h-4 w-4 text-emerald-600" />
+                Print Tax Invoice
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-blue-400 bg-white font-bold text-blue-700 hover:bg-blue-50 shadow-sm"
+                onClick={() => setShowEditModal(true)}
+              >
+                <Pencil className="mr-1.5 h-4 w-4 text-blue-600" />
+                Edit Bill
+              </Button>
+            </div>
+          </div>
+
           {receiptData && (
             <ReceiptActions
               data={receiptData}
@@ -262,6 +297,24 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
             <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-blue-300 text-blue-700 hover:bg-blue-50 font-semibold"
+                onClick={() => setShowEditModal(true)}
+              >
+                <Pencil className="mr-1 h-4 w-4 text-blue-600" />
+                Edit Bill
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold"
+                onClick={() => printAgencyGstInvoice(sale, { settings })}
+              >
+                <Printer className="mr-1 h-4 w-4 text-emerald-600" />
+                Print Tax Invoice
+              </Button>
               <Button size="sm" variant="outline" onClick={handleDuplicate}>
                 <Copy className="mr-1 h-4 w-4" />
                 Duplicate Invoice
@@ -295,6 +348,20 @@ export function BillDetailModal({ saleId, onClose, onUpdated }: BillDetailModalP
             )}
           </div>
         </div>
+      )}
+
+      {sale && (
+        <EditBillModal
+          saleId={sale.id}
+          open={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          onUpdated={() => {
+            if (saleId) {
+              posService.getById(saleId).then((data) => setSale(data));
+            }
+            onUpdated?.();
+          }}
+        />
       )}
     </Modal>
   );

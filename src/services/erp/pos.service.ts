@@ -3,9 +3,12 @@ import { LOYALTY_POINTS_PER_100 } from "@/lib/erp/constants";
 import type {
   PosCartLine,
   PosSale,
+  PosSaleItem,
   PosSaleFilters,
   PosSalesHistoryStats,
   PosSaleStatus,
+  UpdateSaleParams,
+  UpdateSaleItemInput,
 } from "@/types/erp";
 import type { PosPaymentMethod } from "@/lib/erp/constants";
 import { lineItemInclusiveGst } from "@/utils/gst";
@@ -343,6 +346,309 @@ export const posService = {
       .eq("id", saleId);
     if (error) throw error;
     return this.getById(saleId) as Promise<PosSale>;
+  },
+
+  async updateSale(saleId: string, params: UpdateSaleParams): Promise<PosSale> {
+    const supabase = requireClient();
+    const oldSale = await this.getById(saleId);
+    if (!oldSale) throw new Error("Sale not found");
+
+    if (!params.items || params.items.length === 0) {
+      throw new Error("Bill must contain at least one item");
+    }
+
+    // 1. Calculate financial line totals
+    let subtotal = 0;
+    let cgst = 0;
+    let sgst = 0;
+
+    const computedItems = params.items.map((it) => {
+      const baseRate = Math.max(0, Number(it.rate) || 0);
+      const qty = Math.max(0.01, Number(it.quantity) || 1);
+      const gstPct = Number(it.gstPercentage) || 0;
+      const lineGross = Math.round(baseRate * qty * 100) / 100;
+      const gst = lineItemInclusiveGst(baseRate, qty, gstPct);
+
+      subtotal += lineGross;
+      cgst += gst.cgst;
+      sgst += gst.sgst;
+
+      return {
+        ...it,
+        rate: baseRate,
+        quantity: qty,
+        gstPercentage: gstPct,
+        gstAmount: gst.totalGst,
+        totalAmount: lineGross,
+      };
+    });
+
+    const discount = Math.max(0, Number(params.discount ?? oldSale.discount ?? 0));
+    const rawTotal = Math.max(0, Math.round((subtotal - discount) * 100) / 100);
+    const roundOff = params.roundOff ?? (oldSale.round_off !== undefined && Number(oldSale.round_off) !== 0);
+    const finalTotal = roundOff ? Math.round(rawTotal) : rawTotal;
+    const roundOffAmount = roundOff ? Math.round((finalTotal - rawTotal) * 100) / 100 : 0;
+
+    // 2. Resolve customer
+    let customerId = oldSale.customer_id;
+    if (params.customerMobile || params.customerName) {
+      const resolved = await customerService
+        .resolveForPos({
+          customerId: oldSale.customer_id ?? undefined,
+          mobile: params.customerMobile ?? undefined,
+          name: params.customerName ?? undefined,
+        })
+        .catch(() => null);
+      if (resolved?.id) customerId = resolved.id;
+    }
+
+    const oldItems = oldSale.pos_sale_items ?? [];
+    const oldItemsMap = new Map<string, PosSaleItem>(oldItems.map((i) => [i.id, i]));
+
+    // 3. Inventory synchronization if sale was completed
+    if (oldSale.sale_status === "completed") {
+      // (a) Restore stock for removed items
+      for (const oldItem of oldItems) {
+        const stillPresent = params.items.some((i) => i.id === oldItem.id);
+        if (!stillPresent) {
+          const effQty = oldItem.quantity * (Number(oldItem.pack_multiplier) || 1);
+          await supabase.rpc("apply_stock_movement", {
+            p_product_id: oldItem.product_id,
+            p_quantity: effQty,
+            p_movement_type: "cancel",
+            p_reference_type: "pos_sale",
+            p_reference_id: saleId,
+            p_notes: `Item removed during POS bill ${oldSale.bill_number} edit`,
+          });
+          if (oldItem.lot_id) {
+            try {
+              await supabase.rpc("apply_lot_stock_movement", {
+                p_lot_id: oldItem.lot_id,
+                p_quantity: effQty,
+                p_movement_type: "cancel",
+                p_reference_type: "pos_sale",
+                p_reference_id: saleId,
+                p_notes: `Item removed during POS bill ${oldSale.bill_number} edit`,
+              });
+            } catch {}
+          }
+        }
+      }
+
+      // (b) Adjust stock delta for existing items with changed quantity
+      for (const it of computedItems) {
+        if (it.id && oldItemsMap.has(it.id)) {
+          const oldItem = oldItemsMap.get(it.id)!;
+          const oldEffQty = oldItem.quantity * (Number(oldItem.pack_multiplier) || 1);
+          const newEffQty = it.quantity * (Number(it.packMultiplier) || 1);
+          const delta = newEffQty - oldEffQty;
+
+          if (delta > 0) {
+            // Deduct more
+            await supabase.rpc("apply_stock_movement", {
+              p_product_id: it.productId,
+              p_quantity: -delta,
+              p_movement_type: "pos_sale",
+              p_reference_type: "pos_sale",
+              p_reference_id: saleId,
+              p_notes: `Qty increased during POS bill ${oldSale.bill_number} edit`,
+            });
+            if (it.lotId) {
+              try {
+                await lotService.deductStock(
+                  it.lotId,
+                  delta,
+                  "pos_sale",
+                  saleId,
+                  `POS ${oldSale.bill_number} edit`
+                );
+              } catch {}
+            }
+          } else if (delta < 0) {
+            // Restore reduced quantity
+            const restoreQty = Math.abs(delta);
+            await supabase.rpc("apply_stock_movement", {
+              p_product_id: it.productId,
+              p_quantity: restoreQty,
+              p_movement_type: "cancel",
+              p_reference_type: "pos_sale",
+              p_reference_id: saleId,
+              p_notes: `Qty reduced during POS bill ${oldSale.bill_number} edit`,
+            });
+            if (it.lotId) {
+              try {
+                await supabase.rpc("apply_lot_stock_movement", {
+                  p_lot_id: it.lotId,
+                  p_quantity: restoreQty,
+                  p_movement_type: "cancel",
+                  p_reference_type: "pos_sale",
+                  p_reference_id: saleId,
+                  p_notes: `Qty reduced during POS bill ${oldSale.bill_number} edit`,
+                });
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Update pos_sale_items rows
+    // (a) Delete removed items
+    const removedIds = oldItems
+      .filter((i) => !params.items.some((newItem) => newItem.id === i.id))
+      .map((i) => i.id);
+    if (removedIds.length > 0) {
+      await supabase.from("pos_sale_items").delete().in("id", removedIds);
+    }
+
+    // (b) Update existing items
+    for (const it of computedItems) {
+      if (it.id && oldItemsMap.has(it.id)) {
+        await supabase
+          .from("pos_sale_items")
+          .update({
+            product_name: it.productName,
+            barcode: it.barcode ?? null,
+            lot_id: it.lotId ?? null,
+            unit: it.unit ?? "pcs",
+            pack_multiplier: it.packMultiplier ?? 1,
+            quantity: it.quantity,
+            rate: it.rate,
+            gst_percentage: it.gstPercentage,
+            gst_amount: it.gstAmount,
+            total_amount: it.totalAmount,
+          })
+          .eq("id", it.id);
+      }
+    }
+
+    // (c) Insert newly added items
+    const newItemsToInsert = computedItems.filter((it) => !it.id);
+    if (newItemsToInsert.length > 0) {
+      const { error: insErr } = await supabase.from("pos_sale_items").insert(
+        newItemsToInsert.map((it) => ({
+          pos_sale_id: saleId,
+          product_id: it.productId,
+          product_name: it.productName,
+          barcode: it.barcode ?? null,
+          lot_id: it.lotId ?? null,
+          unit: it.unit ?? "pcs",
+          pack_multiplier: it.packMultiplier ?? 1,
+          quantity: it.quantity,
+          rate: it.rate,
+          gst_percentage: it.gstPercentage,
+          gst_amount: it.gstAmount,
+          total_amount: it.totalAmount,
+        }))
+      );
+      if (insErr) throw insErr;
+
+      // Handle lot deduction for new items if sale was completed
+      if (oldSale.sale_status === "completed") {
+        for (const it of newItemsToInsert) {
+          if (it.lotId) {
+            const eff = it.quantity * (Number(it.packMultiplier) || 1);
+            try {
+              await lotService.deductStock(
+                it.lotId,
+                eff,
+                "pos_sale",
+                saleId,
+                `POS ${oldSale.bill_number} edit`
+              );
+            } catch {}
+          }
+        }
+      }
+    }
+
+    // 5. Customer credit balance synchronization
+    const oldMethod = oldSale.payment_method;
+    const newMethod = params.paymentMethod ?? oldMethod;
+    const oldTotal = Number(oldSale.total_amount);
+
+    if (oldSale.sale_status === "completed") {
+      if (oldMethod === "credit" && newMethod !== "credit") {
+        if (oldSale.customer_id) {
+          await creditService.reverseCredit(
+            oldSale.customer_id,
+            oldTotal,
+            "pos_sale",
+            saleId,
+            `Payment mode changed from credit on POS bill ${oldSale.bill_number}`
+          );
+        }
+      } else if (oldMethod !== "credit" && newMethod === "credit") {
+        if (customerId) {
+          await creditService.addCredit(
+            customerId,
+            finalTotal,
+            "pos_sale",
+            saleId,
+            `POS bill ${oldSale.bill_number} converted to credit`
+          );
+        }
+      } else if (oldMethod === "credit" && newMethod === "credit") {
+        const diff = Math.round((finalTotal - oldTotal) * 100) / 100;
+        if (customerId && diff !== 0) {
+          if (diff > 0) {
+            await creditService.addCredit(
+              customerId,
+              diff,
+              "pos_sale",
+              saleId,
+              `POS bill ${oldSale.bill_number} edited (increased)`
+            );
+          } else {
+            await creditService.reverseCredit(
+              customerId,
+              Math.abs(diff),
+              "pos_sale",
+              saleId,
+              `POS bill ${oldSale.bill_number} edited (decreased)`
+            );
+          }
+        }
+      }
+    }
+
+    // 6. Update pos_sales table
+    const saleUpdatePayload: any = {
+      subtotal: Math.round(subtotal * 100) / 100,
+      cgst: Math.round(cgst * 100) / 100,
+      sgst: Math.round(sgst * 100) / 100,
+      igst: 0,
+      discount,
+      total_amount: finalTotal,
+      round_off: roundOffAmount,
+      customer_id: customerId,
+      customer_name: params.customerName !== undefined ? params.customerName : oldSale.customer_name,
+      customer_mobile: params.customerMobile !== undefined ? params.customerMobile : oldSale.customer_mobile,
+      payment_method: newMethod,
+      payment_status: newMethod === "credit" ? "pending" : "paid",
+      notes: params.notes !== undefined ? params.notes : oldSale.notes,
+    };
+
+    let { error: updateErr } = await supabase
+      .from("pos_sales")
+      .update(saleUpdatePayload)
+      .eq("id", saleId);
+
+    if (
+      updateErr &&
+      (updateErr.message?.includes("round_off") ||
+        (updateErr as any).code === "PGRST204" ||
+        (updateErr as any).code === "42703")
+    ) {
+      delete saleUpdatePayload.round_off;
+      const retry = await supabase.from("pos_sales").update(saleUpdatePayload).eq("id", saleId);
+      updateErr = retry.error;
+    }
+    if (updateErr) throw updateErr;
+
+    const updated = await this.getById(saleId);
+    if (!updated) throw new Error("Failed to reload updated sale");
+    return updated;
   },
 
   async cancelBill(saleId: string): Promise<void> {
