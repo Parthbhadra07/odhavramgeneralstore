@@ -335,7 +335,7 @@ export interface PosSaleItem {
 export interface Expense {
   id: string;
   expense_date: string;
-  category: ExpenseCategory;
+  category: string;
   amount: number;
   notes: string | null;
   receipt_url: string | null;

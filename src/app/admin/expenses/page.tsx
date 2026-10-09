@@ -33,69 +33,117 @@ import {
 import { toast } from "sonner";
 import { expenseService } from "@/services/erp";
 import type { Expense } from "@/types/erp";
-import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_LABELS, type ExpenseCategory } from "@/lib/erp/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatPrice, formatDate } from "@/utils/format";
 import { printSystematicDocument } from "@/utils/document-print";
 import { cn } from "@/utils/cn";
 
-const CATEGORY_ICONS: Record<ExpenseCategory, React.ElementType> = {
-  rent: Building2,
-  electricity: Zap,
-  salaries: Users,
-  transport: Truck,
-  repairs: Wrench,
-  miscellaneous: Tag,
-};
+const SUGGESTED_TYPES = [
+  "Rent",
+  "Electricity",
+  "Salaries",
+  "Transport",
+  "Repairs",
+  "Tea & Snacks",
+  "Shop Maintenance",
+  "Packaging Materials",
+  "Stationery & Printing",
+  "Cleaning & Pest Control",
+  "Fuel & Diesel",
+  "Miscellaneous",
+];
 
-const CATEGORY_STYLES: Record<
-  ExpenseCategory,
-  { bg: string; text: string; border: string; badge: string; iconBg: string }
+const KNOWN_TYPE_STYLES: Record<
+  string,
+  { bg: string; text: string; border: string; badge: string; icon: React.ElementType }
 > = {
   rent: {
     bg: "bg-indigo-50/70",
     text: "text-indigo-700",
     border: "border-indigo-200",
     badge: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    iconBg: "bg-indigo-100 text-indigo-700",
+    icon: Building2,
   },
   electricity: {
     bg: "bg-amber-50/70",
     text: "text-amber-700",
     border: "border-amber-200",
     badge: "bg-amber-50 text-amber-700 border-amber-200",
-    iconBg: "bg-amber-100 text-amber-700",
+    icon: Zap,
   },
   salaries: {
     bg: "bg-emerald-50/70",
     text: "text-emerald-700",
     border: "border-emerald-200",
     badge: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    iconBg: "bg-emerald-100 text-emerald-700",
+    icon: Users,
+  },
+  salary: {
+    bg: "bg-emerald-50/70",
+    text: "text-emerald-700",
+    border: "border-emerald-200",
+    badge: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    icon: Users,
   },
   transport: {
     bg: "bg-sky-50/70",
     text: "text-sky-700",
     border: "border-sky-200",
     badge: "bg-sky-50 text-sky-700 border-sky-200",
-    iconBg: "bg-sky-100 text-sky-700",
+    icon: Truck,
   },
   repairs: {
     bg: "bg-orange-50/70",
     text: "text-orange-700",
     border: "border-orange-200",
     badge: "bg-orange-50 text-orange-700 border-orange-200",
-    iconBg: "bg-orange-100 text-orange-700",
+    icon: Wrench,
+  },
+  maintenance: {
+    bg: "bg-orange-50/70",
+    text: "text-orange-700",
+    border: "border-orange-200",
+    badge: "bg-orange-50 text-orange-700 border-orange-200",
+    icon: Wrench,
   },
   miscellaneous: {
     bg: "bg-slate-50/80",
     text: "text-slate-700",
     border: "border-slate-200",
     badge: "bg-slate-100 text-slate-700 border-slate-200",
-    iconBg: "bg-slate-200/80 text-slate-700",
+    icon: Tag,
   },
 };
+
+export function getExpenseType(e: Expense): string {
+  if (e.notes && e.notes.startsWith("[Type: ")) {
+    const match = e.notes.match(/^\[Type:\s*(.*?)\]/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  return e.category?.trim() || "General";
+}
+
+export function getCleanNotes(notes?: string | null): string {
+  if (!notes) return "";
+  return notes.replace(/^\[Type:\s*.*?\]\s*/, "").trim();
+}
+
+function getTypeStyle(typeName: string) {
+  const lower = typeName.toLowerCase().trim();
+  for (const [k, style] of Object.entries(KNOWN_TYPE_STYLES)) {
+    if (lower.includes(k)) return style;
+  }
+  return {
+    bg: "bg-rose-50/60",
+    text: "text-rose-700",
+    border: "border-rose-200",
+    badge: "bg-rose-50 text-rose-700 border-rose-200",
+    icon: Tag,
+  };
+}
 
 const QUICK_AMOUNTS = [100, 200, 500, 1000, 2000, 5000];
 
@@ -106,29 +154,29 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [datePreset, setDatePreset] = useState<DateFilterPreset>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("date_desc");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Form states for creating voucher
+  // Form states for creating voucher (using TEXT box for type)
   const [showAddSection, setShowAddSection] = useState(false);
   const [isSubmittingNew, setIsSubmittingNew] = useState(false);
   const [form, setForm] = useState({
     expense_date: new Date().toISOString().slice(0, 10),
-    category: "miscellaneous" as ExpenseCategory,
+    category: "",
     amount: 0,
     notes: "",
     receipt_url: "",
   });
 
-  // State for Editing voucher
+  // State for Editing voucher (using TEXT box for type)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editForm, setEditForm] = useState({
     expense_date: "",
-    category: "miscellaneous" as ExpenseCategory,
+    category: "",
     amount: 0,
     notes: "",
     receipt_url: "",
@@ -173,11 +221,12 @@ export default function ExpensesPage() {
       toast.error("Please enter a valid amount greater than ₹0");
       return;
     }
+    const typeVal = form.category.trim() || "General";
     setIsSubmittingNew(true);
     try {
       const created = await expenseService.create({
         expense_date: form.expense_date,
-        category: form.category,
+        category: typeVal,
         amount: Number(form.amount),
         notes: form.notes.trim() || undefined,
         receipt_url: form.receipt_url.trim() || undefined,
@@ -185,7 +234,7 @@ export default function ExpensesPage() {
       toast.success(`Expense voucher EXP-${created.id.slice(0, 8).toUpperCase()} recorded`);
       setForm({
         expense_date: new Date().toISOString().slice(0, 10),
-        category: "miscellaneous",
+        category: "",
         amount: 0,
         notes: "",
         receipt_url: "",
@@ -201,12 +250,14 @@ export default function ExpensesPage() {
 
   // Open Edit Modal
   const openEditModal = (expense: Expense) => {
+    const typeName = getExpenseType(expense);
+    const cleanNotes = getCleanNotes(expense.notes);
     setEditingExpense(expense);
     setEditForm({
       expense_date: expense.expense_date,
-      category: expense.category,
+      category: typeName,
       amount: Number(expense.amount),
-      notes: expense.notes || "",
+      notes: cleanNotes,
       receipt_url: expense.receipt_url || "",
     });
   };
@@ -219,11 +270,12 @@ export default function ExpensesPage() {
       toast.error("Please enter a valid amount greater than ₹0");
       return;
     }
+    const typeVal = editForm.category.trim() || "General";
     setIsSubmittingEdit(true);
     try {
       const updated = await expenseService.update(editingExpense.id, {
         expense_date: editForm.expense_date,
-        category: editForm.category,
+        category: typeVal,
         amount: Number(editForm.amount),
         notes: editForm.notes.trim() || null,
         receipt_url: editForm.receipt_url.trim() || null,
@@ -258,14 +310,28 @@ export default function ExpensesPage() {
     }
   };
 
+  // Dynamic set of all unique expense types from current records + common suggestions
+  const dynamicExpenseTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of expenses) {
+      const t = getExpenseType(e);
+      if (t) set.add(t);
+    }
+    return Array.from(set);
+  }, [expenses]);
+
   // Filter & Search Logic
   const filteredExpenses = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     return expenses
       .filter((e) => {
-        // Category Filter
-        if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
+        const itemType = getExpenseType(e);
+
+        // Type Filter
+        if (typeFilter !== "all" && itemType.toLowerCase() !== typeFilter.toLowerCase()) {
+          return false;
+        }
 
         // Date Filter Preset
         if (datePreset === "today") {
@@ -293,19 +359,16 @@ export default function ExpensesPage() {
           if (customTo && e.expense_date > customTo) return false;
         }
 
-        // Search Filter (notes, category name, voucher id, amount)
+        // Search Filter (notes, type/category name, voucher id, amount)
         if (search.trim()) {
           const q = search.toLowerCase();
-          const catLabel = (
-            EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category
-          ).toLowerCase();
-          const notes = (e.notes || "").toLowerCase();
+          const cleanNotes = getCleanNotes(e.notes).toLowerCase();
           const code = `exp-${e.id.slice(0, 8).toLowerCase()}`;
           const amountStr = String(e.amount);
 
           if (
-            !catLabel.includes(q) &&
-            !notes.includes(q) &&
+            !itemType.toLowerCase().includes(q) &&
+            !cleanNotes.includes(q) &&
             !code.includes(q) &&
             !amountStr.includes(q)
           ) {
@@ -327,7 +390,7 @@ export default function ExpensesPage() {
         }
         return 0;
       });
-  }, [expenses, categoryFilter, datePreset, customFrom, customTo, search, sortOption]);
+  }, [expenses, typeFilter, datePreset, customFrom, customTo, search, sortOption]);
 
   // Executive KPI Statistics
   const stats = useMemo(() => {
@@ -339,10 +402,12 @@ export default function ExpensesPage() {
     let monthTotal = 0;
     let monthCount = 0;
 
-    const categoryTotals: Record<string, number> = {};
+    const typeTotals: Record<string, number> = {};
 
     for (const e of expenses) {
       const amt = Number(e.amount) || 0;
+      const t = getExpenseType(e);
+
       if (e.expense_date === todayStr) {
         todayTotal += amt;
         todayCount++;
@@ -351,20 +416,20 @@ export default function ExpensesPage() {
         monthTotal += amt;
         monthCount++;
       }
-      categoryTotals[e.category] = (categoryTotals[e.category] || 0) + amt;
+      typeTotals[t] = (typeTotals[t] || 0) + amt;
     }
 
     const filteredTotal = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0);
     const avgVoucher =
       filteredExpenses.length > 0 ? filteredTotal / filteredExpenses.length : 0;
 
-    // Determine Top Category
-    let topCategory = "miscellaneous";
-    let topCategoryAmount = 0;
-    for (const [cat, amt] of Object.entries(categoryTotals)) {
-      if (amt > topCategoryAmount) {
-        topCategory = cat;
-        topCategoryAmount = amt;
+    // Determine Top Type
+    let topType = "General";
+    let topTypeAmount = 0;
+    for (const [t, amt] of Object.entries(typeTotals)) {
+      if (amt > topTypeAmount) {
+        topType = t;
+        topTypeAmount = amt;
       }
     }
 
@@ -375,23 +440,22 @@ export default function ExpensesPage() {
       monthCount,
       filteredTotal,
       avgVoucher,
-      topCategory,
-      topCategoryAmount,
+      topType,
+      topTypeAmount,
       totalAllTime: expenses.reduce((s, e) => s + Number(e.amount), 0),
     };
   }, [expenses, filteredExpenses]);
 
-  // Category counts and totals for pills
-  const categoryPillStats = useMemo(() => {
+  // Type counts and totals for dynamic pills
+  const typePillStats = useMemo(() => {
     const map: Record<string, { count: number; total: number }> = {};
-    for (const cat of EXPENSE_CATEGORIES) {
-      map[cat] = { count: 0, total: 0 };
-    }
     for (const e of expenses) {
-      if (map[e.category]) {
-        map[e.category].count++;
-        map[e.category].total += Number(e.amount);
+      const t = getExpenseType(e);
+      if (!map[t]) {
+        map[t] = { count: 0, total: 0 };
       }
+      map[t].count++;
+      map[t].total += Number(e.amount);
     }
     return map;
   }, [expenses]);
@@ -402,13 +466,13 @@ export default function ExpensesPage() {
       toast.error("No expenses to export");
       return;
     }
-    const headers = ["Voucher ID", "Date", "Category", "Amount (INR)", "Particulars / Notes", "Receipt URL"];
+    const headers = ["Voucher ID", "Date", "Expense Type", "Amount (INR)", "Particulars / Notes", "Receipt URL"];
     const rows = filteredExpenses.map((e) => [
       `EXP-${e.id.slice(0, 8).toUpperCase()}`,
       e.expense_date,
-      EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category,
+      `"${getExpenseType(e).replace(/"/g, '""')}"`,
       Number(e.amount).toFixed(2),
-      `"${(e.notes || "").replace(/"/g, '""')}"`,
+      `"${getCleanNotes(e.notes).replace(/"/g, '""')}"`,
       e.receipt_url || "",
     ]);
 
@@ -428,6 +492,9 @@ export default function ExpensesPage() {
 
   // Systematic Document Print Single Voucher
   const printExpenseVoucher = (e: Expense) => {
+    const expType = getExpenseType(e);
+    const cleanNotes = getCleanNotes(e.notes);
+
     printSystematicDocument({
       docTitle: "PAYMENT / EXPENSE VOUCHER",
       docBadge: "ORIGINAL VOUCHER",
@@ -435,33 +502,28 @@ export default function ExpensesPage() {
       docDate: formatDate(e.expense_date),
       partyTitle: "Expense Particulars",
       partyDetails: {
-        name: EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category,
-        extra: e.notes ? `Remarks: ${e.notes}` : "General Store Operating Expense",
+        name: expType,
+        extra: cleanNotes ? `Remarks: ${cleanNotes}` : "General Store Operating Expense",
       },
       metadata: [
         { label: "Voucher ID", value: `EXP-${e.id.slice(0, 8).toUpperCase()}` },
         { label: "Expense Date", value: formatDate(e.expense_date) },
-        {
-          label: "Category",
-          value: EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category,
-        },
+        { label: "Expense Type", value: expType },
         { label: "Payment Mode", value: "Cash / Operating Payout" },
         { label: "Total Amount", value: formatPrice(e.amount) },
       ],
       columns: [
         { header: "Sr.", width: "10%" },
         { header: "Head of Account / Purpose", width: "55%" },
-        { header: "Category", width: "20%" },
+        { header: "Expense Type", width: "20%" },
         { header: "Amount (₹)", align: "right", width: "15%" },
       ],
       rows: [
         {
           cells: [
             1,
-            e.notes
-              ? `${EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category} — ${e.notes}`
-              : EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category,
-            e.category.toUpperCase(),
+            cleanNotes ? `${expType} — ${cleanNotes}` : expType,
+            expType.toUpperCase(),
             formatPrice(e.amount),
           ],
         },
@@ -490,13 +552,13 @@ export default function ExpensesPage() {
       metadata: [
         { label: "Total Expenses Recorded", value: filteredExpenses.length },
         { label: "Total Expenditure", value: formatPrice(stats.filteredTotal) },
-        { label: "Category Filter", value: categoryFilter.toUpperCase() },
+        { label: "Type Filter", value: typeFilter.toUpperCase() },
         { label: "Generated Date", value: formatDate(new Date().toISOString()) },
       ],
       columns: [
         { header: "Date", width: "15%" },
         { header: "Voucher ID", width: "15%" },
-        { header: "Category", width: "20%" },
+        { header: "Expense Type", width: "20%" },
         { header: "Notes / Details", width: "35%" },
         { header: "Amount", align: "right", width: "15%" },
       ],
@@ -504,8 +566,8 @@ export default function ExpensesPage() {
         cells: [
           formatDate(e.expense_date),
           `EXP-${e.id.slice(0, 8).toUpperCase()}`,
-          EXPENSE_CATEGORY_LABELS[e.category as keyof typeof EXPENSE_CATEGORY_LABELS] || e.category,
-          e.notes || "—",
+          getExpenseType(e),
+          getCleanNotes(e.notes) || "—",
           formatPrice(e.amount),
         ],
       })),
@@ -522,6 +584,16 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
+      {/* Shared Datalist for Expense Types */}
+      <datalist id="suggested-expense-types">
+        {SUGGESTED_TYPES.map((t) => (
+          <option key={t} value={t} />
+        ))}
+        {dynamicExpenseTypes.map((t) => (
+          <option key={`dyn-${t}`} value={t} />
+        ))}
+      </datalist>
+
       {/* Top Banner & Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-5">
         <div>
@@ -669,11 +741,11 @@ export default function ExpensesPage() {
           </p>
         </div>
 
-        {/* Top Expense Head */}
+        {/* Top Expense Type */}
         <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/70 via-white to-white p-4 shadow-2xs hover:shadow-sm transition">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
-              Top Expense Head
+              Top Expense Type
             </span>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">
               Primary
@@ -681,11 +753,11 @@ export default function ExpensesPage() {
           </div>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="text-lg sm:text-xl font-black text-gray-900 capitalize truncate">
-              {EXPENSE_CATEGORY_LABELS[stats.topCategory as ExpenseCategory] || stats.topCategory}
+              {stats.topType}
             </span>
           </div>
           <p className="mt-1 text-xs text-amber-800">
-            {formatPrice(stats.topCategoryAmount)} total spent
+            {formatPrice(stats.topTypeAmount)} total spent
           </p>
         </div>
       </div>
@@ -727,24 +799,20 @@ export default function ExpensesPage() {
                 />
               </div>
 
-              {/* Expense Category */}
+              {/* Expense Type (TEXT BOX with Auto-suggest) */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Category / Head of Account
+                  Expense Type / Description
                 </label>
-                <select
+                <Input
+                  type="text"
+                  list="suggested-expense-types"
+                  placeholder="e.g. Rent, Electricity, Tea & Snacks..."
                   value={form.category}
-                  onChange={(e) =>
-                    setForm({ ...form, category: e.target.value as ExpenseCategory })
-                  }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                >
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {EXPENSE_CATEGORY_LABELS[c]}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  required
+                  className="rounded-xl font-medium"
+                />
               </div>
 
               {/* Amount */}
@@ -783,6 +851,28 @@ export default function ExpensesPage() {
               </div>
             </div>
 
+            {/* Quick Type Chips for fast 1-click filling */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-500 mr-1">
+                Common Types:
+              </span>
+              {SUGGESTED_TYPES.slice(0, 8).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setForm({ ...form, category: t })}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-xs font-bold transition shadow-2xs",
+                    form.category.toLowerCase() === t.toLowerCase()
+                      ? "border-rose-500 bg-rose-50 text-rose-800"
+                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300"
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
             {/* Quick Amount Chips */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-semibold text-gray-500 mr-1">
@@ -812,7 +902,7 @@ export default function ExpensesPage() {
             {/* Particulars / Payee / Remarks */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Particulars / Payee / Notes
+                Particulars / Payee / Remarks
               </label>
               <Input
                 placeholder="e.g. Paid to Torrent Power for March bill, Cash paid to cleaner Ramesh, Vehicle diesel"
@@ -846,59 +936,58 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {/* Category Pills Strip */}
+      {/* Dynamic Type Filter Pills Strip */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
-            Filter by Category
+            Filter by Expense Type
           </span>
           <span className="text-xs text-gray-400">
-            Click category to filter vouchers
+            Click type pill to filter vouchers
           </span>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
           <button
             type="button"
-            onClick={() => setCategoryFilter("all")}
+            onClick={() => setTypeFilter("all")}
             className={cn(
               "flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all shadow-2xs",
-              categoryFilter === "all"
+              typeFilter === "all"
                 ? "border-gray-900 bg-gray-900 text-white"
                 : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
             )}
           >
             <Wallet className="h-3.5 w-3.5" />
-            <span>All Categories</span>
+            <span>All Types</span>
             <span
               className={cn(
                 "rounded-full px-1.5 py-0.2 text-[10px]",
-                categoryFilter === "all" ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
+                typeFilter === "all" ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
               )}
             >
               {expenses.length}
             </span>
           </button>
 
-          {EXPENSE_CATEGORIES.map((cat) => {
-            const Icon = CATEGORY_ICONS[cat] || Tag;
-            const style = CATEGORY_STYLES[cat];
-            const pillStat = categoryPillStats[cat] || { count: 0, total: 0 };
-            const isActive = categoryFilter === cat;
+          {Object.entries(typePillStats).map(([t, pillStat]) => {
+            const style = getTypeStyle(t);
+            const Icon = style.icon;
+            const isActive = typeFilter.toLowerCase() === t.toLowerCase();
 
             return (
               <button
-                key={cat}
+                key={t}
                 type="button"
-                onClick={() => setCategoryFilter(isActive ? "all" : cat)}
+                onClick={() => setTypeFilter(isActive ? "all" : t)}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all shadow-2xs",
+                  "flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all shadow-2xs capitalize",
                   isActive
-                    ? cn("border-gray-900 bg-gray-900 text-white")
-                    : cn("border-gray-200 bg-white text-gray-700 hover:bg-gray-50")
+                    ? "border-gray-900 bg-gray-900 text-white"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                 )}
               >
                 <Icon className={cn("h-3.5 w-3.5", isActive ? "text-white" : style.text)} />
-                <span>{EXPENSE_CATEGORY_LABELS[cat]}</span>
+                <span>{t}</span>
                 <span
                   className={cn(
                     "rounded-full px-1.5 py-0.2 text-[10px]",
@@ -923,7 +1012,7 @@ export default function ExpensesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by Payee, notes, voucher ID, amount..."
+              placeholder="Search by Payee, type, notes, voucher ID, amount..."
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-9 pr-8 text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
             />
             {search && (
@@ -1026,7 +1115,7 @@ export default function ExpensesPage() {
               <tr>
                 <th className="p-3.5 text-left">Voucher ID</th>
                 <th className="p-3.5 text-left">Date</th>
-                <th className="p-3.5 text-left">Category</th>
+                <th className="p-3.5 text-left">Expense Type</th>
                 <th className="p-3.5 text-left">Particulars / Remarks</th>
                 <th className="p-3.5 text-right">Amount (₹)</th>
                 <th className="p-3.5 text-center">Receipt</th>
@@ -1035,8 +1124,10 @@ export default function ExpensesPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredExpenses.map((e) => {
-                const Icon = CATEGORY_ICONS[e.category as ExpenseCategory] || Tag;
-                const style = CATEGORY_STYLES[e.category as ExpenseCategory] || CATEGORY_STYLES.miscellaneous;
+                const expType = getExpenseType(e);
+                const cleanNotes = getCleanNotes(e.notes);
+                const style = getTypeStyle(expType);
+                const Icon = style.icon;
                 const shortId = `EXP-${e.id.slice(0, 8).toUpperCase()}`;
 
                 return (
@@ -1073,25 +1164,23 @@ export default function ExpensesPage() {
                       </div>
                     </td>
 
-                    {/* Category */}
+                    {/* Expense Type (Custom Description Badge) */}
                     <td className="p-3.5 whitespace-nowrap">
                       <span
                         className={cn(
-                          "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold",
+                          "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold capitalize",
                           style.badge
                         )}
                       >
                         <Icon className="h-3 w-3" />
-                        <span>
-                          {EXPENSE_CATEGORY_LABELS[e.category as ExpenseCategory] || e.category}
-                        </span>
+                        <span>{expType}</span>
                       </span>
                     </td>
 
                     {/* Particulars / Remarks */}
                     <td className="p-3.5 text-gray-700 max-w-xs truncate">
                       <span className="text-xs font-medium">
-                        {e.notes || "—"}
+                        {cleanNotes || "—"}
                       </span>
                     </td>
 
@@ -1178,8 +1267,10 @@ export default function ExpensesPage() {
         {/* Mobile Cards View */}
         <div className="block md:hidden divide-y divide-gray-100 max-h-[calc(100vh-320px)] overflow-y-auto">
           {filteredExpenses.map((e) => {
-            const Icon = CATEGORY_ICONS[e.category as ExpenseCategory] || Tag;
-            const style = CATEGORY_STYLES[e.category as ExpenseCategory] || CATEGORY_STYLES.miscellaneous;
+            const expType = getExpenseType(e);
+            const cleanNotes = getCleanNotes(e.notes);
+            const style = getTypeStyle(expType);
+            const Icon = style.icon;
             const shortId = `EXP-${e.id.slice(0, 8).toUpperCase()}`;
 
             return (
@@ -1209,21 +1300,19 @@ export default function ExpensesPage() {
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <span
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold",
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold capitalize",
                       style.badge
                     )}
                   >
                     <Icon className="h-3 w-3" />
-                    <span>
-                      {EXPENSE_CATEGORY_LABELS[e.category as ExpenseCategory] || e.category}
-                    </span>
+                    <span>{expType}</span>
                   </span>
                   <span>{formatDate(e.expense_date)}</span>
                 </div>
 
-                {e.notes && (
+                {cleanNotes && (
                   <p className="text-xs font-medium text-gray-700 bg-gray-50 rounded-lg p-2 border border-gray-100">
-                    {e.notes}
+                    {cleanNotes}
                   </p>
                 )}
 
@@ -1326,7 +1415,7 @@ export default function ExpensesPage() {
               </button>
             </div>
 
-            {/* Edit Form */}
+            {/* Edit Form (TEXT BOX for Type) */}
             <form onSubmit={handleUpdate} className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
@@ -1346,24 +1435,19 @@ export default function ExpensesPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Category / Head
+                    Expense Type / Description
                   </label>
-                  <select
+                  <Input
+                    type="text"
+                    list="suggested-expense-types"
+                    placeholder="e.g. Rent, Electricity, Salaries..."
                     value={editForm.category}
                     onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        category: e.target.value as ExpenseCategory,
-                      })
+                      setEditForm({ ...editForm, category: e.target.value })
                     }
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 focus:border-blue-500 focus:outline-none"
-                  >
-                    {EXPENSE_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {EXPENSE_CATEGORY_LABELS[c]}
-                      </option>
-                    ))}
-                  </select>
+                    required
+                    className="rounded-xl font-medium"
+                  />
                 </div>
               </div>
 
@@ -1499,10 +1583,9 @@ export default function ExpensesPage() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Category:</span>
+                <span className="text-gray-500">Expense Type:</span>
                 <span className="font-bold text-gray-900 capitalize">
-                  {EXPENSE_CATEGORY_LABELS[deletingExpense.category as ExpenseCategory] ||
-                    deletingExpense.category}
+                  {getExpenseType(deletingExpense)}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1511,11 +1594,11 @@ export default function ExpensesPage() {
                   {formatPrice(deletingExpense.amount)}
                 </span>
               </div>
-              {deletingExpense.notes && (
+              {getCleanNotes(deletingExpense.notes) && (
                 <div className="flex justify-between pt-1 border-t border-red-100/80">
                   <span className="text-gray-500">Notes:</span>
                   <span className="font-medium text-gray-800 truncate max-w-[12rem]">
-                    {deletingExpense.notes}
+                    {getCleanNotes(deletingExpense.notes)}
                   </span>
                 </div>
               )}
