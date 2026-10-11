@@ -992,6 +992,14 @@ export function MobileCatalogView({
 
                         {/* Product Photo (Fit to screen & proportional) */}
                         <div className="relative aspect-square w-full max-h-36 sm:max-h-40 overflow-hidden rounded-xl bg-white border border-gray-100 flex items-center justify-center p-1.5">
+                          {/* Number of items added badge over the product card */}
+                          {inCartQty > 0 && (
+                            <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded-full bg-blue-700 px-2 py-0.5 text-[10px] font-black text-white shadow-sm ring-1.5 ring-white">
+                              <Check className="h-2.5 w-2.5 stroke-[3]" />
+                              <span>{inCartQty} in cart</span>
+                            </div>
+                          )}
+
                           <Link
                             href={`/products/view?slug=${encodeURIComponent(product.slug)}`}
                             className="h-full w-full flex items-center justify-center"

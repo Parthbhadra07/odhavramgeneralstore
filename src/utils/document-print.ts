@@ -2,6 +2,7 @@
 
 import { APP_NAME, STORE_ADDRESS, STORE_PHONE } from "@/lib/constants";
 import { formatPrice, formatDate } from "@/utils/format";
+import { isMobileDevice, executeMobilePrint } from "@/utils/mobile-print";
 
 export interface PrintMetaItem {
   label: string;
@@ -375,6 +376,10 @@ export function printSystematicDocument(config: PrintDocumentConfig, title = "Do
     </div>
   </body>
 </html>`;
+
+  if (isMobileDevice()) {
+    return executeMobilePrint(html, "", title);
+  }
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");

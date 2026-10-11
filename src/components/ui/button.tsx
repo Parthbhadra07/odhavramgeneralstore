@@ -48,8 +48,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     );
 
     if (href) {
+      const { onClick, ...linkProps } = props;
       return (
-        <Link href={href} className={classes}>
+        <Link
+          href={href}
+          className={classes}
+          onClick={onClick as any}
+          {...(linkProps as any)}
+        >
           {children}
         </Link>
       );

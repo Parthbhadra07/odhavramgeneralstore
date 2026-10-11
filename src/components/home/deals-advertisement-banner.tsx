@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ImageIcon,
+  Check,
 } from "lucide-react";
 import {
   dealBannerService,
@@ -34,7 +35,7 @@ export function DealsAdvertisementBanner() {
   const [isPaused, setIsPaused] = useState(false);
   const [nowTimestamp, setNowTimestamp] = useState(0);
 
-  const { addItem } = useCartStore();
+  const { addItem, items: cartItems } = useCartStore();
 
   useEffect(() => {
     setMounted(true);
@@ -353,48 +354,75 @@ export function DealsAdvertisementBanner() {
                           key={p.id}
                           className="group relative flex flex-col justify-between overflow-hidden rounded-2xl bg-white p-3 text-gray-900 shadow-md transition hover:-translate-y-1 hover:shadow-xl"
                         >
-                          {discountPct > 0 && (
-                            <div className="absolute left-2 top-2 z-10 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black text-white shadow-xs">
-                              {discountPct}% OFF
-                            </div>
-                          )}
+                          {(() => {
+                            const inCartQty = cartItems.find((i) => i.productId === p.id)?.quantity ?? 0;
+                            return (
+                              <>
+                                {discountPct > 0 && inCartQty === 0 && (
+                                  <div className="absolute left-2 top-2 z-10 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black text-white shadow-xs">
+                                    {discountPct}% OFF
+                                  </div>
+                                )}
+                                {inCartQty > 0 && (
+                                  <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white shadow-xs">
+                                    <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                    <span>{inCartQty} in cart</span>
+                                  </div>
+                                )}
 
-                          <div className="relative mb-2 aspect-square w-full overflow-hidden rounded-xl bg-gray-50 flex items-center justify-center p-2">
-                            {p.image_url ? (
-                              <img
-                                src={p.image_url}
-                                alt={p.name}
-                                className="h-full w-full object-contain transition-transform group-hover:scale-105"
-                              />
-                            ) : (
-                              <Percent className="h-8 w-8 text-gray-300" />
-                            )}
-                          </div>
+                                <div className="relative mb-2 aspect-square w-full overflow-hidden rounded-xl bg-gray-50 flex items-center justify-center p-2">
+                                  {p.image_url ? (
+                                    <img
+                                      src={p.image_url}
+                                      alt={p.name}
+                                      className="h-full w-full object-contain transition-transform group-hover:scale-105"
+                                    />
+                                  ) : (
+                                    <Percent className="h-8 w-8 text-gray-300" />
+                                  )}
+                                </div>
 
-                          <div>
-                            <h4 className="font-bold text-xs sm:text-sm text-gray-900 line-clamp-1 mb-1">
-                              {p.name}
-                            </h4>
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-sm sm:text-base font-black text-rose-600">
-                                {formatPrice(p.price)}
-                              </span>
-                              {hasDiscount && (
-                                <span className="text-[11px] text-gray-400 line-through">
-                                  {formatPrice(p.mrp!)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                                <div>
+                                  <h4 className="font-bold text-xs sm:text-sm text-gray-900 line-clamp-1 mb-1">
+                                    {p.name}
+                                  </h4>
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="text-sm sm:text-base font-black text-rose-600">
+                                      {formatPrice(p.price)}
+                                    </span>
+                                    {hasDiscount && (
+                                      <span className="text-[11px] text-gray-400 line-through">
+                                        {formatPrice(p.mrp!)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
 
-                          <button
-                            type="button"
-                            onClick={(e) => handleQuickAdd(p, e)}
-                            className="mt-2.5 flex w-full items-center justify-center gap-1 rounded-lg bg-gray-900 py-1.5 text-xs font-bold text-white transition hover:bg-rose-600 active:scale-95"
-                          >
-                            <ShoppingCart className="h-3 w-3" />
-                            Add
-                          </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleQuickAdd(p, e)}
+                                  className={cn(
+                                    "mt-2.5 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-bold transition active:scale-95",
+                                    inCartQty > 0
+                                      ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs"
+                                      : "bg-gray-900 text-white hover:bg-rose-600"
+                                  )}
+                                >
+                                  {inCartQty > 0 ? (
+                                    <>
+                                      <Check className="h-3 w-3 stroke-[3]" />
+                                      <span>{inCartQty} in Cart (+1)</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ShoppingCart className="h-3 w-3" />
+                                      <span>Add</span>
+                                    </>
+                                  )}
+                                </button>
+                              </>
+                            );
+                          })()}
                         </div>
                       );
                     })}

@@ -16,6 +16,7 @@ import {
   isBluetoothPrinterConnected,
   printElementToBluetooth,
 } from "@/utils/bluetooth-printer";
+import { isMobileDevice, executeMobilePrint } from "@/utils/mobile-print";
 
 interface ReceiptPrintProps {
   data: ReceiptData;
@@ -414,6 +415,14 @@ function printReceiptBrowser(
   if (!receipt) return false;
 
   const receiptHtml = cloneReceiptHtml(receipt);
+  const opts = getReceiptPrintOptions(width);
+  const printStyles = getReceiptPrintStyles(width, opts);
+
+  // If on mobile browser, trigger native system print sheet directly
+  if (isMobileDevice()) {
+    return executeMobilePrint(receiptHtml, printStyles, "Store Receipt");
+  }
+
   const html = buildPrintDocument(receiptHtml, width);
 
   const iframe = document.createElement("iframe");
@@ -456,10 +465,18 @@ function printReceiptPopup(elementId: string, width: ReceiptWidth) {
   const receipt = document.getElementById(elementId);
   if (!receipt) return false;
 
+  const receiptHtml = cloneReceiptHtml(receipt);
+  const opts = getReceiptPrintOptions(width);
+  const printStyles = getReceiptPrintStyles(width, opts);
+
+  if (isMobileDevice()) {
+    return executeMobilePrint(receiptHtml, printStyles, "Store Receipt");
+  }
+
   const printWindow = window.open("", "_blank", "width=320,height=800");
   if (!printWindow) return false;
 
-  printWindow.document.write(buildPrintDocument(cloneReceiptHtml(receipt), width));
+  printWindow.document.write(buildPrintDocument(receiptHtml, width));
   printWindow.document.close();
   printWindow.focus();
 
@@ -485,11 +502,20 @@ export function downloadReceiptPdf(
   const receipt = document.getElementById(elementId);
   if (!receipt) return;
 
+  const receiptHtml = cloneReceiptHtml(receipt);
+  const opts = getReceiptPrintOptions(width);
+  const printStyles = getReceiptPrintStyles(width, opts);
+
+  if (isMobileDevice()) {
+    executeMobilePrint(receiptHtml, printStyles, filename);
+    return;
+  }
+
   const printWindow = window.open("", "_blank", "width=320,height=800");
   if (!printWindow) return;
 
   printWindow.document.write(
-    buildPrintDocument(cloneReceiptHtml(receipt), width, filename)
+    buildPrintDocument(receiptHtml, width, filename)
   );
   printWindow.document.close();
   printWindow.document.title = filename;

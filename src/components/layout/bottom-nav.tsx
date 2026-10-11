@@ -44,8 +44,8 @@ export function BottomNav() {
     };
   }, []);
 
-  // Don't show in admin area
-  if (pathname?.startsWith("/admin")) {
+  // Don't show in admin area or during checkout
+  if (pathname?.startsWith("/admin") || pathname?.startsWith("/checkout")) {
     return null;
   }
 
