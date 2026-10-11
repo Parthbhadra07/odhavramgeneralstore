@@ -33,15 +33,55 @@ export const inventoryService = {
         .order("name");
 
       if (filters?.categoryId) q = q.eq("category_id", filters.categoryId);
-      if (filters?.search) {
-        const s = `%${filters.search}%`;
-        q = q.or(`name.ilike.${s},sku.ilike.${s},barcode.ilike.${s}`);
+
+      const rawSearch = filters?.search?.trim();
+      if (rawSearch) {
+        // Sanitize for PostgREST: strip quotes and backslashes to prevent delimiter/syntax errors
+        const clean = rawSearch.replace(/["\\]/g, "").trim();
+        if (clean) {
+          // Double-quote value inside .or() to safely handle commas, brackets, and spaces in PostgREST
+          const s = `"%${clean}%"`;
+          q = q.or(`name.ilike.${s},sku.ilike.${s},barcode.ilike.${s}`);
+        }
       }
 
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        console.warn("[inventoryService.listProducts] Primary query warning:", error.message);
+        throw error;
+      }
 
       let rows = (data ?? []) as ErpProduct[];
+
+      // Fallback: If 0 results returned and search contains multiple words or punctuation,
+      // try a tokenized search matching each word against the product name
+      if (rows.length === 0 && rawSearch) {
+        const tokens = rawSearch
+          .replace(/["\\]/g, "")
+          .replace(/[,()+\-_/\\:;*]/g, " ")
+          .split(/\s+/)
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0);
+
+        if (tokens.length > 1) {
+          let tokenQ = supabase
+            .from("products")
+            .select(productSelect)
+            .eq("is_active", true);
+
+          if (filters?.categoryId) tokenQ = tokenQ.eq("category_id", filters.categoryId);
+
+          for (const token of tokens) {
+            tokenQ = tokenQ.ilike("name", `%${token}%`);
+          }
+
+          const { data: tokenData, error: tokenError } = await tokenQ.order("name").limit(20);
+          if (!tokenError && tokenData && tokenData.length > 0) {
+            rows = tokenData as ErpProduct[];
+          }
+        }
+      }
+
       if (filters?.lowStockOnly) {
         rows = rows.filter(
           (p) => p.stock <= (p.min_stock_level ?? p.reorder_level ?? 10)
@@ -54,9 +94,12 @@ export const inventoryService = {
       return rows;
     } catch (e) {
       // Fall back to offline search if network fails
-      const offline = await searchProductsOffline(filters?.search ?? "");
-      if (offline.length) return offline;
-      throw e;
+      try {
+        const offline = await searchProductsOffline(filters?.search ?? "");
+        if (offline && offline.length) return offline;
+      } catch {}
+      console.warn("[inventoryService.listProducts] Handled search gracefully:", e);
+      return [];
     }
   },
 
@@ -67,7 +110,7 @@ export const inventoryService = {
 
   async resolveByBarcode(
     barcode: string
-  ): Promise<{ product: ErpProduct; lot: ProductLot | null } | null> {
+  ): Promise<{ product: ErpProduct; lot: ProductLot | null; unit?: "pcs" | "pkt" | "box" } | null> {
     const trimmed = barcode.trim();
     if (!trimmed) return null;
 
@@ -77,8 +120,10 @@ export const inventoryService = {
     }
 
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      const offlineProduct = await findProductByBarcodeOffline(trimmed);
-      if (offlineProduct) return { product: offlineProduct, lot: null };
+      try {
+        const offlineProduct = await findProductByBarcodeOffline(trimmed);
+        if (offlineProduct) return { product: offlineProduct, lot: null, unit: "pcs" };
+      } catch {}
       return null;
     }
 
@@ -96,14 +141,14 @@ export const inventoryService = {
         supabase
           .from("products")
           .select(productSelect)
-          .or(`barcode.eq.${trimmed},packet_barcode.eq.${trimmed},box_barcode.eq.${trimmed}`)
+          .or(`barcode.eq.${trimmed},sku.eq.${trimmed}`)
           .eq("is_active", true)
           .limit(1)
           .maybeSingle(),
       ]);
 
-      if (lotRes.error) throw lotRes.error;
-      if (productRes.error) throw productRes.error;
+      if (lotRes.error) console.warn("[resolveByBarcode] Lot query warning:", lotRes.error.message);
+      if (productRes.error) console.warn("[resolveByBarcode] Product query warning:", productRes.error.message);
 
       let result: { product: ErpProduct; lot: ProductLot | null; unit?: "pcs" | "pkt" | "box" } | null = null;
       const lot = (lotRes.data as (ProductLot & { products?: ErpProduct | null }) | null) ?? null;
@@ -115,19 +160,19 @@ export const inventoryService = {
       }
       if (!result && productRes.data) {
         const p = productRes.data as ErpProduct;
-        let unit: "pcs" | "pkt" | "box" = "pcs";
-        if (p.packet_barcode === trimmed) unit = "pkt";
-        else if (p.box_barcode === trimmed) unit = "box";
-        result = { product: p, lot: null, unit };
+        result = { product: p, lot: null, unit: "pcs" };
       }
 
       barcodeResolveCache.set(trimmed, { at: Date.now(), result });
       return result;
     } catch (e) {
       // Fall back to offline barcode lookup
-      const offlineProduct = await findProductByBarcodeOffline(trimmed);
-      if (offlineProduct) return { product: offlineProduct, lot: null };
-      throw e;
+      try {
+        const offlineProduct = await findProductByBarcodeOffline(trimmed);
+        if (offlineProduct) return { product: offlineProduct, lot: null, unit: "pcs" };
+      } catch {}
+      console.warn("[inventoryService.resolveByBarcode] Lookup failed gracefully:", e);
+      return null;
     }
   },
 

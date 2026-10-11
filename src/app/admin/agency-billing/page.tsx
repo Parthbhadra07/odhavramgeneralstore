@@ -22,6 +22,8 @@ import {
   ArrowRight,
   ExternalLink,
   ChevronDown,
+  Loader2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { posService } from "@/services/erp/pos.service";
@@ -109,6 +111,7 @@ export default function AgencyBillingPage() {
   // Search & auto-suggest state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ErpProduct[]>([]);
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(0);
   const [searching, setSearching] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
@@ -137,8 +140,11 @@ export default function AgencyBillingPage() {
 
   // Live product search
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    const q = searchQuery.trim();
+    if (!q) {
       setSearchResults([]);
+      setSearchSelectedIndex(0);
+      setSearching(false);
       return;
     }
 
@@ -146,11 +152,13 @@ export default function AgencyBillingPage() {
       setSearching(true);
       try {
         const results = await inventoryService.listProducts({
-          search: searchQuery.trim(),
+          search: q,
         });
-        setSearchResults(results.slice(0, 8));
+        setSearchResults(results.slice(0, 10));
+        setSearchSelectedIndex(0);
       } catch (err) {
-        console.error("Product search failed:", err);
+        console.warn("[AgencyBilling] Product search gracefully handled:", err);
+        setSearchResults([]);
       } finally {
         setSearching(false);
       }
@@ -301,7 +309,50 @@ export default function AgencyBillingPage() {
 
     setSearchQuery("");
     setSearchResults([]);
+    setSearchSelectedIndex(0);
     searchInputRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (searchResults.length > 0) {
+        setSearchSelectedIndex((prev) => (prev + 1) % searchResults.length);
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (searchResults.length > 0) {
+        setSearchSelectedIndex((prev) => (prev - 1 + searchResults.length) % searchResults.length);
+      }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const trimmed = searchQuery.trim();
+      if (searchResults.length > 0 && searchSelectedIndex >= 0 && searchResults[searchSelectedIndex]) {
+        handleAddProduct(searchResults[searchSelectedIndex]);
+      } else if (searchResults.length > 0) {
+        handleAddProduct(searchResults[0]);
+      } else if (trimmed) {
+        // Direct barcode scan or exact search on Enter
+        try {
+          const resolved = await inventoryService.resolveByBarcode(trimmed);
+          if (resolved?.product) {
+            handleAddProduct(resolved.product);
+            return;
+          }
+          const list = await inventoryService.listProducts({ search: trimmed });
+          if (list.length > 0) {
+            handleAddProduct(list[0]);
+            return;
+          }
+          toast.error(`No product found matching "${trimmed}"`);
+        } catch {
+          toast.error("Product lookup failed");
+        }
+      }
+    } else if (e.key === "Escape") {
+      setSearchResults([]);
+      setSearchQuery("");
+    }
   };
 
   const updateLine = (id: string, updates: Partial<AgencyBillLine>) => {
@@ -985,21 +1036,47 @@ export default function AgencyBillingPage() {
                   placeholder="Scan barcode or type product name (e.g. Parle-G, Fortune Oil, Basmati Rice)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full rounded-xl border-2 border-blue-200 bg-blue-50/20 py-3 pl-10 pr-4 text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:border-blue-600 focus:bg-white focus:outline-none"
+                  onKeyDown={handleSearchKeyDown}
+                  className="w-full rounded-xl border-2 border-blue-200 bg-blue-50/20 py-3 pl-10 pr-10 text-sm font-semibold text-gray-900 placeholder:text-gray-400 focus:border-blue-600 focus:bg-white focus:outline-none"
                 />
+                {searching && (
+                  <Loader2 className="absolute right-3.5 h-4 w-4 text-blue-600 animate-spin" />
+                )}
+                {!searching && searchQuery && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setSearchSelectedIndex(0);
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-3.5 text-gray-400 hover:text-gray-600 transition"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
 
               {/* Product Suggestion Dropdown */}
               {searchResults.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-2xl p-1.5 space-y-1">
-                  {searchResults.map((p) => {
+                  {searchResults.map((p, idx) => {
                     const gst = Number(p.gst_percentage ?? 0);
+                    const isSelected = idx === searchSelectedIndex;
                     return (
                       <button
                         key={p.id}
                         type="button"
                         onClick={() => handleAddProduct(p)}
-                        className="w-full text-left p-2.5 rounded-xl hover:bg-blue-50/60 transition flex items-center justify-between gap-3 group"
+                        onMouseEnter={() => setSearchSelectedIndex(idx)}
+                        className={cn(
+                          "w-full text-left p-2.5 rounded-xl transition flex items-center justify-between gap-3 group",
+                          isSelected
+                            ? "bg-blue-100/90 ring-1 ring-blue-500 shadow-xs"
+                            : "hover:bg-blue-50/60"
+                        )}
                       >
                         <div className="min-w-0">
                           <p className="font-bold text-xs sm:text-sm text-gray-900 group-hover:text-blue-700 truncate">
@@ -1027,13 +1104,25 @@ export default function AgencyBillingPage() {
                           <span className="font-black text-sm text-blue-950">
                             {formatPrice(p.selling_price || p.price)}
                           </span>
-                          <span className="rounded-lg bg-blue-700 p-1 text-white opacity-0 group-hover:opacity-100 transition">
+                          <span
+                            className={cn(
+                              "rounded-lg p-1 text-white transition",
+                              isSelected ? "bg-blue-700 opacity-100" : "bg-blue-700 opacity-0 group-hover:opacity-100"
+                            )}
+                          >
                             <Plus className="h-3.5 w-3.5" />
                           </span>
                         </div>
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {/* No results indicator */}
+              {!searching && searchQuery.trim() && searchResults.length === 0 && (
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-2xl border border-gray-200 bg-white shadow-xl p-3 text-center text-xs text-gray-500">
+                  No products found for &ldquo;<span className="font-semibold text-gray-700">{searchQuery}</span>&rdquo;. Press <kbd className="px-1.5 py-0.5 bg-gray-100 rounded border border-gray-200 text-[10px] font-mono">Enter</kbd> to look up exact barcode.
                 </div>
               )}
             </div>
