@@ -67,6 +67,7 @@ const navGroups = [
     label: "Sales",
     links: [
       { href: "/admin/pos", label: "POS Billing", icon: Monitor },
+      { href: "/admin/agency-billing", label: "Agency Billing", icon: FileSpreadsheet },
       { href: "/admin/sales-history", label: "Sales History", icon: FileStack },
       { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
       { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },

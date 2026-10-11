@@ -1,7 +1,7 @@
 import { requireClient } from "@/lib/supabase/client";
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { getSupabaseEnv } from "@/lib/supabase/env";
-import type { Customer, CustomerWithStats, PosSale } from "@/types/erp";
+import type { Customer, CustomerWithStats, PosSale, AgencyPendingBill } from "@/types/erp";
 import { isValidMobile, normalizeMobile } from "@/utils/phone";
 
 export const customerService = {
@@ -558,5 +558,102 @@ export const customerService = {
       return [];
     }
     return (sales ?? []) as PosSale[];
+  },
+
+  /**
+   * Fetches pending / unpaid bills for a party using FIFO clearing calculation
+   * exactly matching standard Agency/Wholesale FMCG accounting bills.
+   */
+  async getPendingBills(
+    customerId: string,
+    excludeSaleId?: string
+  ): Promise<AgencyPendingBill[]> {
+    const supabase = requireClient();
+    try {
+      // 1. Get customer credit balance
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("credit_balance")
+        .eq("id", customerId)
+        .maybeSingle();
+
+      const totalBalance = Number(cust?.credit_balance) || 0;
+      if (totalBalance <= 0) return [];
+
+      // 2. Fetch past credit / pending sales
+      let q = supabase
+        .from("pos_sales")
+        .select("id, bill_number, created_at, total_amount, payment_method, payment_status, sale_status")
+        .eq("customer_id", customerId)
+        .neq("sale_status", "cancelled")
+        .or("payment_method.eq.credit,payment_status.eq.pending")
+        .order("created_at", { ascending: true });
+
+      if (excludeSaleId) {
+        q = q.neq("id", excludeSaleId);
+      }
+
+      const { data: sales, error } = await q;
+      if (error) throw error;
+
+      const validSales = sales || [];
+      const totalSalesAmt = validSales.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0);
+      let paymentsToAllocate = Math.max(0, totalSalesAmt - totalBalance);
+
+      const pendingBills: AgencyPendingBill[] = [];
+
+      for (const s of validSales) {
+        const billAmt = Number(s.total_amount) || 0;
+        if (paymentsToAllocate >= billAmt) {
+          paymentsToAllocate -= billAmt;
+          continue;
+        }
+
+        const pendingAmt = Math.round((billAmt - paymentsToAllocate) * 100) / 100;
+        paymentsToAllocate = 0;
+
+        const billDateObj = new Date(s.created_at);
+        const today = new Date();
+        const diffDays = Math.max(
+          0,
+          Math.floor((today.getTime() - billDateObj.getTime()) / (1000 * 60 * 60 * 24))
+        );
+
+        const dd = String(billDateObj.getDate()).padStart(2, "0");
+        const mm = String(billDateObj.getMonth() + 1).padStart(2, "0");
+        const yyyy = billDateObj.getFullYear();
+        const dateStr = `${dd}/${mm}/${yyyy}`;
+
+        // Keep EXACT original bill number without slicing or altering it
+        pendingBills.push({
+          id: s.id,
+          book: "",
+          billNo: s.bill_number,
+          billDate: dateStr,
+          billAmount: billAmt,
+          pendingAmount: pendingAmt,
+          days: diffDays,
+        });
+      }
+
+      // If customer balance has older opening balance or adjustment not tracked in pos_sales:
+      const sumPending = pendingBills.reduce((acc, b) => acc + b.pendingAmount, 0);
+      const remainingUnallocated = Math.round((totalBalance - sumPending) * 100) / 100;
+      if (remainingUnallocated > 0) {
+        pendingBills.unshift({
+          book: "",
+          billNo: "Opening Balance",
+          billDate: "—",
+          billAmount: remainingUnallocated,
+          pendingAmount: remainingUnallocated,
+          days: 30,
+        });
+      }
+
+      return pendingBills;
+    } catch (err) {
+      console.warn("[CustomerService] getPendingBills error:", err);
+      return [];
+    }
   },
 };

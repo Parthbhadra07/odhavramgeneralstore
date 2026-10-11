@@ -1,8 +1,11 @@
 "use client";
 
-import type { PosSale, StoreSettings } from "@/types/erp";
+import type { PosSale, StoreSettings, AgencyPendingBill } from "@/types/erp";
 import { formatPrice } from "@/utils/format";
 import { APP_NAME, STORE_ADDRESS, STORE_PHONE } from "@/lib/constants";
+import { isMobileDevice, executeMobilePrint } from "@/utils/mobile-print";
+import { requireClient } from "@/lib/supabase/client";
+import { customerService } from "@/services/erp/customer.service";
 
 /**
  * Converts numbers to Indian English currency words (e.g. 4868 -> Four Thousand Eight Hundred Sixty Eight Only)
@@ -109,12 +112,24 @@ export function numberToIndianWords(num: number): string {
 export interface AgencyInvoicePrintOptions {
   settings?: StoreSettings | null;
   customerBalance?: number;
+  partyPreviousBalance?: number;
+  partyClosingBalance?: number;
+  pendingBills?: AgencyPendingBill[];
+  includePendingBills?: boolean;
+  salesman?: string;
+  beat?: string;
   bankDetails?: {
     bankName?: string;
     accountNo?: string;
     ifsc?: string;
   };
   customMessage?: string;
+  buyerGstin?: string;
+  buyerAddress?: string;
+  vehicleNo?: string;
+  dueDate?: string;
+  invoiceDate?: string;
+  billNumber?: string;
 }
 
 /**
@@ -130,11 +145,13 @@ export function generateAgencyInvoiceHtml(
   const storeMobile = settings?.store_mobile || STORE_PHONE;
   const gstNo = settings?.gst_number || "24AAKGPB9265J1Z1";
 
-  const invDate = new Date(sale.created_at).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  const invDate = options?.invoiceDate
+    ? options.invoiceDate
+    : new Date(sale.created_at).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
   const invMode = (sale.payment_method || "CASH").toUpperCase();
 
   // Customer / Consignee details
@@ -248,18 +265,28 @@ export function generateAgencyInvoiceHtml(
       const qty = d.qty;
       const rate = d.rate;
       const mrp = Number((item as any).mrp) || rate;
-      const gstPct = Number(item.gst_percentage) || 5;
+      const rawGst =
+        item.gst_percentage !== undefined && item.gst_percentage !== null
+          ? Number(item.gst_percentage)
+          : 0;
+      const gstPct = isNaN(rawGst) || rawGst < 0 ? 0 : rawGst;
       const lineGross = d.lineGross;
       const lineDiscount = d.discAmt;
       const discPct = d.discPct;
 
       const lineNet = Math.max(0, Math.round((lineGross - lineDiscount) * 100) / 100);
 
-      // Taxable value based on net line total
-      const taxable = Math.round((lineNet / (1 + gstPct / 100)) * 100) / 100;
-      const totalTax = Math.round((lineNet - taxable) * 100) / 100;
-      const halfTax = Math.round((totalTax / 2) * 100) / 100;
-      const halfPct = (gstPct / 2).toFixed(2);
+      // Taxable value based on net line total and verified product GST %
+      const taxable = gstPct > 0
+        ? Math.round((lineNet / (1 + gstPct / 100)) * 100) / 100
+        : lineNet;
+      const totalTax = gstPct > 0
+        ? Math.round((lineNet - taxable) * 100) / 100
+        : 0;
+      const halfTax = gstPct > 0
+        ? Math.round((totalTax / 2) * 100) / 100
+        : 0;
+      const halfPct = gstPct > 0 ? (gstPct / 2).toFixed(2) : "0.00";
 
       totalQty += qty;
       totalGross += lineGross;
@@ -269,7 +296,7 @@ export function generateAgencyInvoiceHtml(
       totalCgst += halfTax;
       totalItemAmount += lineNet;
 
-      // Slab aggregation
+      // Slab aggregation (verified per product)
       if (!gstSlabs[gstPct]) {
         gstSlabs[gstPct] = { taxable: 0, sgst: 0, cgst: 0, igst: 0 };
       }
@@ -277,7 +304,7 @@ export function generateAgencyInvoiceHtml(
       gstSlabs[gstPct].sgst += halfTax;
       gstSlabs[gstPct].cgst += halfTax;
 
-      const hsn = item.barcode ? item.barcode.slice(0, 8) : "21039020";
+      const hsn = (item as any).hsn_code || (item.barcode ? item.barcode.slice(0, 8) : "21039020");
 
       // Dis.% cell: show formatted percentage if > 0, otherwise blank (exact photo format)
       const disPctDisplay =
@@ -306,7 +333,9 @@ export function generateAgencyInvoiceHtml(
     .join("");
 
   // Slabs table HTML
-  const slabEntries = Object.entries(gstSlabs);
+  const slabEntries = Object.entries(gstSlabs).sort(
+    ([a], [b]) => Number(a) - Number(b)
+  );
   const slabsHtml =
     slabEntries.length > 0
       ? slabEntries
@@ -321,10 +350,10 @@ export function generateAgencyInvoiceHtml(
           })
           .join("")
       : `<tr>
-          <td style="text-align:center;">5.00</td>
+          <td style="text-align:center;">0.00</td>
           <td style="text-align:right;">${totalTaxable.toFixed(2)}</td>
-          <td style="text-align:right;">${totalSgst.toFixed(2)}</td>
-          <td style="text-align:right;">${totalCgst.toFixed(2)}</td>
+          <td style="text-align:right;">0.00</td>
+          <td style="text-align:right;">0.00</td>
           <td style="text-align:right;">0.00</td>
         </tr>`;
 
@@ -334,7 +363,16 @@ export function generateAgencyInvoiceHtml(
       ? Number(sale.round_off)
       : Math.round((finalTotal - totalItemAmount) * 100) / 100;
   const amountWords = numberToIndianWords(finalTotal);
-  const custBalance = options?.customerBalance ?? 0;
+
+  const partyPrevBal = Number(options?.partyPreviousBalance ?? options?.customerBalance ?? 0);
+  const isCreditOrPending = sale.payment_method === "credit" || sale.payment_status === "pending";
+  const partyClosingBal =
+    options?.partyClosingBalance !== undefined
+      ? Number(options.partyClosingBalance)
+      : isCreditOrPending
+      ? partyPrevBal + finalTotal
+      : partyPrevBal;
+  const custBalance = partyClosingBal;
 
   const bankName =
     options?.bankDetails?.bankName ||
@@ -361,7 +399,96 @@ export function generateAgencyInvoiceHtml(
     .map((t) => `<div>${t}</div>`)
     .join("");
 
-  const billNumber = sale.bill_number;
+  const billNumber = options?.billNumber || sale.bill_number;
+
+  // 4. Pending Bills Calculation & Table HTML (Matches exact FMCG wholesale photo format)
+  const pendingBills = options?.pendingBills || [];
+  let pendingBillsRowHtml = "";
+
+  if (pendingBills.length > 0 && options?.includePendingBills !== false) {
+    const totalPendingCount = pendingBills.length;
+    const totalPendingBillAmt = pendingBills.reduce((s, b) => s + (Number(b.billAmount) || 0), 0);
+    const totalPendingBalAmt = pendingBills.reduce((s, b) => s + (Number(b.pendingAmount) || 0), 0);
+    const maxDays = Math.max(...pendingBills.map((b) => Number(b.days) || 0), 0);
+
+    const incBillAmt = totalPendingBillAmt + finalTotal;
+    const incPendAmt = isCreditOrPending ? totalPendingBalAmt + finalTotal : totalPendingBalAmt;
+
+    // Keep individual rows compact (up to 4 rows) exactly matching wholesale printout
+    const maxVisibleRows = 4;
+    const visibleBills = pendingBills.slice(0, maxVisibleRows);
+    const hiddenBills = pendingBills.slice(maxVisibleRows);
+
+    let pendingRows = visibleBills.map((b) => {
+      const book = b.book ? b.book : "—";
+      const billNo = b.billNo || "—";
+      const billDate = b.billDate || "—";
+      const billAmt = Number(b.billAmount) || 0;
+      const pendAmt = Number(b.pendingAmount) || 0;
+      const days = b.days !== undefined && b.days !== null ? b.days : "—";
+
+      return `<tr>
+        <td style="text-align:left;">${book}</td>
+        <td style="text-align:left;">${billNo}</td>
+        <td style="text-align:center;">${billDate}</td>
+        <td style="text-align:right;">${billAmt.toFixed(2)}</td>
+        <td style="text-align:right;">${pendAmt.toFixed(2)}</td>
+        <td style="text-align:center;">${days}</td>
+      </tr>`;
+    }).join("");
+
+    if (hiddenBills.length > 0) {
+      const hiddenBillAmt = hiddenBills.reduce((s, b) => s + (Number(b.billAmount) || 0), 0);
+      const hiddenPendAmt = hiddenBills.reduce((s, b) => s + (Number(b.pendingAmount) || 0), 0);
+      pendingRows += `<tr>
+        <td colspan="3" style="font-style:italic;color:#333;text-align:left;">+ ${hiddenBills.length} older bills</td>
+        <td style="text-align:right;">${hiddenBillAmt.toFixed(2)}</td>
+        <td style="text-align:right;">${hiddenPendAmt.toFixed(2)}</td>
+        <td></td>
+      </tr>`;
+    }
+
+    pendingBillsRowHtml = `
+      <tr class="pending-bills-row">
+        <td colspan="7" style="vertical-align:top;border-right:none !important;border-top:none !important;border-bottom:none !important;border-left:none !important;padding:3px 4px 6px 4px;">
+          <div class="pending-bills-container">
+            <div class="pending-bills-title">Pending Bills</div>
+            <table class="pending-bills-mini-table">
+              <thead>
+                <tr>
+                  <th style="width:14%;text-align:left;">Book</th>
+                  <th style="width:20%;text-align:left;">Bill No</th>
+                  <th style="width:20%;text-align:center;">Bill Date</th>
+                  <th style="width:22%;text-align:right;">Bill Amt</th>
+                  <th style="width:22%;text-align:right;">Pend. Amt</th>
+                  <th style="width:12%;text-align:center;">Days</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pendingRows}
+                <tr class="pending-total-row">
+                  <td style="text-align:left;">Total</td>
+                  <td style="text-align:left;font-weight:800;">${totalPendingCount}</td>
+                  <td></td>
+                  <td style="text-align:right;">${totalPendingBillAmt.toFixed(2)}</td>
+                  <td style="text-align:right;">${totalPendingBalAmt.toFixed(2)}</td>
+                  <td style="text-align:center;">Max ${maxDays}</td>
+                </tr>
+                <tr class="pending-inc-row">
+                  <td colspan="2" style="text-align:left;">Including this Bill</td>
+                  <td style="text-align:center;font-weight:800;">${totalPendingCount + 1}</td>
+                  <td style="text-align:right;">${incBillAmt.toFixed(2)}</td>
+                  <td style="text-align:right;">${incPendAmt.toFixed(2)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </td>
+        <td colspan="6" style="border-left:none !important;border-top:none !important;border-bottom:none !important;border-right:none !important;"></td>
+      </tr>
+    `;
+  }
 
   const html = `<!DOCTYPE html>
 <html>
@@ -504,6 +631,62 @@ export function generateAgencyInvoiceHtml(
         padding: 4px;
       }
       /* border-top: none avoids double-line artifact with totals-row border-bottom */
+      /* Pending Bills (Exact FMCG wholesale photo format: compact left-aligned block) */
+      .items-table .pending-bills-row td {
+        border-top: none !important;
+        border-bottom: none !important;
+        padding: 3px 4px 6px 4px;
+      }
+      .pending-bills-container {
+        width: 100%;
+        max-width: 360px;
+        margin: 2px 0 0 0;
+      }
+      .pending-bills-title {
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.2px;
+        margin-bottom: 2px;
+        color: #000;
+        text-align: left;
+      }
+      .pending-bills-mini-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 8.5px;
+        line-height: 1.15;
+      }
+      .pending-bills-mini-table th {
+        font-weight: 800;
+        border-top: 1px solid #000 !important;
+        border-bottom: 1px solid #000 !important;
+        border-left: none !important;
+        border-right: none !important;
+        padding: 1.5px 3px;
+        background: transparent !important;
+        text-transform: none;
+        font-size: 8.5px;
+        color: #000;
+      }
+      .pending-bills-mini-table td {
+        border: none !important;
+        padding: 1px 3px;
+        font-size: 8.5px;
+        color: #000;
+      }
+      .pending-bills-mini-table .pending-total-row td {
+        font-weight: 800;
+        border-top: 1px solid #000 !important;
+        border-bottom: 1px solid #000 !important;
+        padding: 2px 3px;
+        background: transparent !important;
+      }
+      .pending-bills-mini-table .pending-inc-row td {
+        font-weight: 800;
+        border-bottom: 1px solid #000 !important;
+        padding: 2px 3px;
+        background: transparent !important;
+      }
       .bottom-section {
         display: flex;
         width: 100%;
@@ -638,18 +821,42 @@ export function generateAgencyInvoiceHtml(
             </tr>
             <tr>
               <td><strong>Due Date</strong></td>
-              <td>: ${invDate}</td>
+              <td>: ${options?.dueDate || invDate}</td>
             </tr>
+            ${options?.salesman ? `
+            <tr>
+              <td><strong>Salesman</strong></td>
+              <td>: ${options.salesman}</td>
+            </tr>` : ""}
+            ${options?.beat ? `
+            <tr>
+              <td><strong>Beat</strong></td>
+              <td>: ${options.beat}</td>
+            </tr>` : ""}
           </table>
         </div>
       </div>
 
       <!-- Buyer / Customer Box ("To,") -->
       <div class="buyer-box">
-        <div class="buyer-to">To, ${custName}</div>
-        <div style="font-size:10.5px;margin-top:2px;">
-          <span><strong>Mobile:</strong> ${custMobile}</span>
-          ${sale.notes ? ` &bull; <span><strong>Notes:</strong> ${sale.notes}</span>` : ""}
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div style="flex:1;">
+            <div class="buyer-to">To, ${custName}</div>
+            <div style="font-size:10.5px;margin-top:2px;">
+              <span><strong>Mobile:</strong> ${custMobile}</span>
+              ${options?.buyerGstin ? ` &bull; <span><strong>GSTIN:</strong> ${options.buyerGstin}</span>` : ""}
+              ${options?.buyerAddress ? ` &bull; <span><strong>Address:</strong> ${options.buyerAddress}</span>` : ""}
+              ${options?.vehicleNo ? ` &bull; <span><strong>Vehicle No:</strong> ${options.vehicleNo}</span>` : ""}
+              ${sale.notes ? ` &bull; <span><strong>Notes:</strong> ${sale.notes}</span>` : ""}
+            </div>
+          </div>
+          <div style="text-align:right;min-width:145px;background:#f8fafc;border:1.5px solid #000;padding:4px 8px;border-radius:3px;flex-shrink:0;">
+            <div style="font-size:9px;font-weight:800;text-transform:uppercase;color:#333;letter-spacing:0.5px;">Party Balance</div>
+            <div style="font-size:13px;font-weight:900;color:#000;">₹${partyClosingBal.toFixed(2)}</div>
+            <div style="font-size:8.5px;color:#555;margin-top:1px;">
+              Prev: ₹${partyPrevBal.toFixed(2)} | Bill: ₹${finalTotal.toFixed(2)}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -674,6 +881,7 @@ export function generateAgencyInvoiceHtml(
         </thead>
         <tbody>
           ${rowsHtml}
+          ${pendingBillsRowHtml}
           <!-- Totals Row -->
           <tr class="totals-row">
             <td colspan="4" style="text-align:right;">Totals:</td>
@@ -728,13 +936,17 @@ export function generateAgencyInvoiceHtml(
         <div class="bottom-right">
           <table class="calc-table">
             <tr>
-              <td>Balance:</td>
-              <td style="text-align:right;font-weight:700;">${custBalance > 0 ? custBalance.toFixed(2) : "0.00"}</td>
+              <td>Prev. Balance:</td>
+              <td style="text-align:right;font-weight:700;">₹${partyPrevBal.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td>Bill Amount:</td>
+              <td style="text-align:right;font-weight:700;">₹${finalTotal.toFixed(2)}</td>
             </tr>
             ${totalDiscountAmount > 0 ? `
             <tr>
               <td>Discount:</td>
-              <td style="text-align:right;font-weight:700;">-${totalDiscountAmount.toFixed(2)}</td>
+              <td style="text-align:right;font-weight:700;">-₹${totalDiscountAmount.toFixed(2)}</td>
             </tr>` : ""}
             <tr>
               <td>Other +/-:</td>
@@ -749,8 +961,12 @@ export function generateAgencyInvoiceHtml(
               <td style="text-align:right;">${roundOff > 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)}</td>
             </tr>
             <tr class="net-row">
-              <td>Net Amount:</td>
-              <td style="text-align:right;">${finalTotal.toFixed(2)}</td>
+              <td>Net Bill Amount:</td>
+              <td style="text-align:right;font-weight:800;">₹${finalTotal.toFixed(2)}</td>
+            </tr>
+            <tr style="background:#eef6ff;border-top:1.5px solid #000;">
+              <td style="font-weight:800;color:#000;">Party Net Balance:</td>
+              <td style="text-align:right;font-weight:900;font-size:12px;color:#000;">₹${partyClosingBal.toFixed(2)}</td>
             </tr>
           </table>
 
@@ -773,13 +989,63 @@ export function generateAgencyInvoiceHtml(
  * Prints a B2B Agency / FMCG Wholesale GST Tax Invoice exactly formatted
  * like the standard Agency / Wholesale accounting bill invoice (photo format).
  */
-export function printAgencyGstInvoice(
+export async function printAgencyGstInvoice(
   sale: PosSale,
   options?: AgencyInvoicePrintOptions
-): boolean {
+): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
-  const html = generateAgencyInvoiceHtml(sale, options);
+  const effectiveOptions: AgencyInvoicePrintOptions = { ...(options || {}) };
+  if (
+    effectiveOptions.partyPreviousBalance === undefined &&
+    effectiveOptions.customerBalance === undefined &&
+    (sale.customer_id || sale.customer_mobile)
+  ) {
+    try {
+      const supabase = requireClient();
+      let q = supabase.from("customers").select("id, credit_balance").limit(1);
+      if (sale.customer_id) {
+        q = q.eq("id", sale.customer_id);
+      } else if (sale.customer_mobile) {
+        q = q.eq("mobile", sale.customer_mobile);
+      }
+      const { data } = await q.maybeSingle();
+      if (data && data.credit_balance !== undefined && data.credit_balance !== null) {
+        const bal = Number(data.credit_balance) || 0;
+        effectiveOptions.partyPreviousBalance = bal;
+        effectiveOptions.customerBalance = bal;
+        const total = Number(sale.total_amount) || 0;
+        effectiveOptions.partyClosingBalance =
+          sale.payment_method === "credit" || sale.payment_status === "pending"
+            ? bal + total
+            : bal;
+      }
+    } catch (e) {
+      console.warn("Could not auto-fetch customer party balance:", e);
+    }
+  }
+
+  // Auto-fetch pending bills if not explicitly supplied
+  if (
+    effectiveOptions.pendingBills === undefined &&
+    effectiveOptions.includePendingBills !== false &&
+    sale.customer_id
+  ) {
+    try {
+      const pBills = await customerService.getPendingBills(sale.customer_id, sale.id);
+      if (pBills.length > 0) {
+        effectiveOptions.pendingBills = pBills;
+      }
+    } catch (e) {
+      console.warn("Could not auto-fetch customer pending bills for invoice print:", e);
+    }
+  }
+
+  const html = generateAgencyInvoiceHtml(sale, effectiveOptions);
+
+  if (isMobileDevice()) {
+    return executeMobilePrint(html, "", `Agency-Invoice-${sale.bill_number}`);
+  }
 
   // Mount hidden iframe and print
   const iframe = document.createElement("iframe");

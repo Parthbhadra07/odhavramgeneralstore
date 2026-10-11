@@ -142,6 +142,16 @@ export interface CreditLedgerEntry {
   referenceId?: string | null;
 }
 
+export interface AgencyPendingBill {
+  id?: string;
+  book?: string;
+  billNo: string;
+  billDate: string;
+  billAmount: number;
+  pendingAmount: number;
+  days?: number;
+}
+
 export interface CreditDashboardStats {
   totalCreditGiven: number;
   totalCreditCollected: number;

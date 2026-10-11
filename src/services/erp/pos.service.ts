@@ -129,6 +129,8 @@ export const posService = {
     splitPayments?: { method: PosPaymentMethod; amount: number }[];
     isSyncUpload?: boolean;
     roundOff?: boolean;
+    billNumber?: string;
+    createdAt?: string;
   }): Promise<PosSale> {
     // 1. If currently offline and not an internal sync attempt, queue directly in IndexedDB
     if (typeof navigator !== "undefined" && !navigator.onLine && !params.isSyncUpload) {
@@ -189,7 +191,8 @@ export const posService = {
         params.roundOff ?? false
       );
 
-      const billNumber = await this.generateBillNumber();
+      const billNumber =
+        params.billNumber?.trim() || (await this.generateBillNumber());
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -213,6 +216,7 @@ export const posService = {
         payment_status: isCreditSale ? "pending" : "paid",
         cashier_id: user?.id ?? null,
         notes: params.notes ?? null,
+        ...(params.createdAt ? { created_at: params.createdAt } : {}),
       };
 
       let { data: sale, error: saleErr } = await supabase
@@ -265,19 +269,21 @@ export const posService = {
         }
       }
 
-      if (customerId && params.saleStatus !== "held" && loyaltyEnabled) {
-        const earnRate = Number(settings?.loyalty_points_per_100 ?? 1.0);
-        const points = Math.floor(total / 100) * earnRate;
-        if (points > 0) {
-          await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
-        }
-        if (pointsRedeemed > 0) {
-          await loyaltyService.redeemPoints(
-            customerId,
-            pointsRedeemed,
-            "pos_sale",
-            saleId
-          );
+      if (customerId && params.saleStatus !== "held") {
+        if (loyaltyEnabled) {
+          const earnRate = Number(settings?.loyalty_points_per_100 ?? 1.0);
+          const points = Math.floor(total / 100) * earnRate;
+          if (points > 0) {
+            await loyaltyService.earnPoints(customerId, points, "pos_sale", saleId);
+          }
+          if (pointsRedeemed > 0) {
+            await loyaltyService.redeemPoints(
+              customerId,
+              pointsRedeemed,
+              "pos_sale",
+              saleId
+            );
+          }
         }
         if (isCreditSale) {
           await creditService.addCredit(
@@ -694,85 +700,108 @@ export const posService = {
   ): Promise<void> {
     const supabase = requireClient();
 
-    // 1. Try atomic database RPC first
+    // 0. Fetch the sale first to identify customer_id
+    const sale = await this.getById(saleId).catch(() => null);
+    const customerId = sale?.customer_id;
+
+    // 1. Delete Khatabook customer credit ledger entries linked to this bill
+    try {
+      await supabase
+        .from("customer_credit")
+        .delete()
+        .eq("reference_id", saleId);
+      await supabase
+        .from("customer_credit")
+        .delete()
+        .eq("reference_type", "pos_sale")
+        .eq("reference_id", saleId);
+    } catch (e) {
+      console.warn("[deleteSale] Error cleaning up customer_credit entry:", e);
+    }
+
+    // 2. Delete loyalty entries linked to this bill
+    try {
+      await supabase
+        .from("customer_loyalty")
+        .delete()
+        .eq("reference_id", saleId);
+    } catch (e) {
+      console.warn("[deleteSale] Error cleaning up loyalty entry:", e);
+    }
+
+    // 3. Try atomic database RPC first
+    let rpcSuccess = false;
     try {
       const { data, error } = await supabase.rpc("delete_pos_sale", {
         p_sale_id: saleId,
         p_restore_stock: options.restoreStock ?? true,
       });
       if (!error && (data as { success?: boolean })?.success) {
-        try {
-          await idbDeleteOfflineSale(saleId);
-        } catch {}
-        return;
+        rpcSuccess = true;
       }
     } catch {
       // Fall through to client-side fallback
     }
 
-    // 2. Client fallback
-    const sale = await this.getById(saleId);
-    if (!sale) throw new Error("Sale not found");
+    // 4. Client fallback if RPC failed or did not execute
+    if (!rpcSuccess) {
+      if (!sale) throw new Error("Sale not found");
 
-    // Revert stock if requested and sale was completed
-    if ((options.restoreStock ?? true) && sale.sale_status === "completed") {
-      for (const item of sale.pos_sale_items ?? []) {
-        const effQty = item.quantity * (Number(item.pack_multiplier) || 1);
-        await supabase.rpc("apply_stock_movement", {
-          p_product_id: item.product_id,
-          p_quantity: effQty,
-          p_movement_type: "cancel",
-          p_reference_type: "pos_sale",
-          p_reference_id: saleId,
-          p_notes: `POS bill ${sale.bill_number} deleted`,
-        });
+      // Revert stock if requested and sale was completed
+      if ((options.restoreStock ?? true) && sale.sale_status === "completed") {
+        for (const item of sale.pos_sale_items ?? []) {
+          const effQty = item.quantity * (Number(item.pack_multiplier) || 1);
+          await supabase.rpc("apply_stock_movement", {
+            p_product_id: item.product_id,
+            p_quantity: effQty,
+            p_movement_type: "cancel",
+            p_reference_type: "pos_sale",
+            p_reference_id: saleId,
+            p_notes: `POS bill ${sale.bill_number} deleted`,
+          });
 
-        if (item.lot_id) {
-          try {
-            await supabase.rpc("apply_lot_stock_movement", {
-              p_lot_id: item.lot_id,
-              p_quantity: effQty,
-              p_movement_type: "cancel",
-              p_reference_type: "pos_sale",
-              p_reference_id: saleId,
-              p_notes: `POS bill ${sale.bill_number} deleted`,
-            });
-          } catch {}
+          if (item.lot_id) {
+            try {
+              await supabase.rpc("apply_lot_stock_movement", {
+                p_lot_id: item.lot_id,
+                p_quantity: effQty,
+                p_movement_type: "cancel",
+                p_reference_type: "pos_sale",
+                p_reference_id: saleId,
+                p_notes: `POS bill ${sale.bill_number} deleted`,
+              });
+            } catch {}
+          }
         }
       }
+
+      // Disconnect returns/refunds
+      await supabase
+        .from("sales_returns")
+        .update({ pos_sale_id: null })
+        .eq("pos_sale_id", saleId);
+      await supabase
+        .from("refunds")
+        .update({ pos_sale_id: null })
+        .eq("pos_sale_id", saleId);
+
+      // Delete sale items & payment splits
+      await supabase.from("pos_sale_items").delete().eq("pos_sale_id", saleId);
+      await supabase.from("pos_payment_splits").delete().eq("pos_sale_id", saleId);
+
+      // Delete POS sale
+      const { error } = await supabase.from("pos_sales").delete().eq("id", saleId);
+      if (error) throw error;
     }
 
-    // Remove customer credit linked to this sale
-    await supabase
-      .from("customer_credit")
-      .delete()
-      .eq("reference_type", "pos_sale")
-      .eq("reference_id", saleId);
-
-    // Remove loyalty linked to this sale
-    await supabase
-      .from("customer_loyalty")
-      .delete()
-      .eq("reference_type", "pos_sale")
-      .eq("reference_id", saleId);
-
-    // Disconnect returns/refunds
-    await supabase
-      .from("sales_returns")
-      .update({ pos_sale_id: null })
-      .eq("pos_sale_id", saleId);
-    await supabase
-      .from("refunds")
-      .update({ pos_sale_id: null })
-      .eq("pos_sale_id", saleId);
-
-    // Delete sale items & payment splits
-    await supabase.from("pos_sale_items").delete().eq("pos_sale_id", saleId);
-    await supabase.from("pos_payment_splits").delete().eq("pos_sale_id", saleId);
-
-    // Delete POS sale
-    const { error } = await supabase.from("pos_sales").delete().eq("id", saleId);
-    if (error) throw error;
+    // 5. Always recalculate customer Khatabook balance so their ledger stays 100% accurate
+    if (customerId) {
+      try {
+        await creditService.syncCustomerBalance(customerId);
+      } catch (err) {
+        console.warn("[deleteSale] Error syncing customer balance:", err);
+      }
+    }
 
     try {
       await idbDeleteOfflineSale(saleId);

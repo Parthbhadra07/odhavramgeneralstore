@@ -104,7 +104,7 @@ export function EditBillModal({
           lotId: it.lot_id,
           quantity: Number(it.quantity) || 1,
           rate: Number(it.rate) || 0,
-          gstPercentage: Number(it.gst_percentage) || 5,
+          gstPercentage: Number(it.gst_percentage ?? 0),
           unit: it.unit,
           packMultiplier: it.pack_multiplier,
         }));
@@ -158,7 +158,7 @@ export function EditBillModal({
         barcode: product.barcode || null,
         quantity: 1,
         rate: Number(product.selling_price || product.price || 0),
-        gstPercentage: Number(product.gst_percentage || 5),
+        gstPercentage: Number(product.gst_percentage ?? 0),
         unit: product.unit || "pcs",
         packMultiplier: 1,
       };

@@ -405,6 +405,7 @@ export default function AdminDashboardPage() {
           <div className="flex flex-wrap gap-2">
             {[
               ["/admin/pos", "POS Billing", true],
+              ["/admin/agency-billing", "Agency Billing", true],
               ["/admin/orders", "Orders", false],
               ["/admin/purchases", "Purchases", false],
               ["/admin/reports", "Reports", false],
