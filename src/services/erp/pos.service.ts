@@ -191,6 +191,48 @@ export const posService = {
         params.roundOff ?? false
       );
 
+      // Enforce Credit Limit & Account Status for Credit Billing
+      const splitCreditAmount =
+        params.splitPayments
+          ?.filter((sp) => sp.method === "credit")
+          .reduce((sum, sp) => sum + (Number(sp.amount) || 0), 0) ?? 0;
+      const requestedCreditAmount = isCreditSale ? total : splitCreditAmount;
+
+      if (requestedCreditAmount > 0 && params.saleStatus !== "held") {
+        if (!customerId) {
+          throw new Error("Customer mobile is required for credit sales");
+        }
+
+        const party =
+          customer ??
+          (customerId ? await customerService.getById(customerId).catch(() => null) : null);
+
+        if (party) {
+          if (party.account_status === "blocked") {
+            throw new Error(`Customer account "${party.name}" is blocked. Credit sales are not allowed.`);
+          }
+
+          const creditLimit = Number(party.credit_limit) || 0;
+          if (creditLimit > 0) {
+            const currentBal = Number(party.credit_balance) || 0;
+            const projectedBal = Math.round((currentBal + requestedCreditAmount) * 100) / 100;
+
+            if (currentBal >= creditLimit) {
+              throw new Error(
+                `Credit limit reached for ${party.name}! Credit Limit: ₹${creditLimit.toFixed(2)}, Current Balance: ₹${currentBal.toFixed(2)}. Cannot create new credit bill.`
+              );
+            }
+
+            if (projectedBal > creditLimit) {
+              const exceededBy = Math.round((projectedBal - creditLimit) * 100) / 100;
+              throw new Error(
+                `Credit limit exceeded for ${party.name}! Credit Limit: ₹${creditLimit.toFixed(2)}, Current Balance: ₹${currentBal.toFixed(2)}, Bill Amount: ₹${requestedCreditAmount.toFixed(2)} (Projected: ₹${projectedBal.toFixed(2)}). Exceeds limit by ₹${exceededBy.toFixed(2)}.`
+              );
+            }
+          }
+        }
+      }
+
       const billNumber =
         params.billNumber?.trim() || (await this.generateBillNumber());
       const {

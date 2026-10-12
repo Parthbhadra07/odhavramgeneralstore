@@ -216,6 +216,17 @@ export const customerService = {
     return null;
   },
 
+  async getById(id: string): Promise<Customer | null> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from("customers")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data as Customer | null;
+  },
+
   async resolveForPos(opts: {
     customerId?: string;
     mobile?: string;

@@ -743,11 +743,39 @@ export function PosInvoiceBilling() {
       return;
     }
     const pay = method ?? paymentMethod;
-    if (pay === "credit" && !customerMobile.trim()) {
-      toast.error("Enter customer mobile for credit sale");
-      setCheckoutStep("payment");
-      setSaveBillHighlight(false);
-      return;
+    if (pay === "credit") {
+      if (!customerMobile.trim()) {
+        toast.error("Enter customer mobile for credit sale");
+        setCheckoutStep("payment");
+        setSaveBillHighlight(false);
+        return;
+      }
+      if (selectedCustomer?.is_credit_blocked) {
+        toast.error(`Customer '${selectedCustomer.name}' is blocked from credit purchases.`);
+        setCheckoutStep("payment");
+        setSaveBillHighlight(false);
+        return;
+      }
+      const limit = Number(selectedCustomer?.credit_limit || 0);
+      const curBal = Number(selectedCustomer?.credit_balance || 0);
+      if (limit > 0) {
+        if (curBal >= limit) {
+          toast.error(
+            `Credit limit exceeded for '${selectedCustomer?.name || customerName}'! Limit: ₹${limit.toFixed(2)}, Outstanding: ₹${curBal.toFixed(2)}. Cannot create credit bill.`
+          );
+          setCheckoutStep("payment");
+          setSaveBillHighlight(false);
+          return;
+        } else if (curBal + total > limit) {
+          const allowed = Math.max(0, limit - curBal);
+          toast.error(
+            `Credit limit exceeded for '${selectedCustomer?.name || customerName}'! Limit: ₹${limit.toFixed(2)}, Outstanding: ₹${curBal.toFixed(2)}, Allowed: ₹${allowed.toFixed(2)}. Bill requires ₹${total.toFixed(2)}.`
+          );
+          setCheckoutStep("payment");
+          setSaveBillHighlight(false);
+          return;
+        }
+      }
     }
     setProcessing(true);
     try {
@@ -813,9 +841,31 @@ export function PosInvoiceBilling() {
     const option = CHECKOUT_PAY_OPTIONS[index] ?? CHECKOUT_PAY_OPTIONS[0];
     setPaymentMethod(option.id);
     setPayOptionIndex(index);
-    if (option.id === "credit" && !customerMobile.trim()) {
-      toast.error("Enter customer mobile for credit sale");
-      return;
+    if (option.id === "credit") {
+      if (!customerMobile.trim()) {
+        toast.error("Enter customer mobile for credit sale");
+        return;
+      }
+      if (selectedCustomer?.is_credit_blocked) {
+        toast.error(`Customer '${selectedCustomer.name}' is blocked from credit purchases.`);
+        return;
+      }
+      const limit = Number(selectedCustomer?.credit_limit || 0);
+      const curBal = Number(selectedCustomer?.credit_balance || 0);
+      if (limit > 0) {
+        if (curBal >= limit) {
+          toast.error(
+            `Credit limit reached for '${selectedCustomer?.name || customerName}'! Limit: ₹${limit.toFixed(2)}, Due: ₹${curBal.toFixed(2)}.`
+          );
+          return;
+        } else if (curBal + total > limit) {
+          const allowed = Math.max(0, limit - curBal);
+          toast.error(
+            `Credit limit exceeded! Limit: ₹${limit.toFixed(2)}, Allowed: ₹${allowed.toFixed(2)}. Bill: ₹${total.toFixed(2)}.`
+          );
+          return;
+        }
+      }
     }
     setCheckoutStep("save");
     setSaveBillHighlight(true);
@@ -1195,11 +1245,30 @@ export function PosInvoiceBilling() {
       )}
       {selectedCustomer ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
-          <div>
-            Linked: <strong>{selectedCustomer.name}</strong> · Points {selectedCustomer.loyalty_points}
-            {selectedCustomer.credit_balance > 0
-              ? ` · Credit due ${formatPrice(selectedCustomer.credit_balance)}`
-              : ""}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>Linked: <strong>{selectedCustomer.name}</strong> · Points {selectedCustomer.loyalty_points}</span>
+            {selectedCustomer.credit_balance > 0 && (
+              <span className="font-semibold text-amber-800">
+                · Credit due {formatPrice(selectedCustomer.credit_balance)}
+              </span>
+            )}
+            {Number(selectedCustomer.credit_limit || 0) > 0 && (
+              <span className="font-semibold text-indigo-850">
+                · Limit {formatPrice(selectedCustomer.credit_limit)}
+              </span>
+            )}
+            {selectedCustomer.is_credit_blocked && (
+              <span className="rounded bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700">
+                ⛔ Credit Blocked
+              </span>
+            )}
+            {!selectedCustomer.is_credit_blocked &&
+              Number(selectedCustomer.credit_limit || 0) > 0 &&
+              Number(selectedCustomer.credit_balance || 0) >= Number(selectedCustomer.credit_limit) && (
+                <span className="rounded bg-rose-100 px-1.5 py-0.5 font-bold text-rose-700">
+                  ⚠️ Credit Limit Reached
+                </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {selectedCustomer.user_id ? (

@@ -105,6 +105,7 @@ export interface Customer {
   gst_number: string | null;
   credit_balance: number;
   credit_limit?: number;
+  is_credit_blocked?: boolean;
   account_status?: CustomerAccountStatus;
   last_payment_date?: string | null;
   loyalty_points: number;
@@ -138,6 +139,7 @@ export interface CreditLedgerEntry {
   runningBalance: number;
   notes: string | null;
   dueDate?: string | null;
+  paymentMethod?: string | null;
   referenceType?: string | null;
   referenceId?: string | null;
 }
@@ -448,6 +450,7 @@ export interface StoreSettings {
   id: string;
   store_name: string;
   store_mobile: string;
+  store_phone?: string | null;
   store_address: string | null;
   store_logo_url: string | null;
   gst_number: string | null;

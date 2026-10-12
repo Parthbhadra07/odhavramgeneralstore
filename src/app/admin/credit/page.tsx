@@ -37,6 +37,7 @@ import {
   KhataVoucherForm,
   partyToForm,
 } from "@/components/erp/khata-party-book";
+import { KhataReportsView } from "@/components/erp/khata-reports-view";
 
 type PartyFilter = "all" | "due" | "advance" | "settled" | "blocked";
 
@@ -465,45 +466,11 @@ export default function CreditManagementPage() {
           )}
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            "Daily Collection Report",
-            "Monthly Collection Report",
-            "Outstanding Report",
-            "Overdue Report",
-            "Customer Ledger Report",
-            "Payment History Report",
-          ].map((title) => (
-            <button
-              key={title}
-              type="button"
-              className="admin-card p-4 text-left transition hover:border-green-300 hover:shadow-md"
-              onClick={() => {
-                if (customers.length === 0) {
-                  toast.message("No parties to export");
-                  return;
-                }
-                downloadCsv(
-                  `${title.toLowerCase().replace(/\s+/g, "-")}.csv`,
-                  ["Name", "Mobile", "GSTIN", "Net Balance", "Credit Limit", "Last Collection"],
-                  customers.map((c) => [
-                    c.name,
-                    c.mobile,
-                    c.gst_number ?? "",
-                    c.credit_balance,
-                    c.credit_limit ?? 0,
-                    c.last_payment_date ? formatDate(c.last_payment_date) : "",
-                  ])
-                );
-                toast.success(`${title} exported`);
-              }}
-            >
-              <FileText className="mb-2 h-5 w-5 text-green-600" />
-              <p className="font-medium">{title}</p>
-              <p className="text-xs text-gray-500">Export to Excel (CSV)</p>
-            </button>
-          ))}
-        </div>
+        <KhataReportsView
+          customers={customers}
+          settings={settings}
+          onOpenLedger={(c) => void openLedger(c)}
+        />
       )}
 
       {selectedCustomer && showPartyForm !== "edit" && (

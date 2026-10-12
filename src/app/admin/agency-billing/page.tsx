@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Loader2,
   X,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { posService } from "@/services/erp/pos.service";
@@ -537,6 +538,36 @@ export default function AgencyBillingPage() {
         }
       }
 
+      // Enforce Credit Limit & Account Status for Credit Invoices
+      if (paymentMethod === "credit") {
+        if (selectedCustomer?.account_status === "blocked") {
+          toast.error(`Party "${buyerName.trim()}" account is blocked. Credit billing not allowed.`);
+          setSaving(false);
+          return;
+        }
+
+        const partyLimit = Number(selectedCustomer?.credit_limit) || 0;
+        if (partyLimit > 0) {
+          const currentBal = partyPrevBalance;
+          const projectedBal = Math.round((currentBal + netPayable) * 100) / 100;
+          if (currentBal >= partyLimit) {
+            toast.error(
+              `Credit limit reached for ${buyerName.trim()}! Limit: ₹${partyLimit.toFixed(2)}, Current Balance: ₹${currentBal.toFixed(2)}. Credit billing blocked.`
+            );
+            setSaving(false);
+            return;
+          }
+          if (projectedBal > partyLimit) {
+            const exceeded = Math.round((projectedBal - partyLimit) * 100) / 100;
+            toast.error(
+              `Credit limit exceeded for ${buyerName.trim()}! Limit: ₹${partyLimit.toFixed(2)}, Current: ₹${currentBal.toFixed(2)}, Bill: ₹${netPayable.toFixed(2)} (Projected: ₹${projectedBal.toFixed(2)}). Exceeds limit by ₹${exceeded.toFixed(2)}. Credit billing blocked.`
+            );
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       // Map to PosCartLine
       const cartLines: PosCartLine[] = lines.map((l) => ({
         productId: l.productId,
@@ -744,9 +775,16 @@ export default function AgencyBillingPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <span className="text-[10px] text-blue-600 font-semibold block uppercase">Party Balance</span>
+                    <span className="text-[10px] text-blue-600 font-semibold block uppercase">
+                      Party Balance {selectedCustomer.credit_limit && Number(selectedCustomer.credit_limit) > 0 ? "· Limit" : ""}
+                    </span>
                     <span className="text-xs font-black text-blue-950">
                       ₹{partyBalance.toFixed(2)} {partyBalance > 0 ? "(Due)" : partyBalance < 0 ? "(Advance)" : "(Settled)"}
+                      {selectedCustomer.credit_limit && Number(selectedCustomer.credit_limit) > 0 && (
+                        <span className="ml-1 text-[11px] font-bold text-amber-900 bg-amber-100/70 px-1.5 py-0.5 rounded">
+                          Limit: ₹{Number(selectedCustomer.credit_limit).toFixed(2)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <button
@@ -1583,12 +1621,49 @@ export default function AgencyBillingPage() {
               </div>
             )}
 
+            {/* Credit Limit Alert Banner */}
+            {paymentMethod === "credit" && selectedCustomer && (
+              (() => {
+                const limit = Number(selectedCustomer.credit_limit) || 0;
+                const isBlocked = selectedCustomer.account_status === "blocked";
+                const isExceeded = limit > 0 && (partyBalance >= limit || partyBalance + netPayable > limit);
+                if (!isBlocked && !isExceeded) return null;
+
+                return (
+                  <div className="rounded-xl bg-red-50 border border-red-300 p-3 space-y-1 text-xs text-red-900 shadow-xs">
+                    <div className="flex items-center gap-1.5 font-bold text-red-900">
+                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                      <span>{isBlocked ? "Party Account Blocked!" : "Credit Limit Reached / Exceeded!"}</span>
+                    </div>
+                    {isBlocked ? (
+                      <p className="text-[11px] text-red-800">
+                        Party account is marked as blocked. Credit billing is disabled. Please choose another payment mode.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-red-800">
+                        Credit limit is <b>{formatPrice(limit)}</b>. Current balance is <b>{formatPrice(partyBalance)}</b> + this bill <b>{formatPrice(netPayable)}</b> = <b>{formatPrice(partyBalance + netPayable)}</b>. Exceeds limit by <b>{formatPrice(partyBalance + netPayable - limit)}</b>. Credit billing is locked.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()
+            )}
+
             {/* Action Buttons */}
             <div className="space-y-2 pt-2">
               <Button
                 type="button"
                 className="w-full font-bold shadow-md bg-blue-700 hover:bg-blue-800 text-white gap-2 py-3"
                 loading={saving}
+                disabled={
+                  paymentMethod === "credit" &&
+                  Boolean(
+                    selectedCustomer?.account_status === "blocked" ||
+                      (Number(selectedCustomer?.credit_limit) > 0 &&
+                        (partyBalance >= Number(selectedCustomer?.credit_limit) ||
+                          partyBalance + netPayable > Number(selectedCustomer?.credit_limit)))
+                  )
+                }
                 onClick={() => handleSaveBill(true)}
               >
                 <Printer className="h-4 w-4" />
@@ -1600,6 +1675,15 @@ export default function AgencyBillingPage() {
                 variant="outline"
                 className="w-full font-bold border-gray-200 text-gray-700 hover:bg-gray-50 py-2.5"
                 loading={saving}
+                disabled={
+                  paymentMethod === "credit" &&
+                  Boolean(
+                    selectedCustomer?.account_status === "blocked" ||
+                      (Number(selectedCustomer?.credit_limit) > 0 &&
+                        (partyBalance >= Number(selectedCustomer?.credit_limit) ||
+                          partyBalance + netPayable > Number(selectedCustomer?.credit_limit)))
+                  )
+                }
                 onClick={() => handleSaveBill(false)}
               >
                 <Save className="h-4 w-4" />

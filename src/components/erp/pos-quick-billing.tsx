@@ -890,6 +890,17 @@ export function PosQuickBilling() {
       ? Math.floor(total / 100) * loyaltyPointsRate
       : 0;
 
+  const isCreditSale = paymentMethod === "credit";
+  const customerCreditLimit = Number(selectedCustomer?.credit_limit || 0);
+  const customerCreditBalance = Number(selectedCustomer?.credit_balance || 0);
+  const isCreditBlocked = Boolean(isCreditSale && selectedCustomer?.is_credit_blocked);
+  const isCreditLimitExceeded = Boolean(
+    isCreditSale &&
+    selectedCustomer &&
+    customerCreditLimit > 0 &&
+    (customerCreditBalance >= customerCreditLimit || customerCreditBalance + total > customerCreditLimit)
+  );
+
   const clearCustomer = () => {
     setSelectedCustomer(null);
     setCustomerMobile("");
@@ -969,9 +980,31 @@ export function PosQuickBilling() {
       toast.error("Enter customer mobile to redeem loyalty points");
       return;
     }
-    if (paymentMethod === "credit" && !customerMobile.trim()) {
-      toast.error("Enter customer mobile for credit sale");
-      return;
+    if (paymentMethod === "credit") {
+      if (!customerMobile.trim()) {
+        toast.error("Enter customer mobile for credit sale");
+        return;
+      }
+      if (selectedCustomer?.is_credit_blocked) {
+        toast.error(`Customer '${selectedCustomer.name}' is blocked from credit purchases.`);
+        return;
+      }
+      const limit = Number(selectedCustomer?.credit_limit || 0);
+      const curBal = Number(selectedCustomer?.credit_balance || 0);
+      if (limit > 0) {
+        if (curBal >= limit) {
+          toast.error(
+            `Credit limit exceeded for '${selectedCustomer?.name || customerName}'! Limit: ₹${limit.toFixed(2)}, Outstanding: ₹${curBal.toFixed(2)}. Cannot create credit bill.`
+          );
+          return;
+        } else if (curBal + total > limit) {
+          const allowed = Math.max(0, limit - curBal);
+          toast.error(
+            `Credit limit exceeded for '${selectedCustomer?.name || customerName}'! Limit: ₹${limit.toFixed(2)}, Outstanding: ₹${curBal.toFixed(2)}, Allowed: ₹${allowed.toFixed(2)}. Bill requires ₹${total.toFixed(2)}.`
+          );
+          return;
+        }
+      }
     }
     if (
       loyaltyRedeem > 0 &&
@@ -1789,14 +1822,40 @@ export function PosQuickBilling() {
                   </button>
                 )}
               </div>
-              <p className="text-green-800 mt-1">
-                {selectedCustomer.loyalty_points} points available
+              <div className="text-green-800 mt-1 flex flex-wrap items-center gap-x-2">
+                <span>{selectedCustomer.loyalty_points} points available</span>
                 {selectedCustomer.credit_balance > 0 && (
-                  <span className="ml-2 text-amber-700">
+                  <span className="font-semibold text-amber-800">
                     · Credit due {formatPrice(selectedCustomer.credit_balance)}
                   </span>
                 )}
-              </p>
+                {Number(selectedCustomer.credit_limit || 0) > 0 && (
+                  <span className="font-semibold text-indigo-850">
+                    · Limit {formatPrice(selectedCustomer.credit_limit)}
+                  </span>
+                )}
+              </div>
+              {selectedCustomer.is_credit_blocked && (
+                <div className="mt-1.5 rounded bg-rose-100 border border-rose-300 px-2.5 py-1 text-xs font-bold text-rose-800">
+                  ⛔ Customer account is blocked from credit purchases
+                </div>
+              )}
+              {!selectedCustomer.is_credit_blocked &&
+                Number(selectedCustomer.credit_limit || 0) > 0 &&
+                Number(selectedCustomer.credit_balance || 0) >= Number(selectedCustomer.credit_limit) && (
+                  <div className="mt-1.5 rounded bg-rose-100 border border-rose-300 px-2.5 py-1 text-xs font-bold text-rose-800">
+                    ⚠️ Credit limit reached! Due: {formatPrice(selectedCustomer.credit_balance)} / Limit: {formatPrice(selectedCustomer.credit_limit)}
+                  </div>
+              )}
+              {!selectedCustomer.is_credit_blocked &&
+                isCreditSale &&
+                Number(selectedCustomer.credit_limit || 0) > 0 &&
+                Number(selectedCustomer.credit_balance || 0) < Number(selectedCustomer.credit_limit) &&
+                isCreditLimitExceeded && (
+                  <div className="mt-1.5 rounded bg-amber-100 border border-amber-300 px-2.5 py-1 text-xs font-bold text-amber-900">
+                    ⚠️ Bill amount ({formatPrice(total)}) exceeds remaining credit allowance ({formatPrice(Math.max(0, Number(selectedCustomer.credit_limit) - Number(selectedCustomer.credit_balance)))})!
+                  </div>
+              )}
             </div>
           )}
           {paymentMethod === "credit" && !customerMobile.trim() && (
@@ -2094,7 +2153,7 @@ export function PosQuickBilling() {
             id="quick-btn-pay"
             variant="outline"
             onClick={() => void completeSale(false)}
-            disabled={processing || !cart.length}
+            disabled={processing || !cart.length || isCreditBlocked || isCreditLimitExceeded}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -2112,7 +2171,7 @@ export function PosQuickBilling() {
             id="quick-btn-pay-print"
             className="col-span-2 focus:ring-2 focus:ring-green-600 focus:ring-offset-2"
             onClick={() => void completeSale(true)}
-            disabled={processing || !cart.length}
+            disabled={processing || !cart.length || isCreditBlocked || isCreditLimitExceeded}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -2123,7 +2182,7 @@ export function PosQuickBilling() {
             }}
           >
             <Printer className="mr-1 h-4 w-4" />
-            Pay &amp; Print
+            {isCreditLimitExceeded ? "Credit Limit Reached" : isCreditBlocked ? "Credit Blocked" : "Pay & Print"}
             <span className="ml-1 text-[10px] opacity-70">F9</span>
           </Button>
         </div>

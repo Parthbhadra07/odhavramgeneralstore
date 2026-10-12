@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Trash2, ArrowDownLeft, ArrowUpRight, FileText, MessageCircle } from "lucide-react";
+import { Pencil, Trash2, ArrowDownLeft, ArrowUpRight, FileText, MessageCircle, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
 import type { CreditLedgerEntry, Customer } from "@/types/erp";
@@ -16,6 +16,10 @@ import {
   buildCreditStatementText,
   printCreditStatementHtml,
 } from "@/utils/credit-statement";
+import {
+  printKhataSummaryReport,
+  printKhataDetailedReport,
+} from "@/utils/khata-reports-print";
 import { openWhatsAppShare } from "@/utils/whatsapp";
 import { downloadCsv } from "@/utils/export";
 import type { StoreSettings } from "@/types/erp";
@@ -487,10 +491,53 @@ export function KhataPartyLedger({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => printCreditStatementHtml(customer, ledger, settings ?? null)}
+              onClick={() => {
+                const totalDebits = ledger.reduce((s, e) => s + (e.debit || 0), 0);
+                const totalCredits = ledger.reduce((s, e) => s + (e.credit || 0), 0);
+                printKhataSummaryReport({
+                  settings: settings ?? null,
+                  customer,
+                  entries: ledger,
+                  openingBalance: 0,
+                  closingBalance: customer.credit_balance,
+                  totalDebits,
+                  totalCredits,
+                  dateRangeLabel: "All Time (Complete Statement)",
+                });
+              }}
+              className="gap-1 font-bold text-blue-900 border-blue-200 hover:bg-blue-50"
             >
-              <FileText className="mr-1 h-4 w-4" />
-              Print
+              <FileText className="mr-1 h-4 w-4 text-blue-700" />
+              Summary PDF
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  toast.loading("Preparing detailed product statement...", { id: "khata-detail-pdf" });
+                  const data = await creditService.getPartyStatementData(customer.id);
+                  toast.dismiss("khata-detail-pdf");
+                  printKhataDetailedReport({
+                    settings: settings ?? null,
+                    customer: data.customer,
+                    sales: data.sales,
+                    creditEntries: data.ledger,
+                    openingBalance: data.openingBalance,
+                    closingBalance: data.closingBalance,
+                    totalDebits: data.totalDebits,
+                    totalCredits: data.totalCredits,
+                    dateRangeLabel: "All Time (Complete Statement)",
+                  });
+                } catch {
+                  toast.dismiss("khata-detail-pdf");
+                  toast.error("Could not generate detailed statement");
+                }
+              }}
+              className="gap-1 font-bold text-amber-900 border-amber-200 hover:bg-amber-50"
+            >
+              <Printer className="mr-1 h-4 w-4 text-amber-700" />
+              Detailed PDF
             </Button>
             <Button
               size="sm"

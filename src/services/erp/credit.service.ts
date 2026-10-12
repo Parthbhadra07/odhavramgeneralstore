@@ -4,6 +4,7 @@ import type {
   CreditLedgerEntry,
   Customer,
   CustomerCredit,
+  PosSale,
 } from "@/types/erp";
 import { format } from "date-fns";
 
@@ -181,6 +182,31 @@ export const creditService = {
     if (!Number.isFinite(amount) || amount === 0) {
       throw new Error("Enter a valid amount");
     }
+
+    if (params.type === "credit") {
+      const cust = await this.getCustomer(params.customerId);
+      if (cust) {
+        if (cust.account_status === "blocked") {
+          throw new Error(`Customer "${cust.name}" is blocked. Credit entries are not allowed.`);
+        }
+        const limit = Number(cust.credit_limit) || 0;
+        if (limit > 0) {
+          const currentBal = Number(cust.credit_balance) || 0;
+          const projected = Math.round((currentBal + amount) * 100) / 100;
+          if (currentBal >= limit) {
+            throw new Error(
+              `Credit limit reached for ${cust.name}! Limit: ₹${limit.toFixed(2)}, Current Balance: ₹${currentBal.toFixed(2)}. Cannot add credit.`
+            );
+          }
+          if (projected > limit) {
+            throw new Error(
+              `Credit limit exceeded for ${cust.name}! Limit: ₹${limit.toFixed(2)}, Current: ₹${currentBal.toFixed(2)}, Voucher: ₹${amount.toFixed(2)} (Projected: ₹${projected.toFixed(2)}). Exceeds limit by ₹${(projected - limit).toFixed(2)}.`
+            );
+          }
+        }
+      }
+    }
+
     const supabase = requireClient();
     const signed =
       params.type === "adjust" ? amount : Math.abs(amount);
@@ -548,5 +574,96 @@ export const creditService = {
     const { data, error } = await q;
     if (error) throw error;
     return (data ?? []) as Customer[];
+  },
+
+  async getDetailedPartySales(customerId: string, mobile?: string): Promise<PosSale[]> {
+    const supabase = requireClient();
+    let q = supabase
+      .from("pos_sales")
+      .select("*, pos_sale_items(*)")
+      .order("created_at", { ascending: true });
+
+    if (mobile && mobile.trim()) {
+      q = q.or(`customer_id.eq.${customerId},customer_mobile.eq.${mobile.trim()}`);
+    } else {
+      q = q.eq("customer_id", customerId);
+    }
+
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[creditService] getDetailedPartySales error:", error);
+      return [];
+    }
+    return (data ?? []) as PosSale[];
+  },
+
+  async getPartyStatementData(
+    customerId: string,
+    options?: {
+      fromDate?: string;
+      toDate?: string;
+    }
+  ) {
+    const customer = await this.getCustomer(customerId);
+    if (!customer) throw new Error("Customer not found");
+
+    const [allHistory, allSales] = await Promise.all([
+      this.getHistory(customerId),
+      this.getDetailedPartySales(customerId, customer.mobile),
+    ]);
+
+    const fullLedger = this.ledgerFromHistory(allHistory);
+
+    let openingBalance = 0;
+    let filteredLedger = fullLedger;
+
+    if (options?.fromDate) {
+      const from = options.fromDate;
+      const priorEntries = fullLedger.filter((e) => {
+        const d = (e.date || "").slice(0, 10);
+        return d < from;
+      });
+      if (priorEntries.length > 0) {
+        openingBalance = priorEntries[priorEntries.length - 1].runningBalance;
+      }
+      filteredLedger = filteredLedger.filter((e) => {
+        const d = (e.date || "").slice(0, 10);
+        return d >= from;
+      });
+    }
+
+    if (options?.toDate) {
+      const to = options.toDate;
+      filteredLedger = filteredLedger.filter((e) => {
+        const d = (e.date || "").slice(0, 10);
+        return d <= to;
+      });
+    }
+
+    let filteredSales = allSales;
+    if (options?.fromDate) {
+      filteredSales = filteredSales.filter(
+        (s) => s.created_at.slice(0, 10) >= options.fromDate!
+      );
+    }
+    if (options?.toDate) {
+      filteredSales = filteredSales.filter(
+        (s) => s.created_at.slice(0, 10) <= options.toDate!
+      );
+    }
+
+    const totalDebits = filteredLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
+    const totalCredits = filteredLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
+    const closingBalance = Math.round((openingBalance + totalDebits - totalCredits) * 100) / 100;
+
+    return {
+      customer,
+      openingBalance,
+      closingBalance,
+      totalDebits,
+      totalCredits,
+      ledger: filteredLedger,
+      sales: filteredSales,
+    };
   },
 };
