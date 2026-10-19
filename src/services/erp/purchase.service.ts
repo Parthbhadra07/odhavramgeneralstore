@@ -32,6 +32,7 @@ export const purchaseService = {
     items: {
       productId: string;
       barcode?: string;
+      updateMasterBarcode?: boolean;
       lotNumber?: string;
       quantity: number;
       purchaseRate: number;
@@ -113,15 +114,21 @@ export const purchaseService = {
     // Update product catalog latest purchase price, selling price, mrp, AND learn preferred supplier
     for (const item of params.items) {
       try {
+        const productUpdates: Record<string, unknown> = {
+          preferred_supplier_id: params.supplierId,
+          purchase_price: item.purchaseRate,
+          ...(item.sellingPrice ? { price: item.sellingPrice, selling_price: item.sellingPrice } : {}),
+          ...(item.mrp ? { mrp: item.mrp } : {}),
+          updated_at: new Date().toISOString(),
+        };
+
+        if (item.barcode?.trim() && item.updateMasterBarcode) {
+          productUpdates.barcode = item.barcode.trim();
+        }
+
         await supabase
           .from("products")
-          .update({
-            preferred_supplier_id: params.supplierId,
-            purchase_price: item.purchaseRate,
-            ...(item.sellingPrice ? { price: item.sellingPrice, selling_price: item.sellingPrice } : {}),
-            ...(item.mrp ? { mrp: item.mrp } : {}),
-            updated_at: new Date().toISOString(),
-          })
+          .update(productUpdates)
           .eq("id", item.productId);
       } catch {}
     }
@@ -167,6 +174,7 @@ export const purchaseService = {
     itemId: string;
     productId?: string;
     barcode?: string;
+    updateMasterBarcode?: boolean;
     lotNumber?: string;
     batchNumber?: string;
     expiryDate?: string;
@@ -264,14 +272,18 @@ export const purchaseService = {
     const prodId = params.productId ?? item.product_id;
     if (prodId) {
       try {
+        const prodUpdates: Record<string, unknown> = {
+          purchase_price: purchaseRate,
+          ...(params.sellingPrice ? { price: params.sellingPrice, selling_price: params.sellingPrice } : {}),
+          ...(params.mrp ? { mrp: params.mrp } : {}),
+          updated_at: new Date().toISOString(),
+        };
+        if (params.barcode?.trim() && params.updateMasterBarcode) {
+          prodUpdates.barcode = params.barcode.trim();
+        }
         await supabase
           .from("products")
-          .update({
-            purchase_price: purchaseRate,
-            ...(params.sellingPrice ? { price: params.sellingPrice, selling_price: params.sellingPrice } : {}),
-            ...(params.mrp ? { mrp: params.mrp } : {}),
-            updated_at: new Date().toISOString(),
-          })
+          .update(prodUpdates)
           .eq("id", prodId);
       } catch {}
     }

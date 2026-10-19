@@ -24,6 +24,9 @@ import {
   Check,
   X,
   FileSpreadsheet,
+  Package,
+  Boxes,
+  Box,
 } from "lucide-react";
 import { toast } from "sonner";
 import { purchaseService, supplierService, inventoryService } from "@/services/erp";
@@ -47,6 +50,8 @@ interface StagedPurchaseItem {
   productId: string;
   productName: string;
   barcode: string;
+  hasDifferentBarcode?: boolean;
+  updateMasterBarcode?: boolean;
   lotNumber: string;
   batchNumber: string;
   expiryDate: string;
@@ -70,6 +75,8 @@ const emptyForm = {
   paymentType: "credit" as "credit" | "cash",
   productId: "",
   barcode: "",
+  hasDifferentBarcode: false,
+  updateMasterBarcode: true,
   lotNumber: "",
   batchNumber: "",
   expiryDate: "",
@@ -102,7 +109,7 @@ function playScanSound() {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
     osc.start();
     osc.stop(ctx.currentTime + 0.12);
-  } catch {}
+  } catch { }
 }
 
 export default function PurchasesPage() {
@@ -157,33 +164,33 @@ export default function PurchasesPage() {
     changes: Partial<FormState>
   ): FormState => {
     const updated = { ...current, ...changes };
-    const qty = Math.max(1, updated.quantity || 1);
+    const effectiveQty = Math.max(1, updated.quantity || 1);
 
     if (changes.totalBillAmount !== undefined || (changes.quantity !== undefined && updated.lastEditedField === "total")) {
-      // User entered/changed Total Bill Amount -> Calculate Single Item Rate:
-      // (Both are GST-inclusive, so single unit rate = Total Bill / Quantity)
+      // User entered Total Bill Amount (e.g. ₹1200 for 10 pcs -> ₹120/pc)
       const totalAmt = updated.totalBillAmount || 0;
-      const calculatedUnitRate = Math.round((totalAmt / qty) * 100) / 100;
+      const calculatedUnitRate = Math.round((totalAmt / effectiveQty) * 100) / 100;
 
       return {
         ...updated,
+        quantity: effectiveQty,
         purchaseRate: calculatedUnitRate,
         lastEditedField: changes.totalBillAmount !== undefined ? "total" : updated.lastEditedField,
       };
     } else if (changes.purchaseRate !== undefined || (changes.quantity !== undefined && updated.lastEditedField === "rate")) {
-      // User entered/changed Single Item Purchase Rate -> Calculate Total Bill Amount:
-      // (Both are GST-inclusive, so Total Bill = Single Unit Rate * Quantity)
+      // User entered Single Item Purchase Rate
       const unitRate = updated.purchaseRate || 0;
-      const calculatedTotal = Math.round(unitRate * qty * 100) / 100;
+      const calculatedTotal = Math.round(unitRate * effectiveQty * 100) / 100;
 
       return {
         ...updated,
+        quantity: effectiveQty,
         totalBillAmount: calculatedTotal,
         lastEditedField: changes.purchaseRate !== undefined ? "rate" : updated.lastEditedField,
       };
     }
 
-    return updated;
+    return { ...updated, quantity: effectiveQty };
   };
 
   const handleProductSelect = (productId: string, target: "create" | "edit") => {
@@ -198,6 +205,8 @@ export default function PurchasesPage() {
     const patch: Partial<FormState> = {
       productId,
       barcode: p.barcode ?? "",
+      hasDifferentBarcode: false,
+      updateMasterBarcode: true,
       purchaseRate: existingRate,
       sellingPrice: existingSelling,
       mrp: existingMrp,
@@ -217,7 +226,7 @@ export default function PurchasesPage() {
         target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
       );
       el?.focus();
-    }, 50);
+    }, 60);
   };
 
   const handleBarcodeChange = (code: string, target: "create" | "edit") => {
@@ -228,9 +237,11 @@ export default function PurchasesPage() {
       setEditForm((f) => ({ ...f, barcode: code }));
     }
 
-    // Auto-match product from catalog if barcode matches
+    // Auto-match product from catalog if barcode matches exactly
     if (clean.length >= 3) {
-      const matched = products.find((p) => p.barcode === clean);
+      const matched = products.find(
+        (p) => p.barcode === clean || p.packet_barcode === clean || p.box_barcode === clean
+      );
       if (matched) {
         playScanSound();
         handleProductSelect(matched.id, target);
@@ -239,6 +250,7 @@ export default function PurchasesPage() {
     }
   };
 
+  // Scanning Gun Enter key handler — processes barcode immediately and advances focus
   const handleBarcodeKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
     target: "create" | "edit"
@@ -247,22 +259,74 @@ export default function PurchasesPage() {
       e.preventDefault();
       e.stopPropagation();
 
-      const code = (target === "create" ? form.barcode : editForm.barcode).trim();
-      if (code) {
-        const matched = products.find((p) => p.barcode === code);
-        if (matched) {
+      const currentForm = target === "create" ? form : editForm;
+      const code = currentForm.barcode.trim();
+      if (!code) {
+        const nextEl = document.getElementById(
+          target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
+        );
+        nextEl?.focus();
+        return;
+      }
+
+      // 1. Check if product matches in loaded store products
+      const matched = products.find(
+        (p) =>
+          p.barcode === code ||
+          p.sku === code
+      );
+
+      // 2. If a product was already selected and this scanned barcode is DIFFERENT from the master:
+      if (currentForm.productId) {
+        const activeProd = products.find((p) => p.id === currentForm.productId);
+        if (activeProd && activeProd.barcode !== code) {
           playScanSound();
-          handleProductSelect(matched.id, target);
-          toast.success(`Matched: ${matched.name}`);
-        } else {
-          toast.info(`Barcode "${code}" not found in catalog. Select product to link it.`);
+          if (target === "create") {
+            setForm((f) => ({
+              ...f,
+              barcode: code,
+              hasDifferentBarcode: true,
+              updateMasterBarcode: true,
+            }));
+          } else {
+            setEditForm((f) => ({
+              ...f,
+              barcode: code,
+              hasDifferentBarcode: true,
+              updateMasterBarcode: true,
+            }));
+          }
+          toast.success(`✓ Different barcode recorded for ${activeProd.name}: ${code}`);
+          const nextEl = document.getElementById(
+            target === "create" ? "purchase-total-bill-input" : "edit-purchase-total-bill-input"
+          ) || document.getElementById(
+            target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
+          );
+          nextEl?.focus();
+          return;
         }
       }
 
-      const qtyInput = document.getElementById(
+      // 3. If matched a product from store:
+      if (matched) {
+        playScanSound();
+        handleProductSelect(matched.id, target);
+        toast.success(`Matched: ${matched.name}`);
+        setTimeout(() => {
+          const nextEl = document.getElementById(
+            target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
+          );
+          nextEl?.focus();
+        }, 80);
+        return;
+      }
+
+      toast.info(`Barcode "${code}" not found. Select a product to link this barcode.`);
+
+      const nextEl = document.getElementById(
         target === "create" ? "purchase-qty-input" : "edit-purchase-qty-input"
       );
-      qtyInput?.focus();
+      nextEl?.focus();
     }
   };
 
@@ -284,6 +348,72 @@ export default function PurchasesPage() {
       toast.info(`Scanned Barcode: ${scannedCode}. Please select product.`);
     }
   };
+
+  // Global Handheld Scanner Gun Listener (captures rapid scanner bursts ending in Enter)
+  useEffect(() => {
+    if (!showForm && !editBill) return;
+
+    let scanBuffer = "";
+    let lastKeyTime = 0;
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      // If user is already inside barcode inputs, handleBarcodeKeyDown handles it directly
+      if (
+        activeEl?.id === "purchase-barcode-input" ||
+        activeEl?.id === "purchase-different-barcode-input" ||
+        activeEl?.id === "edit-purchase-barcode-input"
+      ) {
+        return;
+      }
+
+      const isInput =
+        activeEl?.tagName === "INPUT" ||
+        activeEl?.tagName === "TEXTAREA" ||
+        activeEl?.tagName === "SELECT";
+
+      const now = Date.now();
+      const timeDiff = now - lastKeyTime;
+
+      if (e.key === "Enter") {
+        if (scanBuffer.length >= 3 && timeDiff < 80) {
+          e.preventDefault();
+          e.stopPropagation();
+          const code = scanBuffer.trim();
+          scanBuffer = "";
+          const target = editBill ? "edit" : "create";
+          if (target === "create") {
+            setForm((f) => ({ ...f, barcode: code }));
+          } else {
+            setEditForm((f) => ({ ...f, barcode: code }));
+          }
+          const syntheticEvent = {
+            key: "Enter",
+            preventDefault: () => {},
+            stopPropagation: () => {},
+          } as unknown as React.KeyboardEvent<HTMLInputElement>;
+          handleBarcodeKeyDown(syntheticEvent, target);
+        } else {
+          scanBuffer = "";
+        }
+        return;
+      }
+
+      if (e.key.length !== 1 || e.ctrlKey || e.altKey || e.metaKey) {
+        return;
+      }
+
+      if (timeDiff < 60 || scanBuffer.length === 0) {
+        scanBuffer += e.key;
+      } else {
+        scanBuffer = isInput ? "" : e.key;
+      }
+      lastKeyTime = now;
+    };
+
+    window.addEventListener("keydown", handleWindowKeyDown, true);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
+  }, [showForm, editBill, products]);
 
   // Live item computation (for pricing breakdown badge — All amounts are GST-inclusive)
   const computeItemBadge = (f: FormState) => {
@@ -351,6 +481,8 @@ export default function PurchasesPage() {
       productId: form.productId,
       productName: prod?.name || "Product",
       barcode: form.barcode.trim(),
+      hasDifferentBarcode: form.hasDifferentBarcode,
+      updateMasterBarcode: form.updateMasterBarcode,
       lotNumber: form.lotNumber.trim(),
       batchNumber: form.batchNumber.trim(),
       expiryDate: form.expiryDate,
@@ -375,6 +507,8 @@ export default function PurchasesPage() {
       ...f,
       productId: "",
       barcode: "",
+      hasDifferentBarcode: false,
+      updateMasterBarcode: true,
       quantity: 1,
       purchaseRate: 0,
       totalBillAmount: 0,
@@ -403,6 +537,7 @@ export default function PurchasesPage() {
     let itemsToSave: {
       productId: string;
       barcode?: string;
+      updateMasterBarcode?: boolean;
       lotNumber?: string;
       batchNumber?: string;
       expiryDate?: string;
@@ -421,6 +556,7 @@ export default function PurchasesPage() {
       itemsToSave = stagedItems.map((item) => ({
         productId: item.productId,
         barcode: item.barcode || undefined,
+        updateMasterBarcode: item.updateMasterBarcode ?? true,
         lotNumber: item.lotNumber || undefined,
         batchNumber: item.batchNumber || undefined,
         expiryDate: item.expiryDate || undefined,
@@ -443,6 +579,7 @@ export default function PurchasesPage() {
         {
           productId: form.productId,
           barcode: form.barcode.trim() || undefined,
+          updateMasterBarcode: form.updateMasterBarcode ?? true,
           lotNumber: form.lotNumber.trim() || undefined,
           batchNumber: form.batchNumber.trim() || undefined,
           expiryDate: form.expiryDate || undefined,
@@ -466,8 +603,7 @@ export default function PurchasesPage() {
       });
 
       toast.success(
-        `Purchase ${billNumber} saved as ${
-          form.paymentType === "cash" ? "CASH PURCHASE" : "CREDIT PURCHASE"
+        `Purchase ${billNumber} saved as ${form.paymentType === "cash" ? "CASH PURCHASE" : "CREDIT PURCHASE"
         } (${itemsToSave.length} items) — Stock inwarded!`
       );
       setShowForm(false);
@@ -502,6 +638,8 @@ export default function PurchasesPage() {
       paymentType: (bill.payment_type as "cash" | "credit") ?? "credit",
       productId: item.product_id,
       barcode: item.barcode ?? "",
+      hasDifferentBarcode: Boolean(item.barcode && item.products?.barcode && item.barcode !== item.products?.barcode),
+      updateMasterBarcode: true,
       lotNumber: item.lot_number ?? "",
       batchNumber: item.batch_number ?? "",
       expiryDate: item.expiry_date ?? "",
@@ -534,6 +672,7 @@ export default function PurchasesPage() {
         billNumber: editForm.billNumber,
         productId: editForm.productId,
         barcode: editForm.barcode.trim() || undefined,
+        updateMasterBarcode: editForm.updateMasterBarcode,
         lotNumber: editForm.lotNumber.trim() || undefined,
         batchNumber: editForm.batchNumber.trim() || undefined,
         expiryDate: editForm.expiryDate || undefined,
@@ -851,7 +990,37 @@ export default function PurchasesPage() {
             </div>
           </div>
 
-          <form onSubmit={handleSavePurchaseBill} className="space-y-6">
+          <form
+            onSubmit={handleSavePurchaseBill}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const activeEl = document.activeElement as HTMLElement | null;
+                if (activeEl?.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "submit") {
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  if (activeEl.id === "purchase-barcode-input" || activeEl.id === "purchase-different-barcode-input") {
+                    handleBarcodeKeyDown(e as unknown as React.KeyboardEvent<HTMLInputElement>, "create");
+                  } else if (activeEl.id === "purchase-qty-input") {
+                    document.getElementById("purchase-total-bill-input")?.focus();
+                  } else if (activeEl.id === "purchase-total-bill-input") {
+                    if (form.productId && form.quantity > 0 && form.totalBillAmount > 0) {
+                      handleAddItemToBill();
+                    } else {
+                      document.getElementById("purchase-rate-input")?.focus();
+                    }
+                  } else if (activeEl.id === "purchase-rate-input") {
+                    if (form.productId && form.quantity > 0 && (form.totalBillAmount > 0 || form.purchaseRate > 0)) {
+                      handleAddItemToBill();
+                    } else {
+                      document.getElementById("purchase-add-item-btn")?.focus();
+                    }
+                  }
+                }
+              }
+            }}
+            className="space-y-6"
+          >
             {/* SECTION 1: INVOICE HEADER DETAILS */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2.5 block">
@@ -889,22 +1058,20 @@ export default function PurchasesPage() {
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, paymentType: "cash" })}
-                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${
-                        form.paymentType === "cash"
+                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${form.paymentType === "cash"
                           ? "bg-emerald-600 text-white shadow-xs"
                           : "text-slate-600 hover:bg-slate-100"
-                      }`}
+                        }`}
                     >
                       <span>💵 Cash</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, paymentType: "credit" })}
-                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${
-                        form.paymentType === "credit"
+                      className={`flex items-center justify-center gap-1 rounded-md py-1.5 text-xs font-bold transition-all cursor-pointer ${form.paymentType === "credit"
                           ? "bg-amber-600 text-white shadow-xs"
                           : "text-slate-600 hover:bg-slate-100"
-                      }`}
+                        }`}
                     >
                       <span>📋 Credit (Udhaar)</span>
                     </button>
@@ -931,15 +1098,15 @@ export default function PurchasesPage() {
                   2. Product Identification &amp; Barcode Scanner
                 </span>
                 <span className="text-xs text-emerald-700 font-semibold">
-                  ⚡ Scan carton barcode to auto-fill details
+                  ⚡ Handheld gun scanner hits Enter automatically · Type or scan
                 </span>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-12 items-end">
                 {/* Barcode input with camera scan button */}
                 <div className="sm:col-span-6">
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Product Barcode (Scan / Type)
+                  <label htmlFor="purchase-barcode-input" className="mb-1 block text-sm font-medium text-slate-700">
+                    Product / Carton Barcode (Scan / Type)
                   </label>
                   <div className="flex items-center gap-1.5">
                     <div className="relative flex-1">
@@ -955,8 +1122,8 @@ export default function PurchasesPage() {
                       {form.barcode && (
                         <button
                           type="button"
-                          onClick={() => setForm((f) => ({ ...f, barcode: "" }))}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                          onClick={() => setForm((f) => ({ ...f, barcode: "", hasDifferentBarcode: false }))}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
                         >
                           ✕
                         </button>
@@ -969,7 +1136,7 @@ export default function PurchasesPage() {
                         setScannerTarget("create");
                         setShowCameraScan(true);
                       }}
-                      className="shrink-0 h-10 gap-1.5 border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 font-bold text-xs"
+                      className="shrink-0 h-10 gap-1.5 border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 font-bold text-xs cursor-pointer"
                       title="Open phone camera to scan carton/item barcode"
                     >
                       <Camera className="h-4 w-4 text-emerald-700" />
@@ -992,20 +1159,92 @@ export default function PurchasesPage() {
                 </div>
               </div>
 
-              {/* Matched product badge */}
+              {/* Matched product badge & Different Barcode Options */}
               {selectedProductObj && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 border border-emerald-200 text-xs text-emerald-900">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <span>
-                      Selected: <strong>{selectedProductObj.name}</strong> · Current Stock:{" "}
-                      <strong>{selectedProductObj.stock ?? 0} {selectedProductObj.unit || "pcs"}</strong>
-                    </span>
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 border border-emerald-200 text-xs text-emerald-900">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Selected: <strong>{selectedProductObj.name}</strong> · Current Stock:{" "}
+                        <strong>{selectedProductObj.stock ?? 0} {selectedProductObj.unit || "pcs"}</strong>
+                        {selectedProductObj.barcode && (
+                          <span className="ml-2 font-mono text-[11px] text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                            Master Barcode: {selectedProductObj.barcode}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-slate-600">
+                      <span>Prev Buy: <strong>{formatPrice(selectedProductObj.purchase_price ?? 0)}</strong></span>
+                      <span>Selling: <strong>{formatPrice(selectedProductObj.selling_price ?? selectedProductObj.price)}</strong></span>
+                      <span>MRP: <strong>{formatPrice(selectedProductObj.mrp ?? selectedProductObj.price)}</strong></span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 text-slate-600">
-                    <span>Prev Buy: <strong>{formatPrice(selectedProductObj.purchase_price ?? 0)}</strong></span>
-                    <span>Selling: <strong>{formatPrice(selectedProductObj.selling_price ?? selectedProductObj.price)}</strong></span>
-                    <span>MRP: <strong>{formatPrice(selectedProductObj.mrp ?? selectedProductObj.price)}</strong></span>
+
+                  {/* Different Barcode Controls for this shipment */}
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-xs font-bold text-amber-950 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.hasDifferentBarcode}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setForm((f) => ({
+                              ...f,
+                              hasDifferentBarcode: checked,
+                              barcode: checked ? (f.barcode !== selectedProductObj.barcode ? f.barcode : "") : (selectedProductObj.barcode ?? ""),
+                            }));
+                          }}
+                          className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <Tag className="h-3.5 w-3.5 text-amber-700" />
+                        <span>This shipment has a DIFFERENT / NEW Barcode (e.g. manufacturer changed packaging)</span>
+                      </label>
+                      {form.hasDifferentBarcode && (
+                        <span className="text-[11px] text-amber-800 font-semibold">
+                          ⚡ Scan with scanner gun below (hits Enter automatically)
+                        </span>
+                      )}
+                    </div>
+
+                    {form.hasDifferentBarcode && (
+                      <div className="mt-3 pt-2.5 border-t border-amber-200/80 grid gap-3 sm:grid-cols-12 items-center">
+                        <div className="sm:col-span-7">
+                          <label className="block text-xs font-bold text-amber-900 mb-1">
+                            New Barcode on this shipment:
+                          </label>
+                          <div className="relative">
+                            <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-600" />
+                            <input
+                              id="purchase-different-barcode-input"
+                              placeholder="Scan gun on new packet/box or type new barcode..."
+                              value={form.barcode}
+                              onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
+                              onKeyDown={(e) => handleBarcodeKeyDown(e, "create")}
+                              className="h-9 w-full rounded-lg border border-amber-300 bg-white pl-8 pr-3 text-xs font-mono font-bold text-slate-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 shadow-2xs"
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+
+                        <div className="sm:col-span-5 flex flex-col justify-center">
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={form.updateMasterBarcode}
+                              onChange={(e) => setForm((f) => ({ ...f, updateMasterBarcode: e.target.checked }))}
+                              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span>Update product's master catalog barcode</span>
+                          </label>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Allows POS &amp; cashiers to immediately scan either the new barcode or old lot.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1020,22 +1259,23 @@ export default function PurchasesPage() {
               )}
             </div>
 
-            {/* SECTION 3: BIDIRECTIONAL QUANTITY + BILL AMOUNT + RATE CALCULATOR */}
+            {/* SECTION 3: PURCHASE PRICING & AUTO-CALCULATION */}
             <div className="rounded-xl border border-emerald-300 bg-white p-4 shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5 mb-3.5">
                 <div className="flex items-center gap-2">
                   <Calculator className="h-4 w-4 text-emerald-700" />
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                    3. Auto-Calculate Single Item Price (GST-Inclusive)
+                    3. Pricing &amp; Auto-Calculation (GST-Inclusive)
                   </span>
                 </div>
                 <span className="text-xs text-slate-500">
-                  Type <strong>Quantity &amp; Total Bill</strong> (or Single Item Price). All amounts include GST!
+                  Enter quantity and either Single Item Price or Total Bill Amount — auto-calculates bidirectionally!
                 </span>
               </div>
 
+              {/* Dynamic Pricing Form */}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-start">
-                {/* 1. Quantity */}
+                {/* Field 1: Quantity */}
                 <div>
                   <label htmlFor="purchase-qty-input" className="mb-1 block text-sm font-semibold text-slate-800">
                     Quantity Inwarded
@@ -1054,7 +1294,7 @@ export default function PurchasesPage() {
                       id="purchase-qty-input"
                       type="number"
                       step="any"
-                      min={0.001}
+                      min={1}
                       ref={qtyInputRef}
                       value={form.quantity}
                       onChange={(e) =>
@@ -1072,42 +1312,10 @@ export default function PurchasesPage() {
                       +
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">Total units/packets in this consignment</p>
+                  <p className="mt-1 text-[11px] text-slate-400">Total units inwarded</p>
                 </div>
 
-                {/* 2. Total Item Bill Amount (User enters this from distributor invoice) */}
-                <div>
-                  <label htmlFor="purchase-total-bill-input" className="mb-1 block text-sm font-semibold text-emerald-950">
-                    Total Item Bill Amount (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
-                  </label>
-                  <div className="flex items-center rounded-lg border-2 border-emerald-500 bg-emerald-50/40 px-2 py-1.5 focus-within:border-emerald-700 focus-within:bg-white shadow-2xs">
-                    <span className="text-emerald-700 font-bold mr-1">₹</span>
-                    <input
-                      id="purchase-total-bill-input"
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      placeholder="e.g. 1200.00"
-                      value={form.totalBillAmount || ""}
-                      onChange={(e) =>
-                        setForm((f) =>
-                          recalculatePricing(f, { totalBillAmount: Number(e.target.value) || 0 })
-                        )
-                      }
-                      className="w-full bg-transparent font-extrabold text-emerald-950 text-base focus:outline-none text-right"
-                    />
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-[11px]">
-                    <span className="text-emerald-700 font-semibold">⚡ Single item price:</span>
-                    <span className="text-slate-800 font-mono font-bold">
-                      {form.quantity > 0 && form.totalBillAmount > 0
-                        ? `₹${(form.totalBillAmount / form.quantity).toFixed(2)} / pc`
-                        : "₹0.00"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 3. Single Item Purchase Rate (Auto calculated or manually entered) */}
+                {/* Field 2: Single Item Price */}
                 <div>
                   <label htmlFor="purchase-rate-input" className="mb-1 block text-sm font-semibold text-slate-800">
                     Single Item Price (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
@@ -1134,7 +1342,39 @@ export default function PurchasesPage() {
                   </p>
                 </div>
 
-                {/* 4. GST Percentage */}
+                {/* Field 3: Total Bill Amount for this Line Item */}
+                <div>
+                  <label htmlFor="purchase-total-bill-input" className="mb-1 block text-sm font-semibold text-emerald-950">
+                    Total Item Bill (₹) <span className="text-xs font-bold text-emerald-700">(From Bill)</span>
+                  </label>
+                  <div className="flex items-center rounded-lg border-2 border-emerald-500 bg-emerald-50/40 px-2 py-1.5 focus-within:border-emerald-700 focus-within:bg-white shadow-2xs">
+                    <span className="text-emerald-700 font-bold mr-1">₹</span>
+                    <input
+                      id="purchase-total-bill-input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      placeholder="e.g. 1200.00"
+                      value={form.totalBillAmount || ""}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          recalculatePricing(f, { totalBillAmount: Number(e.target.value) || 0 })
+                        )
+                      }
+                      className="w-full bg-transparent font-extrabold text-emerald-950 text-base focus:outline-none text-right"
+                    />
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[11px]">
+                    <span className="text-emerald-700 font-semibold">⚡ Single item rate:</span>
+                    <span className="text-slate-800 font-mono font-bold">
+                      {form.quantity > 0 && form.totalBillAmount > 0
+                        ? `₹${(form.totalBillAmount / form.quantity).toFixed(2)} / pc`
+                        : "₹0.00"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Field 4: GST Tax Rate */}
                 <div>
                   <label className="mb-1 block text-sm font-semibold text-slate-800">
                     GST Tax Rate (%)
@@ -1145,11 +1385,10 @@ export default function PurchasesPage() {
                         key={g}
                         type="button"
                         onClick={() => setForm((f) => recalculatePricing(f, { gstPercentage: g }))}
-                        className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all border ${
-                          form.gstPercentage === g
+                        className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all border cursor-pointer ${form.gstPercentage === g
                             ? "bg-emerald-700 text-white border-emerald-800 shadow-2xs"
                             : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                        }`}
+                          }`}
                       >
                         {g}%
                       </button>
@@ -1271,6 +1510,7 @@ export default function PurchasesPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
+                  id="purchase-add-item-btn"
                   type="button"
                   variant="outline"
                   onClick={handleAddItemToBill}
@@ -1348,13 +1588,25 @@ export default function PurchasesPage() {
                           <td className="p-2 font-mono font-semibold text-slate-500">{idx + 1}</td>
                           <td className="p-2">
                             <span className="font-bold text-slate-900">{item.productName}</span>
-                            {item.barcode && (
+                            {item.hasDifferentBarcode && item.barcode ? (
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-900 border border-amber-300">
+                                  <Tag className="h-3 w-3 text-amber-700" />
+                                  New Barcode: {item.barcode}
+                                </span>
+                                {item.updateMasterBarcode && (
+                                  <span className="text-[10px] text-emerald-700 font-semibold">(Master Barcode Updated)</span>
+                                )}
+                              </div>
+                            ) : item.barcode ? (
                               <span className="block font-mono text-[10px] text-slate-400">
                                 {item.barcode}
                               </span>
-                            )}
+                            ) : null}
                           </td>
-                          <td className="p-2 text-right font-bold text-slate-900">{item.quantity}</td>
+                          <td className="p-2 text-right font-bold text-slate-900">
+                            {item.quantity}
+                          </td>
                           <td className="p-2 text-right font-mono font-bold text-emerald-950">
                             {formatPrice(item.purchaseRate)}
                           </td>
@@ -1474,11 +1726,10 @@ export default function PurchasesPage() {
             header: "Payment",
             cell: (b) => (
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                  b.payment_type === "cash"
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${b.payment_type === "cash"
                     ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
                     : "bg-amber-100 text-amber-800 border border-amber-300"
-                }`}
+                  }`}
               >
                 {b.payment_type === "cash" ? "💵 Cash" : "📋 Credit"}
               </span>
@@ -1538,11 +1789,10 @@ export default function PurchasesPage() {
               <div>
                 <span className="text-[10px] uppercase font-bold text-slate-400 block">Payment Terms</span>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
-                    viewBill.payment_type === "cash"
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${viewBill.payment_type === "cash"
                       ? "bg-emerald-100 text-emerald-800"
                       : "bg-amber-100 text-amber-800"
-                  }`}
+                    }`}
                 >
                   {viewBill.payment_type === "cash" ? "💵 Cash (Paid)" : "📋 Credit (Udhaar)"}
                 </span>
@@ -1643,160 +1893,230 @@ export default function PurchasesPage() {
           </div>
         }
       >
-        <form
-          onSubmit={handleEdit}
-          className="grid gap-3 sm:grid-cols-2 text-xs"
-        >
-          <SelectField
-            label="Supplier"
-            value={editForm.supplierId}
-            onChange={(v) => setEditForm({ ...editForm, supplierId: v })}
-            options={supplierOptions}
-            required
-          />
-          <SelectField
-            label="Product"
-            value={editForm.productId}
-            onChange={(v) => handleProductSelect(v, "edit")}
-            options={productOptions}
-            required
-          />
+        {(() => {
+          const editProduct = products.find((p) => p.id === editForm.productId);
+          return (
+            <form
+              onSubmit={handleEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
+                  e.preventDefault();
+                }
+              }}
+              className="space-y-4 text-xs"
+            >
+              {/* Product and Supplier selection */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SelectField
+                  label="Supplier"
+                  value={editForm.supplierId}
+                  onChange={(v) => setEditForm({ ...editForm, supplierId: v })}
+                  options={supplierOptions}
+                  required
+                />
+                <SelectField
+                  label="Product"
+                  value={editForm.productId}
+                  onChange={(v) => handleProductSelect(v, "edit")}
+                  options={productOptions}
+                  required
+                />
+              </div>
 
-          <div className="sm:col-span-2">
-            <label className="mb-1 block text-sm font-medium text-slate-700">Barcode</label>
-            <div className="flex items-center gap-1.5">
-              <input
-                value={editForm.barcode}
-                onChange={(e) => handleBarcodeChange(e.target.value, "edit")}
-                onKeyDown={(e) => handleBarcodeKeyDown(e, "edit")}
-                className="h-9 w-full rounded border border-slate-300 px-3 font-mono text-sm"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setScannerTarget("edit");
-                  setShowCameraScan(true);
-                }}
-                className="gap-1"
-              >
-                <Camera className="h-3.5 w-3.5" />
-                Scan
-              </Button>
-            </div>
-          </div>
+              {/* Barcode & Different Barcode Options */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="text-xs font-bold text-slate-800">
+                    Barcode (Scan with gun or type &amp; hit Enter)
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setScannerTarget("edit");
+                      setShowCameraScan(true);
+                    }}
+                    className="h-7 text-xs gap-1 border-emerald-300 bg-white"
+                  >
+                    <Camera className="h-3.5 w-3.5 text-emerald-700" />
+                    Scan Camera
+                  </Button>
+                </div>
+                <div className="relative">
+                  <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    id="edit-purchase-barcode-input"
+                    value={editForm.barcode}
+                    onChange={(e) => handleBarcodeChange(e.target.value, "edit")}
+                    onKeyDown={(e) => handleBarcodeKeyDown(e, "edit")}
+                    placeholder="Scan gun on item barcode..."
+                    className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-8 pr-3 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
 
-          <div>
-            <label className="mb-1 block font-semibold text-slate-800">Quantity</label>
-            <input
-              id="edit-purchase-qty-input"
-              type="number"
-              step="any"
-              min={0.001}
-              value={editForm.quantity}
-              onChange={(e) =>
-                setEditForm((f) => recalculatePricing(f, { quantity: Number(e.target.value) }))
-              }
-              className="h-9 w-full rounded border border-slate-300 px-3 font-bold"
-            />
-          </div>
+                {editProduct && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200 space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-bold text-amber-950 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editForm.hasDifferentBarcode}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEditForm((f) => ({
+                            ...f,
+                            hasDifferentBarcode: checked,
+                            barcode: checked ? (f.barcode !== editProduct.barcode ? f.barcode : "") : (editProduct.barcode ?? ""),
+                          }));
+                        }}
+                        className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
+                      <Tag className="h-3.5 w-3.5 text-amber-700" />
+                      <span>This item has a DIFFERENT / NEW Barcode for this lot</span>
+                    </label>
 
-          <div>
-            <label className="mb-1 block font-semibold text-emerald-950">
-              Total Item Bill Amount (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              value={editForm.totalBillAmount || ""}
-              onChange={(e) =>
-                setEditForm((f) =>
-                  recalculatePricing(f, { totalBillAmount: Number(e.target.value) || 0 })
-                )
-              }
-              className="h-9 w-full rounded border-2 border-emerald-500 bg-emerald-50 px-3 font-bold text-right text-emerald-950"
-            />
-          </div>
+                    {editForm.hasDifferentBarcode && (
+                      <div className="ml-6 space-y-1.5">
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editForm.updateMasterBarcode}
+                            onChange={(e) => setEditForm((f) => ({ ...f, updateMasterBarcode: e.target.checked }))}
+                            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <span>Update product's master catalog barcode</span>
+                        </label>
+                        <p className="text-[10px] text-slate-500">
+                          Cashiers at POS will be able to scan this new barcode immediately.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-          <div>
-            <label className="mb-1 block font-semibold text-slate-800">
-              Single Item Price (₹) <span className="text-xs font-bold text-emerald-700">(Incl. GST)</span>
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              value={editForm.purchaseRate || ""}
-              onChange={(e) =>
-                setEditForm((f) =>
-                  recalculatePricing(f, { purchaseRate: Number(e.target.value) || 0 })
-                )
-              }
-              className="h-9 w-full rounded border border-slate-300 px-3 font-bold text-right"
-            />
-          </div>
+              {/* Quantity & Calculations */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block font-semibold text-slate-800">Quantity</label>
+                  <input
+                    id="edit-purchase-qty-input"
+                    type="number"
+                    step="any"
+                    min={1}
+                    value={editForm.quantity}
+                    onChange={(e) =>
+                      setEditForm((f) => recalculatePricing(f, { quantity: Number(e.target.value) }))
+                    }
+                    className="h-9 w-full rounded border border-slate-300 px-3 font-bold"
+                  />
+                </div>
 
-          <div>
-            <label className="mb-1 block font-semibold text-slate-800">GST %</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={editForm.gstPercentage}
-              onChange={(e) =>
-                setEditForm((f) =>
-                  recalculatePricing(f, { gstPercentage: Number(e.target.value) || 0 })
-                )
-              }
-              className="h-9 w-full rounded border border-slate-300 px-3 font-bold text-right"
-            />
-          </div>
+                <div>
+                  <label className="mb-1 block font-semibold text-emerald-950">
+                    Total Item Bill (₹) <span className="text-[10px] text-emerald-700 font-bold">(Incl. GST)</span>
+                  </label>
+                  <input
+                    id="edit-purchase-total-bill-input"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={editForm.totalBillAmount || ""}
+                    onChange={(e) =>
+                      setEditForm((f) =>
+                        recalculatePricing(f, { totalBillAmount: Number(e.target.value) || 0 })
+                      )
+                    }
+                    className="h-9 w-full rounded border-2 border-emerald-500 bg-emerald-50 px-3 font-bold text-right text-emerald-950"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500 text-right">
+                    Single: ₹{(editForm.quantity > 0 && editForm.totalBillAmount ? (editForm.totalBillAmount / editForm.quantity) : 0).toFixed(2)}/pc
+                  </p>
+                </div>
 
-          <div>
-            <label className="mb-1 block text-slate-700">Selling Price (₹) (Incl. GST)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={editForm.sellingPrice || ""}
-              onChange={(e) => setEditForm({ ...editForm, sellingPrice: Number(e.target.value) })}
-              className="h-9 w-full rounded border border-slate-300 px-3 text-right"
-            />
-          </div>
+                <div>
+                  <label className="mb-1 block font-semibold text-slate-800">
+                    Single Item Price (₹) <span className="text-[10px] text-emerald-700 font-bold">(Incl. GST)</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={editForm.purchaseRate || ""}
+                    onChange={(e) =>
+                      setEditForm((f) =>
+                        recalculatePricing(f, { purchaseRate: Number(e.target.value) || 0 })
+                      )
+                    }
+                    className="h-9 w-full rounded border border-slate-300 px-3 font-bold text-right"
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label className="mb-1 block text-slate-700">MRP (₹) (Incl. GST)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={editForm.mrp || ""}
-              onChange={(e) => setEditForm({ ...editForm, mrp: Number(e.target.value) })}
-              className="h-9 w-full rounded border border-slate-300 px-3 text-right"
-            />
-          </div>
+              {/* Tax & Retail Rates */}
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div>
+                  <label className="mb-1 block font-semibold text-slate-800">GST %</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={editForm.gstPercentage}
+                    onChange={(e) =>
+                      setEditForm((f) =>
+                        recalculatePricing(f, { gstPercentage: Number(e.target.value) || 0 })
+                      )
+                    }
+                    className="h-9 w-full rounded border border-slate-300 px-3 font-bold text-right"
+                  />
+                </div>
 
-          <div>
-            <label className="mb-1 block text-slate-700">Lot Number</label>
-            <input
-              value={editForm.lotNumber}
-              onChange={(e) => setEditForm({ ...editForm, lotNumber: e.target.value })}
-              className="h-9 w-full rounded border border-slate-300 px-3"
-            />
-          </div>
+                <div>
+                  <label className="mb-1 block text-slate-700">Selling Price (₹)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={editForm.sellingPrice || ""}
+                    onChange={(e) => setEditForm({ ...editForm, sellingPrice: Number(e.target.value) })}
+                    className="h-9 w-full rounded border border-slate-300 px-3 text-right"
+                  />
+                </div>
 
-          <div>
-            <label className="mb-1 block text-slate-700">Expiry Date</label>
-            <input
-              type="date"
-              value={editForm.expiryDate}
-              onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
-              className="h-9 w-full rounded border border-slate-300 px-3"
-            />
-          </div>
-        </form>
+                <div>
+                  <label className="mb-1 block text-slate-700">MRP (₹)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={editForm.mrp || ""}
+                    onChange={(e) => setEditForm({ ...editForm, mrp: Number(e.target.value) })}
+                    className="h-9 w-full rounded border border-slate-300 px-3 text-right"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-slate-700">Lot Number</label>
+                  <input
+                    value={editForm.lotNumber}
+                    onChange={(e) => setEditForm({ ...editForm, lotNumber: e.target.value })}
+                    className="h-9 w-full rounded border border-slate-300 px-3"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-slate-700">Expiry Date</label>
+                <input
+                  type="date"
+                  value={editForm.expiryDate}
+                  onChange={(e) => setEditForm({ ...editForm, expiryDate: e.target.value })}
+                  className="h-9 w-full rounded border border-slate-300 px-3"
+                />
+              </div>
+            </form>
+          );
+        })()}
       </Modal>
     </div>
   );
