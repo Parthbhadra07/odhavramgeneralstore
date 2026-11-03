@@ -53,54 +53,62 @@ import {
 } from "@/utils/notification-sound";
 import { requestNotificationPermission } from "@/utils/browser-notifications";
 
-const navGroups = [
+const navGroups: {
+  label: string;
+  links: {
+    href: string;
+    label: string;
+    icon: any;
+    shortcut?: string;
+  }[];
+}[] = [
   {
     label: "Overview",
     links: [
-      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/admin", label: "Dashboard", icon: LayoutDashboard, shortcut: "Alt+0" },
       { href: "/admin/notifications", label: "Notifications", icon: BellRing },
-      { href: "/admin/reports", label: "Reports", icon: BarChart3 },
-      { href: "/admin/profit-loss", label: "Profit & Loss", icon: TrendingDown },
+      { href: "/admin/reports", label: "Reports", icon: BarChart3, shortcut: "Alt+8" },
+      { href: "/admin/profit-loss", label: "Profit & Loss", icon: TrendingDown, shortcut: "Alt+9" },
     ],
   },
   {
     label: "Sales",
     links: [
-      { href: "/admin/pos", label: "POS Billing", icon: Monitor },
-      { href: "/admin/agency-billing", label: "Agency Billing", icon: FileSpreadsheet },
-      { href: "/admin/sales-history", label: "Sales History", icon: FileStack },
-      { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart },
-      { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw },
+      { href: "/admin/pos", label: "POS Billing", icon: Monitor, shortcut: "Alt+1" },
+      { href: "/admin/agency-billing", label: "Agency Billing", icon: FileSpreadsheet, shortcut: "Alt+2" },
+      { href: "/admin/sales-history", label: "Sales History", icon: FileStack, shortcut: "Alt+4" },
+      { href: "/admin/orders", label: "Online Orders", icon: ShoppingCart, shortcut: "Alt+O" },
+      { href: "/admin/sales-returns", label: "Sales Returns", icon: RotateCcw, shortcut: "Alt+5" },
       { href: "/admin/refunds", label: "Refunds", icon: Wallet2 },
-      { href: "/admin/cash-closing", label: "Cash Closing", icon: Banknote },
+      { href: "/admin/cash-closing", label: "Cash Closing", icon: Banknote, shortcut: "Alt+C" },
     ],
   },
   {
     label: "Inventory",
     links: [
-      { href: "/admin/inventory", label: "Inventory", icon: Warehouse },
-      { href: "/admin/inventory/quick-stock", label: "Quick Stock Inward", icon: ScanBarcode },
+      { href: "/admin/inventory", label: "Inventory", icon: Warehouse, shortcut: "Alt+7" },
+      { href: "/admin/inventory/quick-stock", label: "Quick Stock Inward", icon: ScanBarcode, shortcut: "Alt+Q" },
       { href: "/admin/inventory/price-checker", label: "Price & Stock Check", icon: Tag },
       { href: "/admin/stock-history", label: "Stock History", icon: History },
       { href: "/admin/stock-adjustment", label: "Stock Adjustment", icon: SlidersHorizontal },
       { href: "/admin/dead-stock", label: "Dead Stock", icon: Archive },
-      { href: "/admin/barcode-labels", label: "Barcode Labels", icon: Printer },
-      { href: "/admin/expiry", label: "Expiry", icon: CalendarClock },
+      { href: "/admin/barcode-labels", label: "Barcode Labels", icon: Printer, shortcut: "Alt+B" },
+      { href: "/admin/expiry", label: "Expiry", icon: CalendarClock, shortcut: "Alt+X" },
       { href: "/admin/reorder", label: "Reorder AI", icon: Sparkles },
     ],
   },
   {
     label: "Purchasing",
     links: [
-      { href: "/admin/purchases", label: "Purchases", icon: Truck },
-      { href: "/admin/purchase-returns", label: "Purchase Returns", icon: Undo2 },
+      { href: "/admin/purchases", label: "Purchases", icon: Truck, shortcut: "Alt+3" },
+      { href: "/admin/purchase-returns", label: "Purchase Returns", icon: Undo2, shortcut: "Alt+J" },
       { href: "/admin/suppliers", label: "Suppliers", icon: Building2 },
     ],
   },
   {
     label: "Catalog",
     links: [
-      { href: "/admin/products", label: "Products", icon: Package },
+      { href: "/admin/products", label: "Products", icon: Package, shortcut: "Alt+M" },
       { href: "/admin/products/spreadsheet", label: "Excel Grid Product Add", icon: FileSpreadsheet },
       { href: "/admin/products/import", label: "Bulk Import (CSV)", icon: FileSpreadsheet },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
@@ -117,8 +125,8 @@ const navGroups = [
     label: "People & Finance",
     links: [
       { href: "/admin/customers", label: "Customers", icon: UserCircle },
-      { href: "/admin/credit", label: "Credit (Khatabook)", icon: BookOpen },
-      { href: "/admin/expenses", label: "Expenses", icon: Receipt },
+      { href: "/admin/credit", label: "Credit (Khatabook)", icon: BookOpen, shortcut: "Alt+6" },
+      { href: "/admin/expenses", label: "Expenses", icon: Receipt, shortcut: "Alt+E" },
       { href: "/admin/users", label: "Users & Roles", icon: Wallet },
     ],
   },
@@ -180,7 +188,7 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
               {group.label}
             </p>
             <div className="space-y-0.5">
-              {group.links.map(({ href, label, icon: Icon }) => {
+              {group.links.map(({ href, label, icon: Icon, shortcut }) => {
                 const tabParam = searchParams?.get("tab");
                 const isLinkWithTab = href.includes("?tab=");
                 let isActive = false;
@@ -196,7 +204,7 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
                     href={href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                       isActive
                         ? "bg-green-50 text-green-800"
                         : "text-gray-600 hover:bg-gray-50"
@@ -204,6 +212,11 @@ export function AdminSidebar({ className, onNavigate }: AdminSidebarProps) {
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     <span className="flex-1 truncate">{label}</span>
+                    {shortcut && (
+                      <kbd className="hidden sm:inline-flex items-center rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[9.5px] font-mono font-semibold text-gray-400 group-hover:bg-white group-hover:text-blue-700 group-hover:border-blue-200 transition">
+                        {shortcut}
+                      </kbd>
+                    )}
                     {showBadge && (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
                         {newOrderCount > 99 ? "99+" : newOrderCount}

@@ -581,24 +581,28 @@ export const customerService = {
   ): Promise<AgencyPendingBill[]> {
     const supabase = requireClient();
     try {
-      // 1. Get customer credit balance
+      // 1. Get customer credit balance and mobile
       const { data: cust } = await supabase
         .from("customers")
-        .select("credit_balance")
+        .select("id, credit_balance, mobile, name")
         .eq("id", customerId)
         .maybeSingle();
 
       const totalBalance = Number(cust?.credit_balance) || 0;
       if (totalBalance <= 0) return [];
 
-      // 2. Fetch past credit / pending sales
+      // 2. Fetch past credit / pending sales for this customer
       let q = supabase
         .from("pos_sales")
         .select("id, bill_number, created_at, total_amount, payment_method, payment_status, sale_status")
-        .eq("customer_id", customerId)
         .neq("sale_status", "cancelled")
-        .or("payment_method.eq.credit,payment_status.eq.pending")
         .order("created_at", { ascending: true });
+
+      if (cust?.mobile && cust.mobile.trim()) {
+        q = q.or(`customer_id.eq.${customerId},customer_mobile.eq.${cust.mobile.trim()}`);
+      } else {
+        q = q.eq("customer_id", customerId);
+      }
 
       if (excludeSaleId) {
         q = q.neq("id", excludeSaleId);
@@ -607,7 +611,15 @@ export const customerService = {
       const { data: sales, error } = await q;
       if (error) throw error;
 
-      const validSales = sales || [];
+      // Filter to credit or unpaid sales if any, or all non-cancelled sales
+      const creditOrUnpaid = (sales || []).filter(
+        (s) =>
+          s.payment_method === "credit" ||
+          s.payment_status === "pending" ||
+          s.payment_status === "unpaid" ||
+          s.payment_status === "partial"
+      );
+      const validSales = creditOrUnpaid.length > 0 ? creditOrUnpaid : (sales || []);
       const totalSalesAmt = validSales.reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0);
       let paymentsToAllocate = Math.max(0, totalSalesAmt - totalBalance);
 
@@ -647,21 +659,10 @@ export const customerService = {
         });
       }
 
-      // If customer balance has older opening balance or adjustment not tracked in pos_sales:
-      const sumPending = pendingBills.reduce((acc, b) => acc + b.pendingAmount, 0);
-      const remainingUnallocated = Math.round((totalBalance - sumPending) * 100) / 100;
-      if (remainingUnallocated > 0) {
-        pendingBills.unshift({
-          book: "",
-          billNo: "Opening Balance",
-          billDate: "—",
-          billAmount: remainingUnallocated,
-          pendingAmount: remainingUnallocated,
-          days: 30,
-        });
-      }
-
-      return pendingBills;
+      // Return only actual bill details; strictly exclude any artificial "Opening Balance" row
+      return pendingBills.filter(
+        (b) => b.billNo && !b.billNo.toLowerCase().includes("opening")
+      );
     } catch (err) {
       console.warn("[CustomerService] getPendingBills error:", err);
       return [];

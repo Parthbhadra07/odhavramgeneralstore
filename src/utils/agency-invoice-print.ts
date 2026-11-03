@@ -116,6 +116,7 @@ export interface AgencyInvoicePrintOptions {
   partyClosingBalance?: number;
   pendingBills?: AgencyPendingBill[];
   includePendingBills?: boolean;
+  printLayout?: "auto" | "half" | "full";
   salesman?: string;
   beat?: string;
   bankDetails?: {
@@ -402,10 +403,31 @@ export function generateAgencyInvoiceHtml(
   const billNumber = options?.billNumber || sale.bill_number;
 
   // 4. Pending Bills Calculation & Table HTML (Matches exact FMCG wholesale photo format)
-  const pendingBills = options?.pendingBills || [];
+  // Strictly filter out any artificial "Opening Balance" entries
+  const pendingBills = (options?.pendingBills || []).filter(
+    (b) => b.billNo && !b.billNo.toLowerCase().includes("opening")
+  );
+  const includePending = options?.includePendingBills !== false && pendingBills.length > 0;
+
+  // Sizing decision:
+  // "if it uses more than half a4 page then print on full page or else make half page print"
+  const isHalfPage = (() => {
+    if (options?.printLayout === "half") return true;
+    if (options?.printLayout === "full") return false;
+    // Auto detection based on content density:
+    // Half A4 page has ~142.5mm printable height.
+    // If pending bills are included, they take ~22mm.
+    // With pending bills: max 5 items fit comfortably on half page.
+    // Without pending bills: max 8 items fit comfortably on half page.
+    if (includePending) {
+      return items.length <= 5;
+    }
+    return items.length <= 8;
+  })();
+
   let pendingBillsRowHtml = "";
 
-  if (pendingBills.length > 0 && options?.includePendingBills !== false) {
+  if (includePending) {
     const totalPendingCount = pendingBills.length;
     const totalPendingBillAmt = pendingBills.reduce((s, b) => s + (Number(b.billAmount) || 0), 0);
     const totalPendingBalAmt = pendingBills.reduce((s, b) => s + (Number(b.pendingAmount) || 0), 0);
@@ -414,8 +436,8 @@ export function generateAgencyInvoiceHtml(
     const incBillAmt = totalPendingBillAmt + finalTotal;
     const incPendAmt = isCreditOrPending ? totalPendingBalAmt + finalTotal : totalPendingBalAmt;
 
-    // Keep individual rows compact (up to 4 rows) exactly matching wholesale printout
-    const maxVisibleRows = 4;
+    // Keep individual rows compact (up to 3 rows on half page, up to 5 on full page)
+    const maxVisibleRows = isHalfPage ? 3 : 5;
     const visibleBills = pendingBills.slice(0, maxVisibleRows);
     const hiddenBills = pendingBills.slice(maxVisibleRows);
 
@@ -429,10 +451,10 @@ export function generateAgencyInvoiceHtml(
 
       return `<tr>
         <td style="text-align:left;">${book}</td>
-        <td style="text-align:left;">${billNo}</td>
+        <td style="text-align:left;font-weight:700;">${billNo}</td>
         <td style="text-align:center;">${billDate}</td>
         <td style="text-align:right;">${billAmt.toFixed(2)}</td>
-        <td style="text-align:right;">${pendAmt.toFixed(2)}</td>
+        <td style="text-align:right;font-weight:700;">${pendAmt.toFixed(2)}</td>
         <td style="text-align:center;">${days}</td>
       </tr>`;
     }).join("");
@@ -443,42 +465,42 @@ export function generateAgencyInvoiceHtml(
       pendingRows += `<tr>
         <td colspan="3" style="font-style:italic;color:#333;text-align:left;">+ ${hiddenBills.length} older bills</td>
         <td style="text-align:right;">${hiddenBillAmt.toFixed(2)}</td>
-        <td style="text-align:right;">${hiddenPendAmt.toFixed(2)}</td>
+        <td style="text-align:right;font-weight:700;">${hiddenPendAmt.toFixed(2)}</td>
         <td></td>
       </tr>`;
     }
 
     pendingBillsRowHtml = `
       <tr class="pending-bills-row">
-        <td colspan="7" style="vertical-align:top;border-right:none !important;border-top:none !important;border-bottom:none !important;border-left:none !important;padding:3px 4px 6px 4px;">
+        <td colspan="7" style="vertical-align:top;border-right:none !important;border-top:none !important;border-bottom:none !important;border-left:none !important;padding:${isHalfPage ? "2px 3px 3px" : "3px 4px 6px"};">
           <div class="pending-bills-container">
-            <div class="pending-bills-title">Pending Bills</div>
+            <div class="pending-bills-title">Pending Bills (Khata Outstanding)</div>
             <table class="pending-bills-mini-table">
               <thead>
                 <tr>
                   <th style="width:14%;text-align:left;">Book</th>
-                  <th style="width:20%;text-align:left;">Bill No</th>
+                  <th style="width:22%;text-align:left;">Bill No</th>
                   <th style="width:20%;text-align:center;">Bill Date</th>
-                  <th style="width:22%;text-align:right;">Bill Amt</th>
-                  <th style="width:22%;text-align:right;">Pend. Amt</th>
-                  <th style="width:12%;text-align:center;">Days</th>
+                  <th style="width:20%;text-align:right;">Bill Amt</th>
+                  <th style="width:20%;text-align:right;">Pend. Amt</th>
+                  <th style="width:10%;text-align:center;">Days</th>
                 </tr>
               </thead>
               <tbody>
                 ${pendingRows}
                 <tr class="pending-total-row">
                   <td style="text-align:left;">Total</td>
-                  <td style="text-align:left;font-weight:800;">${totalPendingCount}</td>
+                  <td style="text-align:left;font-weight:800;">${totalPendingCount} Bills</td>
                   <td></td>
                   <td style="text-align:right;">${totalPendingBillAmt.toFixed(2)}</td>
-                  <td style="text-align:right;">${totalPendingBalAmt.toFixed(2)}</td>
+                  <td style="text-align:right;font-weight:800;">${totalPendingBalAmt.toFixed(2)}</td>
                   <td style="text-align:center;">Max ${maxDays}</td>
                 </tr>
                 <tr class="pending-inc-row">
                   <td colspan="2" style="text-align:left;">Including this Bill</td>
-                  <td style="text-align:center;font-weight:800;">${totalPendingCount + 1}</td>
+                  <td style="text-align:center;font-weight:800;">${totalPendingCount + 1} Bills</td>
                   <td style="text-align:right;">${incBillAmt.toFixed(2)}</td>
-                  <td style="text-align:right;">${incPendAmt.toFixed(2)}</td>
+                  <td style="text-align:right;font-weight:800;">${incPendAmt.toFixed(2)}</td>
                   <td></td>
                 </tr>
               </tbody>
@@ -490,35 +512,74 @@ export function generateAgencyInvoiceHtml(
     `;
   }
 
+  // Optional empty rows on Full Page to balance page height
+  let emptyRowsHtml = "";
+  if (!isHalfPage && items.length < 8 && !includePending) {
+    const emptyCount = Math.min(8 - items.length, 5);
+    for (let k = 0; k < emptyCount; k++) {
+      emptyRowsHtml += `<tr style="height: 18px;">
+        <td>&nbsp;</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>`;
+    }
+  }
+
   const html = `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Invoice - ${billNumber}</title>
+    <title>Tax Invoice - ${billNumber}</title>
     <style>
       @page {
-        size: A4 portrait;
-        margin: 8mm 10mm 10mm 10mm;
+        size: ${isHalfPage ? "210mm 148.5mm" : "A4 portrait"};
+        margin: ${isHalfPage ? "3mm 4mm 3mm 4mm" : "6mm 8mm 6mm 8mm"};
       }
       * {
         box-sizing: border-box;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-        font-size: 11px;
-        color: #000;
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
         background: #fff;
-        margin: 0;
-        padding: 0;
-        line-height: 1.25;
+        color: #000;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: ${isHalfPage ? "8.5px" : "10px"};
+        line-height: ${isHalfPage ? "1.15" : "1.25"};
+        width: 100%;
+      }
+      .page-container {
+        width: 100%;
+        ${isHalfPage ? "height: 142.5mm; max-height: 142.5mm;" : "min-height: 284mm; max-height: 284mm;"}
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        overflow: hidden;
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
       }
       .page-border {
-        border: 2px solid #000;
+        border: ${isHalfPage ? "1.5px solid #000" : "2px solid #000"};
         width: 100%;
-        max-width: 900px;
-        margin: 0 auto;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
         background: #fff;
       }
       table {
@@ -527,8 +588,8 @@ export function generateAgencyInvoiceHtml(
       }
       th, td {
         border: 1px solid #000;
-        padding: 3.5px 4px;
-        font-size: 10.5px;
+        padding: ${isHalfPage ? "2px 2.5px" : "3.5px 4px"};
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
       }
       .header-grid {
         display: flex;
@@ -536,19 +597,19 @@ export function generateAgencyInvoiceHtml(
       }
       .header-seller {
         flex: 1.35;
-        padding: 8px 10px;
+        padding: ${isHalfPage ? "4px 8px" : "8px 10px"};
         border-right: 1px solid #000;
       }
       .seller-title {
-        font-size: 20px;
+        font-size: ${isHalfPage ? "14px" : "18px"};
         font-weight: 900;
         letter-spacing: -0.01em;
-        margin: 0 0 3px 0;
+        margin: 0 0 2px 0;
         text-transform: uppercase;
       }
       .seller-sub {
-        font-size: 10.5px;
-        margin: 2px 0;
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
+        margin: 1px 0;
         color: #000;
       }
       .header-meta {
@@ -560,18 +621,18 @@ export function generateAgencyInvoiceHtml(
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 6px 10px;
+        padding: ${isHalfPage ? "3px 8px" : "5px 10px"};
         border-bottom: 1px solid #000;
-        background: #f2f2f2;
+        background: #f1f5f9;
       }
       .inv-word {
-        font-size: 15px;
+        font-size: ${isHalfPage ? "12px" : "14px"};
         font-weight: 900;
         text-transform: uppercase;
         letter-spacing: 0.04em;
       }
       .inv-number {
-        font-size: 22px;
+        font-size: ${isHalfPage ? "16px" : "20px"};
         font-weight: 900;
         font-family: monospace, sans-serif;
       }
@@ -581,38 +642,38 @@ export function generateAgencyInvoiceHtml(
       }
       .inv-details-table td {
         border: none;
-        padding: 3px 10px;
-        font-size: 10.5px;
+        padding: ${isHalfPage ? "1.5px 8px" : "2.5px 10px"};
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
       }
       .buyer-box {
         border-bottom: 1px solid #000;
-        padding: 6px 10px;
+        padding: ${isHalfPage ? "4px 8px" : "6px 10px"};
         background: #fff;
       }
       .buyer-to {
         font-weight: 900;
-        font-size: 12.5px;
+        font-size: ${isHalfPage ? "10.5px" : "12px"};
       }
       .items-table {
         width: 100%;
         border-collapse: collapse;
       }
       .items-table th {
-        background: #f0f0f0;
+        background: #f1f5f9;
         font-weight: 900;
         text-align: center;
-        font-size: 10px;
-        padding: 5px 3px;
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
+        padding: ${isHalfPage ? "2.5px 2px" : "4.5px 3px"};
         border: 1px solid #000;
         border-top: none;
         text-transform: uppercase;
       }
       .items-table td {
-        padding: 3.5px 4px;
-        font-size: 10px;
+        padding: ${isHalfPage ? "2px 2.5px" : "3.5px 4px"};
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
         border: 1px solid #000;
       }
-      /* Outer table edges collapse seamlessly into .page-border (no doubled lines) */
+      /* Outer table edges collapse seamlessly into .page-border */
       .items-table th:first-child,
       .items-table td:first-child {
         border-left: none;
@@ -624,36 +685,34 @@ export function generateAgencyInvoiceHtml(
       /* Clean, balanced accounting bold line for Totals row */
       .items-table .totals-row td {
         font-weight: 900;
-        background: #f4f4f4;
+        background: #f8fafc;
         border-top: 2px solid #000 !important;
         border-bottom: 2px solid #000 !important;
-        font-size: 10.5px;
-        padding: 4px;
+        font-size: ${isHalfPage ? "8.5px" : "10px"};
+        padding: ${isHalfPage ? "2.5px 3px" : "4px"};
       }
-      /* border-top: none avoids double-line artifact with totals-row border-bottom */
-      /* Pending Bills (Exact FMCG wholesale photo format: compact left-aligned block) */
       .items-table .pending-bills-row td {
         border-top: none !important;
         border-bottom: none !important;
-        padding: 3px 4px 6px 4px;
+        padding: ${isHalfPage ? "2px 3px" : "3px 4px"};
       }
       .pending-bills-container {
         width: 100%;
-        max-width: 360px;
-        margin: 2px 0 0 0;
+        max-width: ${isHalfPage ? "340px" : "380px"};
+        margin: 1.5px 0 0 0;
       }
       .pending-bills-title {
-        font-size: 10px;
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
         font-weight: 900;
         letter-spacing: 0.2px;
-        margin-bottom: 2px;
+        margin-bottom: 1.5px;
         color: #000;
         text-align: left;
       }
       .pending-bills-mini-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 8.5px;
+        font-size: ${isHalfPage ? "7.5px" : "8.5px"};
         line-height: 1.15;
       }
       .pending-bills-mini-table th {
@@ -662,40 +721,41 @@ export function generateAgencyInvoiceHtml(
         border-bottom: 1px solid #000 !important;
         border-left: none !important;
         border-right: none !important;
-        padding: 1.5px 3px;
+        padding: 1px 2px;
         background: transparent !important;
         text-transform: none;
-        font-size: 8.5px;
+        font-size: ${isHalfPage ? "7.5px" : "8.5px"};
         color: #000;
       }
       .pending-bills-mini-table td {
         border: none !important;
-        padding: 1px 3px;
-        font-size: 8.5px;
+        padding: 1px 2px;
+        font-size: ${isHalfPage ? "7.5px" : "8.5px"};
         color: #000;
       }
       .pending-bills-mini-table .pending-total-row td {
         font-weight: 800;
         border-top: 1px solid #000 !important;
         border-bottom: 1px solid #000 !important;
-        padding: 2px 3px;
+        padding: 1.5px 2px;
         background: transparent !important;
       }
       .pending-bills-mini-table .pending-inc-row td {
         font-weight: 800;
         border-bottom: 1px solid #000 !important;
-        padding: 2px 3px;
+        padding: 1.5px 2px;
         background: transparent !important;
       }
       .bottom-section {
         display: flex;
         width: 100%;
         border-top: none;
+        background: #fff;
       }
       .bottom-left {
         flex: 1.45;
         border-right: 1px solid #000;
-        padding: 6px 8px;
+        padding: ${isHalfPage ? "3px 6px" : "5px 8px"};
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -704,40 +764,41 @@ export function generateAgencyInvoiceHtml(
         flex: 1;
         display: flex;
         flex-direction: column;
+        justify-content: space-between;
       }
       .gst-slab-table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 6px;
+        margin-bottom: ${isHalfPage ? "2px" : "4px"};
       }
       .gst-slab-table th {
-        background: #f0f0f0;
+        background: #f1f5f9;
         font-weight: 900;
-        font-size: 9.5px;
-        padding: 3px 4px;
+        font-size: ${isHalfPage ? "7.5px" : "9px"};
+        padding: ${isHalfPage ? "1.5px 3px" : "2.5px 4px"};
         border: 1px solid #000;
         text-transform: uppercase;
       }
       .gst-slab-table td {
-        font-size: 9.5px;
-        padding: 2.5px 4px;
+        font-size: ${isHalfPage ? "7.5px" : "9px"};
+        padding: ${isHalfPage ? "1.5px 3px" : "2px 4px"};
         border: 1px solid #000;
       }
       .words-box {
-        font-size: 10px;
-        margin: 5px 0 4px 0;
-        line-height: 1.35;
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
+        margin: ${isHalfPage ? "2px 0" : "4px 0"};
+        line-height: 1.25;
       }
       .terms-box {
-        font-size: 9px;
-        margin-top: 4px;
-        line-height: 1.35;
+        font-size: ${isHalfPage ? "7.5px" : "8.5px"};
+        margin-top: ${isHalfPage ? "2px" : "3px"};
+        line-height: 1.25;
         color: #000;
       }
       .bank-box {
-        font-size: 9.5px;
-        margin-top: 6px;
-        line-height: 1.35;
+        font-size: ${isHalfPage ? "8px" : "9px"};
+        margin-top: ${isHalfPage ? "2px" : "4px"};
+        line-height: 1.25;
         font-family: monospace, sans-serif;
       }
       .calc-table {
@@ -745,8 +806,8 @@ export function generateAgencyInvoiceHtml(
         border-collapse: collapse;
       }
       .calc-table td {
-        padding: 4px 8px;
-        font-size: 10.5px;
+        padding: ${isHalfPage ? "2px 6px" : "3.5px 8px"};
+        font-size: ${isHalfPage ? "8.5px" : "10px"};
         border: 1px solid #000;
       }
       .calc-table tr:first-child td {
@@ -758,33 +819,30 @@ export function generateAgencyInvoiceHtml(
       .calc-table tr td:last-child {
         border-right: none;
       }
-      /* Clean, balanced accounting bold line for Net Amount */
       .calc-table .net-row td {
-        font-size: 13.5px;
+        font-size: ${isHalfPage ? "11px" : "13.5px"};
         font-weight: 900;
         border-top: 2px solid #000 !important;
         border-bottom: 2px solid #000 !important;
-        background: #f4f4f4;
-        padding: 6px 8px;
+        background: #f1f5f9;
+        padding: ${isHalfPage ? "3px 6px" : "5px 8px"};
       }
-      /* border-top: none avoids double-line artifact with net-row border-bottom */
       .sign-box {
-        padding: 8px 10px 6px;
+        padding: ${isHalfPage ? "3px 6px 2px" : "6px 8px 4px"};
         text-align: right;
         margin-top: auto;
-        border-top: none;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        min-height: 75px;
+        min-height: ${isHalfPage ? "30px" : "55px"};
       }
       .sign-label {
-        font-size: 11px;
+        font-size: ${isHalfPage ? "8.5px" : "10.5px"};
         font-weight: 800;
         text-transform: uppercase;
       }
       .sign-line {
-        font-size: 10px;
+        font-size: ${isHalfPage ? "8px" : "9.5px"};
         font-weight: 700;
         border-top: 1px solid #000;
         display: inline-block;
@@ -794,187 +852,183 @@ export function generateAgencyInvoiceHtml(
     </style>
   </head>
   <body>
-    <div class="page-border">
-      <!-- Header Section -->
-      <div class="header-grid">
-        <!-- Store / Seller Header -->
-        <div class="header-seller">
-          <div class="seller-title">${storeName}</div>
-          <div class="seller-sub">${storeAddress}</div>
-          <div class="seller-sub"><strong>MO. NO.:</strong> ${storeMobile}</div>
-        </div>
-
-        <!-- Invoice Meta -->
-        <div class="header-meta">
-          <div class="inv-title-bar">
-            <span class="inv-word">Invoice</span>
-            <span class="inv-number">${billNumber}</span>
-          </div>
-          <table class="inv-details-table">
-            <tr>
-              <td><strong>Inv Date</strong></td>
-              <td>: ${invDate}</td>
-            </tr>
-            <tr>
-              <td><strong>Mode</strong></td>
-              <td>: ${invMode}</td>
-            </tr>
-            <tr>
-              <td><strong>Due Date</strong></td>
-              <td>: ${options?.dueDate || invDate}</td>
-            </tr>
-            ${options?.salesman ? `
-            <tr>
-              <td><strong>Salesman</strong></td>
-              <td>: ${options.salesman}</td>
-            </tr>` : ""}
-            ${options?.beat ? `
-            <tr>
-              <td><strong>Beat</strong></td>
-              <td>: ${options.beat}</td>
-            </tr>` : ""}
-          </table>
-        </div>
-      </div>
-
-      <!-- Buyer / Customer Box ("To,") -->
-      <div class="buyer-box">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
-          <div style="flex:1;">
-            <div class="buyer-to">To, ${custName}</div>
-            <div style="font-size:10.5px;margin-top:2px;">
-              <span><strong>Mobile:</strong> ${custMobile}</span>
-              ${options?.buyerGstin ? ` &bull; <span><strong>GSTIN:</strong> ${options.buyerGstin}</span>` : ""}
-              ${options?.buyerAddress ? ` &bull; <span><strong>Address:</strong> ${options.buyerAddress}</span>` : ""}
-              ${options?.vehicleNo ? ` &bull; <span><strong>Vehicle No:</strong> ${options.vehicleNo}</span>` : ""}
-              ${sale.notes ? ` &bull; <span><strong>Notes:</strong> ${sale.notes}</span>` : ""}
+    <div class="page-container">
+      <div class="page-border">
+        <!-- Top Section -->
+        <div>
+          <!-- Header Section -->
+          <div class="header-grid">
+            <div class="header-seller">
+              <div class="seller-title">${storeName}</div>
+              <div class="seller-sub">${storeAddress}</div>
+              <div class="seller-sub"><strong>MO. NO.:</strong> ${storeMobile} &bull; <strong>GSTIN:</strong> ${gstNo}</div>
+            </div>
+            <div class="header-meta">
+              <div class="inv-title-bar">
+                <span class="inv-word">Tax Invoice</span>
+                <span class="inv-number">${billNumber}</span>
+              </div>
+              <table class="inv-details-table">
+                <tr>
+                  <td><strong>Inv Date</strong></td>
+                  <td>: ${invDate}</td>
+                </tr>
+                <tr>
+                  <td><strong>Mode</strong></td>
+                  <td>: ${invMode}</td>
+                </tr>
+                <tr>
+                  <td><strong>Due Date</strong></td>
+                  <td>: ${options?.dueDate || invDate}</td>
+                </tr>
+                ${options?.salesman ? `
+                <tr>
+                  <td><strong>Salesman</strong></td>
+                  <td>: ${options.salesman}</td>
+                </tr>` : ""}
+                ${options?.beat ? `
+                <tr>
+                  <td><strong>Beat</strong></td>
+                  <td>: ${options.beat}</td>
+                </tr>` : ""}
+              </table>
             </div>
           </div>
-          <div style="text-align:right;min-width:145px;background:#f8fafc;border:1.5px solid #000;padding:4px 8px;border-radius:3px;flex-shrink:0;">
-            <div style="font-size:9px;font-weight:800;text-transform:uppercase;color:#333;letter-spacing:0.5px;">Party Balance</div>
-            <div style="font-size:13px;font-weight:900;color:#000;">₹${partyClosingBal.toFixed(2)}</div>
-            <div style="font-size:8.5px;color:#555;margin-top:1px;">
-              Prev: ₹${partyPrevBal.toFixed(2)} | Bill: ₹${finalTotal.toFixed(2)}
+
+          <!-- Buyer / Customer Box ("To,") -->
+          <div class="buyer-box">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+              <div style="flex:1;">
+                <div class="buyer-to">To, ${custName}</div>
+                <div style="font-size:${isHalfPage ? "8px" : "9.5px"};margin-top:1.5px;line-height:1.3;">
+                  <span><strong>Mobile:</strong> ${custMobile}</span>
+                  ${options?.buyerGstin ? ` &bull; <span><strong>GSTIN:</strong> ${options.buyerGstin}</span>` : ""}
+                  ${options?.buyerAddress ? ` &bull; <span><strong>Address:</strong> ${options.buyerAddress}</span>` : ""}
+                  ${options?.vehicleNo ? ` &bull; <span><strong>Vehicle No:</strong> ${options.vehicleNo}</span>` : ""}
+                  ${sale.notes ? ` &bull; <span><strong>Notes:</strong> ${sale.notes}</span>` : ""}
+                </div>
+              </div>
+              <div style="text-align:right;min-width:${isHalfPage ? "120px" : "145px"};background:#f8fafc;border:1px solid #000;padding:${isHalfPage ? "2px 5px" : "4px 8px"};border-radius:2px;flex-shrink:0;">
+                <div style="font-size:${isHalfPage ? "7.5px" : "9px"};font-weight:800;text-transform:uppercase;color:#333;letter-spacing:0.3px;">Party Balance</div>
+                <div style="font-size:${isHalfPage ? "11px" : "13px"};font-weight:900;color:#000;">₹${partyClosingBal.toFixed(2)}</div>
+                <div style="font-size:${isHalfPage ? "7px" : "8.5px"};color:#555;margin-top:1px;">
+                  Prev: ₹${partyPrevBal.toFixed(2)} | Bill: ₹${finalTotal.toFixed(2)}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Line Items Grid (Exact Photo Formate) -->
-      <table class="items-table">
-        <thead>
-          <tr>
-            <th style="width:3%;">Sr.</th>
-            <th style="width:9%;">HSN Code</th>
-            <th style="width:31%;">Description of Goods</th>
-            <th style="width:6%;">MRP</th>
-            <th style="width:5%;">Qty/Fr</th>
-            <th style="width:7%;">Rate</th>
-            <th style="width:5%;">Dis.%</th>
-            <th style="width:8%;">Taxable</th>
-            <th style="width:4%;">(%)</th>
-            <th style="width:6%;">SGST</th>
-            <th style="width:4%;">(%)</th>
-            <th style="width:6%;">CGST</th>
-            <th style="width:8%;">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-          ${pendingBillsRowHtml}
-          <!-- Totals Row -->
-          <tr class="totals-row">
-            <td colspan="4" style="text-align:right;">Totals:</td>
-            <td style="text-align:center;">${totalQty}</td>
-            <td style="text-align:right;">${totalGross.toFixed(2)}</td>
-            <td style="text-align:right;">${totalDiscountAmount > 0 ? totalDiscountAmount.toFixed(2) : "0.00"}</td>
-            <td style="text-align:right;">${totalTaxable.toFixed(2)}</td>
-            <td></td>
-            <td style="text-align:right;">${totalSgst.toFixed(2)}</td>
-            <td></td>
-            <td style="text-align:right;">${totalCgst.toFixed(2)}</td>
-            <td style="text-align:right;">${totalItemAmount.toFixed(2)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Bottom Summary & Terms Section -->
-      <div class="bottom-section">
-        <!-- Bottom Left: GST slab, Words, Terms, Bank -->
-        <div class="bottom-left">
-          <!-- GST Slab Breakdown -->
-          <table class="gst-slab-table">
+        <!-- Middle Section: Line Items Grid -->
+        <div style="flex: 1; display: flex; flex-direction: column;">
+          <table class="items-table">
             <thead>
               <tr>
-                <th>GST %</th>
-                <th>Taxable</th>
-                <th>SGST</th>
-                <th>CGST</th>
-                <th>IGST</th>
+                <th style="width:3%;">Sr.</th>
+                <th style="width:9%;">HSN Code</th>
+                <th style="width:31%;">Description of Goods</th>
+                <th style="width:6.5%;">MRP</th>
+                <th style="width:5%;">Qty</th>
+                <th style="width:7%;">Rate</th>
+                <th style="width:5%;">Dis.%</th>
+                <th style="width:8.5%;">Taxable</th>
+                <th style="width:3.5%;">(%)</th>
+                <th style="width:6%;">SGST</th>
+                <th style="width:3.5%;">(%)</th>
+                <th style="width:6%;">CGST</th>
+                <th style="width:9%;">Amount</th>
               </tr>
             </thead>
             <tbody>
-              ${slabsHtml}
+              ${rowsHtml}
+              ${emptyRowsHtml}
+              ${pendingBillsRowHtml}
+              <!-- Totals Row -->
+              <tr class="totals-row">
+                <td colspan="4" style="text-align:right;">Totals:</td>
+                <td style="text-align:center;">${totalQty}</td>
+                <td style="text-align:right;">${totalGross.toFixed(2)}</td>
+                <td style="text-align:right;">${totalDiscountAmount > 0 ? totalDiscountAmount.toFixed(2) : "0.00"}</td>
+                <td style="text-align:right;">${totalTaxable.toFixed(2)}</td>
+                <td></td>
+                <td style="text-align:right;">${totalSgst.toFixed(2)}</td>
+                <td></td>
+                <td style="text-align:right;">${totalCgst.toFixed(2)}</td>
+                <td style="text-align:right;">${totalItemAmount.toFixed(2)}</td>
+              </tr>
             </tbody>
           </table>
-
-          <div class="words-box">
-            <strong>Amount in Words:</strong> ${amountWords}
-          </div>
-
-          <div class="terms-box">
-            ${termsHtml}
-          </div>
-
-          <div class="bank-box">
-            <strong>BANK DETAIL:</strong> ${bankName}<br/>
-            <strong>A/C. No.:</strong> ${bankAcc}, <strong>IFSC:</strong> ${bankIfsc}${bankBranch ? `, <strong>BRANCH:</strong> ${bankBranch}` : ""}
-          </div>
         </div>
 
-        <!-- Bottom Right: Balances & Grand Net Amount -->
-        <div class="bottom-right">
-          <table class="calc-table">
-            <tr>
-              <td>Prev. Balance:</td>
-              <td style="text-align:right;font-weight:700;">₹${partyPrevBal.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td>Bill Amount:</td>
-              <td style="text-align:right;font-weight:700;">₹${finalTotal.toFixed(2)}</td>
-            </tr>
-            ${totalDiscountAmount > 0 ? `
-            <tr>
-              <td>Discount:</td>
-              <td style="text-align:right;font-weight:700;">-₹${totalDiscountAmount.toFixed(2)}</td>
-            </tr>` : ""}
-            <tr>
-              <td>Other +/-:</td>
-              <td style="text-align:right;">0.00</td>
-            </tr>
-            <tr>
-              <td>Credit Note:</td>
-              <td style="text-align:right;">0.00</td>
-            </tr>
-            <tr>
-              <td>Round Off:</td>
-              <td style="text-align:right;">${roundOff > 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)}</td>
-            </tr>
-            <tr class="net-row">
-              <td>Net Bill Amount:</td>
-              <td style="text-align:right;font-weight:800;">₹${finalTotal.toFixed(2)}</td>
-            </tr>
-            <tr style="background:#eef6ff;border-top:1.5px solid #000;">
-              <td style="font-weight:800;color:#000;">Party Net Balance:</td>
-              <td style="text-align:right;font-weight:900;font-size:12px;color:#000;">₹${partyClosingBal.toFixed(2)}</td>
-            </tr>
-          </table>
+        <!-- Bottom Summary & Terms Section -->
+        <div class="bottom-section">
+          <!-- Bottom Left: GST slab, Words, Terms, Bank -->
+          <div class="bottom-left">
+            <table class="gst-slab-table">
+              <thead>
+                <tr>
+                  <th>GST %</th>
+                  <th>Taxable</th>
+                  <th>SGST</th>
+                  <th>CGST</th>
+                  <th>IGST</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${slabsHtml}
+              </tbody>
+            </table>
 
-          <!-- Signatory Box -->
-          <div class="sign-box">
-            <div class="sign-label">For, ${storeName}</div>
-            <div style="height: 36px;"></div>
-            <div class="sign-line">Authorized Signatory</div>
+            <div class="words-box">
+              <strong>Amount in Words:</strong> ${amountWords}
+            </div>
+
+            <div class="terms-box">
+              ${termsHtml}
+            </div>
+
+            <div class="bank-box">
+              <strong>BANK DETAIL:</strong> ${bankName} &bull; <strong>A/C:</strong> ${bankAcc} &bull; <strong>IFSC:</strong> ${bankIfsc}${bankBranch ? ` &bull; <strong>BRANCH:</strong> ${bankBranch}` : ""}
+            </div>
+          </div>
+
+          <!-- Bottom Right: Balances & Grand Net Amount -->
+          <div class="bottom-right">
+            <table class="calc-table">
+              <tr>
+                <td>Prev. Balance:</td>
+                <td style="text-align:right;font-weight:700;">₹${partyPrevBal.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td>Bill Amount:</td>
+                <td style="text-align:right;font-weight:700;">₹${finalTotal.toFixed(2)}</td>
+              </tr>
+              ${totalDiscountAmount > 0 ? `
+              <tr>
+                <td>Discount:</td>
+                <td style="text-align:right;font-weight:700;">-₹${totalDiscountAmount.toFixed(2)}</td>
+              </tr>` : ""}
+              ${Math.abs(roundOff) > 0.001 ? `
+              <tr>
+                <td>Round Off:</td>
+                <td style="text-align:right;">${roundOff > 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)}</td>
+              </tr>` : ""}
+              <tr class="net-row">
+                <td>Net Bill Amount:</td>
+                <td style="text-align:right;font-weight:900;">₹${finalTotal.toFixed(2)}</td>
+              </tr>
+              <tr style="background:#eff6ff;border-top:1.5px solid #000;">
+                <td style="font-weight:800;color:#000;">Party Net Balance:</td>
+                <td style="text-align:right;font-weight:900;font-size:${isHalfPage ? "10px" : "12px"};color:#000;">₹${partyClosingBal.toFixed(2)}</td>
+              </tr>
+            </table>
+
+            <!-- Signatory Box -->
+            <div class="sign-box">
+              <div class="sign-label">For, ${storeName}</div>
+              <div></div>
+              <div class="sign-line">Authorized Signatory</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1033,8 +1087,11 @@ export async function printAgencyGstInvoice(
   ) {
     try {
       const pBills = await customerService.getPendingBills(sale.customer_id, sale.id);
-      if (pBills.length > 0) {
-        effectiveOptions.pendingBills = pBills;
+      const filtered = pBills.filter(
+        (b) => b.billNo && !b.billNo.toLowerCase().includes("opening")
+      );
+      if (filtered.length > 0) {
+        effectiveOptions.pendingBills = filtered;
       }
     } catch (e) {
       console.warn("Could not auto-fetch customer pending bills for invoice print:", e);

@@ -29,7 +29,6 @@ import { OnlineOrdersBreakdownModal } from "@/components/admin/online-orders-bre
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { SimpleBarChart } from "@/components/admin/charts/simple-bar-chart";
 import { SimpleLineChart } from "@/components/admin/charts/simple-line-chart";
-import { DashboardQuickShortcuts } from "@/components/admin/dashboard-quick-shortcuts";
 import { formatPrice, formatDate } from "@/utils/format";
 import { APP_NAME } from "@/lib/constants";
 import { toast } from "sonner";
@@ -108,9 +107,6 @@ export default function AdminDashboardPage() {
           🔔 {newOrderCount} new online order(s)
         </Link>
       )}
-
-      {/* Direct Operations Command Center Shortcuts Hub */}
-      <DashboardQuickShortcuts newOrderCount={newOrderCount} />
 
       <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
         <StatCard

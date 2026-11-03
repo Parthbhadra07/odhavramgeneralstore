@@ -13,6 +13,10 @@ import {
   AdminOrderNotificationsProvider,
   useAdminOrderNotifications,
 } from "@/components/admin/admin-order-notifications-provider";
+import {
+  AdminGlobalShortcuts,
+  AdminShortcutsHelpButton,
+} from "@/components/admin/admin-global-shortcuts";
 import { useDailyAutoRefill } from "@/hooks/use-daily-auto-refill";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -72,6 +76,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminOrderNotificationsProvider>
+      <AdminGlobalShortcuts />
       <BluetoothDevicePickerModal />
       <div className="flex w-full min-w-0 max-w-[100vw] overflow-x-hidden bg-gray-50">
         {/* Mobile backdrop */}
@@ -101,6 +106,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <OfflineStatusBanner compact />
             </div>
             <div className="flex items-center gap-3">
+              <AdminShortcutsHelpButton />
               <AdminNotificationBell />
               <FinancialYearSwitcher />
               <DesktopInstallPrompt />
@@ -133,6 +139,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              <AdminShortcutsHelpButton compact />
               <AdminNotificationBell compact />
               <FinancialYearSwitcher compact />
               <OfflineStatusBanner compact />

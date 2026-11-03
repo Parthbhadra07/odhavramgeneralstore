@@ -94,6 +94,7 @@ export default function AgencyBillingPage() {
   // Pending Bills state (Matching FMCG Wholesale Bill Format)
   const [pendingBills, setPendingBills] = useState<AgencyPendingBill[]>([]);
   const [includePendingBills, setIncludePendingBills] = useState(true);
+  const [printPageSize, setPrintPageSize] = useState<"auto" | "half" | "full">("auto");
   const [showAddPendingModal, setShowAddPendingModal] = useState(false);
   const [manualPendingBook, setManualPendingBook] = useState("");
   const [customInvoiceNumber, setCustomInvoiceNumber] = useState("");
@@ -198,11 +199,14 @@ export default function AgencyBillingPage() {
     setCustomerResults([]);
     toast.success(`Selected party: ${c.name} (Balance: ₹${bal.toFixed(2)})`);
 
-    // Auto-fetch pending bills for this customer
+    // Auto-fetch pending bills for this customer (actual bills only)
     try {
       const pBills = await customerService.getPendingBills(c.id);
-      setPendingBills(pBills);
-      setIncludePendingBills(pBills.length > 0);
+      const filteredBills = pBills.filter(
+        (b) => b.billNo && !b.billNo.toLowerCase().includes("opening")
+      );
+      setPendingBills(filteredBills);
+      setIncludePendingBills(filteredBills.length > 0);
     } catch {
       setPendingBills([]);
     }
@@ -228,8 +232,11 @@ export default function AgencyBillingPage() {
 
             try {
               const pBills = await customerService.getPendingBills(c.id);
-              setPendingBills(pBills);
-              setIncludePendingBills(pBills.length > 0);
+              const filteredBills = pBills.filter(
+                (b) => b.billNo && !b.billNo.toLowerCase().includes("opening")
+              );
+              setPendingBills(filteredBills);
+              setIncludePendingBills(filteredBills.length > 0);
             } catch {
               setPendingBills([]);
             }
@@ -244,6 +251,10 @@ export default function AgencyBillingPage() {
     const pend = Number(manualPendingBalAmt) || amt;
     if (!manualPendingBillNo.trim() || isNaN(amt) || amt <= 0) {
       toast.error("Please enter a valid bill number and bill amount");
+      return;
+    }
+    if (manualPendingBillNo.trim().toLowerCase().includes("opening")) {
+      toast.error("Please enter an actual bill number (e.g. 1042), not opening balance");
       return;
     }
 
@@ -635,8 +646,11 @@ export default function AgencyBillingPage() {
           customerBalance: partyPrevBalance,
           partyPreviousBalance: partyPrevBalance,
           partyClosingBalance: closingBal,
-          pendingBills: includePendingBills ? pendingBills : [],
+          pendingBills: includePendingBills
+            ? pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+            : [],
           includePendingBills,
+          printLayout: printPageSize,
         });
       }
 
@@ -682,6 +696,7 @@ export default function AgencyBillingPage() {
       dueDate: sale.created_at
         ? new Date(sale.created_at).toLocaleDateString("en-IN")
         : undefined,
+      printLayout: printPageSize,
     });
   };
 
@@ -922,10 +937,14 @@ export default function AgencyBillingPage() {
                 <span className="text-xs font-black text-gray-900 uppercase tracking-wide">
                   Pending Bills
                 </span>
-                {pendingBills.length > 0 ? (
+                {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length > 0 ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-900">
-                    {pendingBills.length} Bills • ₹
-                    {pendingBills.reduce((s, b) => s + b.pendingAmount, 0).toFixed(2)} Due
+                    {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length} Bills • ₹
+                    {pendingBills
+                      .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                      .reduce((s, b) => s + b.pendingAmount, 0)
+                      .toFixed(2)}{" "}
+                    Due
                   </span>
                 ) : (
                   <span className="text-[11px] text-gray-400">
@@ -935,7 +954,7 @@ export default function AgencyBillingPage() {
               </div>
 
               <div className="flex items-center gap-2.5">
-                {pendingBills.length > 0 && (
+                {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length > 0 && (
                   <label className="flex items-center gap-1.5 text-[11px] font-bold text-gray-700 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -956,7 +975,7 @@ export default function AgencyBillingPage() {
                   <Plus className="h-3 w-3" />
                   <span>Add Old Bill</span>
                 </Button>
-                {pendingBills.length > 0 && (
+                {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length > 0 && (
                   <button
                     type="button"
                     onClick={() => setIsPendingSectionExpanded(!isPendingSectionExpanded)}
@@ -971,7 +990,7 @@ export default function AgencyBillingPage() {
               </div>
             </div>
 
-            {pendingBills.length > 0 && isPendingSectionExpanded && (
+            {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length > 0 && isPendingSectionExpanded && (
               <div className="overflow-x-auto rounded-xl border border-amber-200/80 bg-white max-h-52 overflow-y-auto">
                 <table className="w-full text-left text-[11px]">
                   <thead className="bg-amber-50/60 font-bold text-gray-700 uppercase text-[9.5px] border-b border-amber-100 sticky top-0">
@@ -986,7 +1005,9 @@ export default function AgencyBillingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {pendingBills.map((b, idx) => (
+                    {pendingBills
+                      .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                      .map((b, idx) => (
                       <tr key={b.id || idx} className="hover:bg-amber-50/20">
                         <td className="py-1.5 px-2.5 font-bold text-gray-700">{b.book || "—"}</td>
                         <td className="py-1.5 px-2.5 font-semibold text-gray-900">{b.billNo}</td>
@@ -1013,16 +1034,32 @@ export default function AgencyBillingPage() {
                     {/* Summary Row */}
                     <tr className="bg-amber-50/70 font-bold text-gray-900 border-t border-amber-200">
                       <td className="py-1.5 px-2.5">Total</td>
-                      <td className="py-1.5 px-2.5 font-black">{pendingBills.length} Bills</td>
+                      <td className="py-1.5 px-2.5 font-black">
+                        {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length} Bills
+                      </td>
                       <td className="py-1.5 px-2.5"></td>
                       <td className="py-1.5 px-2.5 text-right">
-                        {formatPrice(pendingBills.reduce((s, b) => s + b.billAmount, 0))}
+                        {formatPrice(
+                          pendingBills
+                            .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                            .reduce((s, b) => s + b.billAmount, 0)
+                        )}
                       </td>
                       <td className="py-1.5 px-2.5 text-right text-amber-950 font-black">
-                        {formatPrice(pendingBills.reduce((s, b) => s + b.pendingAmount, 0))}
+                        {formatPrice(
+                          pendingBills
+                            .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                            .reduce((s, b) => s + b.pendingAmount, 0)
+                        )}
                       </td>
                       <td className="py-1.5 px-2.5 text-center">
-                        Max {Math.max(...pendingBills.map((b) => b.days || 0), 0)}
+                        Max{" "}
+                        {Math.max(
+                          ...pendingBills
+                            .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                            .map((b) => b.days || 0),
+                          0
+                        )}
                       </td>
                       <td></td>
                     </tr>
@@ -1031,15 +1068,21 @@ export default function AgencyBillingPage() {
                       <td colSpan={2} className="py-1.5 px-2.5">
                         Including this Bill
                       </td>
-                      <td className="py-1.5 px-2.5 text-center">{pendingBills.length + 1} Bills</td>
+                      <td className="py-1.5 px-2.5 text-center">
+                        {pendingBills.filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening")).length + 1} Bills
+                      </td>
                       <td className="py-1.5 px-2.5 text-right">
                         {formatPrice(
-                          pendingBills.reduce((s, b) => s + b.billAmount, 0) + netPayable
+                          pendingBills
+                            .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                            .reduce((s, b) => s + b.billAmount, 0) + netPayable
                         )}
                       </td>
                       <td className="py-1.5 px-2.5 text-right text-blue-900 font-black">
                         {formatPrice(
-                          pendingBills.reduce((s, b) => s + b.pendingAmount, 0) +
+                          pendingBills
+                            .filter((b) => b.billNo && !b.billNo.toLowerCase().includes("opening"))
+                            .reduce((s, b) => s + b.pendingAmount, 0) +
                             (paymentMethod === "credit" ? netPayable : 0)
                         )}
                       </td>
@@ -1649,8 +1692,72 @@ export default function AgencyBillingPage() {
               })()
             )}
 
+            {/* Print Sizing Selector */}
+            <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-2.5 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                  <Printer className="h-3.5 w-3.5 text-blue-700" />
+                  Print Page Size
+                </span>
+                <span className="text-[10.5px] font-semibold text-blue-700">
+                  {printPageSize === "auto"
+                    ? lines.length <= 5
+                      ? "Half Page (Auto: ≤5 items)"
+                      : "Full Page (Auto: >5 items)"
+                    : printPageSize === "half"
+                    ? "Half Page (A5 / 148mm)"
+                    : "Full Page (Full A4)"}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPrintPageSize("auto")}
+                  className={cn(
+                    "py-1.5 px-2 text-[11px] font-bold rounded-lg border text-center transition",
+                    printPageSize === "auto"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                  )}
+                >
+                  ⚡ Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintPageSize("half")}
+                  className={cn(
+                    "py-1.5 px-2 text-[11px] font-bold rounded-lg border text-center transition",
+                    printPageSize === "half"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                  )}
+                >
+                  📄 Half Page
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintPageSize("full")}
+                  className={cn(
+                    "py-1.5 px-2 text-[11px] font-bold rounded-lg border text-center transition",
+                    printPageSize === "full"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                  )}
+                >
+                  📃 Full A4
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-tight">
+                {printPageSize === "auto"
+                  ? "Uses Half-Page for compact bills (≤5 items), Full A4 for larger bills."
+                  : printPageSize === "half"
+                  ? "Formats strictly on Half-Page A5 (148mm height) with zero overflow."
+                  : "Formats with spacious layout spanning Full A4."}
+              </p>
+            </div>
+
             {/* Action Buttons */}
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 pt-1">
               <Button
                 type="button"
                 className="w-full font-bold shadow-md bg-blue-700 hover:bg-blue-800 text-white gap-2 py-3"
