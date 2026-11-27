@@ -542,6 +542,17 @@ export function KhataPartyLedger({
             <Button
               size="sm"
               variant="outline"
+              onClick={() => {
+                window.location.href = `/admin/party-statements?customerId=${customer.id}`;
+              }}
+              className="gap-1 font-bold text-emerald-900 border-emerald-200 hover:bg-emerald-50"
+            >
+              <FileText className="mr-1 h-4 w-4 text-emerald-700" />
+              Party Statement
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               onClick={() =>
                 openWhatsAppShare(
                   buildCreditStatementText(

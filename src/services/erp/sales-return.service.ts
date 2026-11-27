@@ -134,6 +134,41 @@ export const salesReturnService = {
         .eq("id", params.posSaleId);
     }
 
+    // Reflect sales return in customer khata / party statement as a credit note (reducing debt)
+    let targetCustomerId = params.customerId;
+    if (!targetCustomerId && params.posSaleId) {
+      try {
+        const { data: saleData } = await supabase
+          .from("pos_sales")
+          .select("customer_id")
+          .eq("id", params.posSaleId)
+          .maybeSingle();
+        if (saleData?.customer_id) {
+          targetCustomerId = saleData.customer_id;
+        }
+      } catch {}
+    }
+
+    if (targetCustomerId && totalAmount > 0) {
+      try {
+        await supabase.from("customer_credit").insert({
+          customer_id: targetCustomerId,
+          amount: totalAmount,
+          transaction_type: "payment",
+          reference_type: "sales_return",
+          reference_id: returnId,
+          description: `Sales Return #${returnNumber}`,
+          notes: params.reasonNotes || params.notes || `Returned ${params.items.length} item(s)`,
+          entry_date: params.returnDate || new Date().toISOString().slice(0, 10),
+        });
+
+        const { creditService } = await import("./credit.service");
+        await creditService.syncCustomerBalance(targetCustomerId);
+      } catch (creditErr) {
+        console.warn("Could not record sales return in customer_credit:", creditErr);
+      }
+    }
+
     return this.getById(returnId) as Promise<SalesReturn>;
   },
 

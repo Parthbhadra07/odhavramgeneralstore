@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Eye, Pencil, Plus, UserPlus, Check, Globe, Printer } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, Pencil, Plus, UserPlus, Check, Globe, Printer, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { creditService, customerService } from "@/services/erp";
 import type { CreditLedgerEntry, Customer, CustomerWithStats } from "@/types/erp";
@@ -22,6 +23,7 @@ import { printSystematicDocument } from "@/utils/document-print";
 import { printCreditStatementHtml } from "@/utils/credit-statement";
 
 export default function CustomersPage() {
+  const router = useRouter();
   const [customers, setCustomers] = useState<CustomerWithStats[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -452,6 +454,11 @@ export default function CustomersPage() {
               onClick={() => setEditCustomer(c)}
             />
             <ActionButton
+              icon={FileText}
+              label="Statement"
+              onClick={() => router.push(`/admin/party-statements?customerId=${c.id}`)}
+            />
+            <ActionButton
               icon={Eye}
               label="Credit Ledger"
               onClick={() => viewLedger(c)}
@@ -475,15 +482,26 @@ export default function CustomersPage() {
             </strong>
           </div>
           {ledgerCustomer && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => printCreditStatementHtml(ledgerCustomer, ledger, null)}
-              className="gap-1 bg-white text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-            >
-              <Printer className="h-3.5 w-3.5" />
-              <span>Print Systematic Statement</span>
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => router.push(`/admin/party-statements?customerId=${ledgerCustomer.id}`)}
+                className="gap-1 bg-white text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                <span>Full Party Statement</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => printCreditStatementHtml(ledgerCustomer, ledger, null)}
+                className="gap-1 bg-white text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>Print Systematic Statement</span>
+              </Button>
+            </div>
           )}
         </div>
         <div className="max-h-80 overflow-y-auto overscroll-contain scrollbar-thin space-y-2 pr-1">

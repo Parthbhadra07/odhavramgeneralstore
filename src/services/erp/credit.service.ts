@@ -339,6 +339,44 @@ export const creditService = {
       .order("created_at", { ascending: true });
     if (error) throw error;
     const rows = (data ?? []) as CustomerCredit[];
+
+    // Ensure all sales returns for this customer are reflected in credit ledger
+    const existingSrIds = new Set(
+      rows.filter((r) => r.reference_type === "sales_return").map((r) => r.reference_id)
+    );
+
+    try {
+      const customer = await this.getCustomer(customerId);
+      const query = supabase
+        .from("sales_returns")
+        .select("id, return_number, total_amount, return_date, return_type, notes, reason_notes, created_at, customer_id, customer_mobile");
+
+      const { data: returns } = customer?.mobile
+        ? await query.or(`customer_id.eq.${customerId},customer_mobile.eq.${customer.mobile}`)
+        : await query.eq("customer_id", customerId);
+
+      if (returns && returns.length > 0) {
+        for (const sr of returns) {
+          if (!existingSrIds.has(sr.id) && Number(sr.total_amount) > 0) {
+            rows.push({
+              id: `sr-${sr.id}`,
+              customer_id: customerId,
+              amount: Number(sr.total_amount),
+              transaction_type: "payment", // Credited against customer debt
+              reference_type: "sales_return",
+              reference_id: sr.id,
+              description: `Sales Return #${sr.return_number}`,
+              notes: sr.reason_notes || sr.notes || "Sales Return (Credit Note)",
+              entry_date: sr.return_date || (sr.created_at ? sr.created_at.slice(0, 10) : undefined),
+              created_at: sr.created_at,
+            });
+          }
+        }
+      }
+    } catch (srErr) {
+      console.warn("Could not load sales returns into customer credit history:", srErr);
+    }
+
     return rows.sort((a, b) => {
       const da = a.entry_date ?? a.created_at.slice(0, 10);
       const db = b.entry_date ?? b.created_at.slice(0, 10);
@@ -597,6 +635,29 @@ export const creditService = {
     return (data ?? []) as PosSale[];
   },
 
+  async getDetailedPartyReturns(customerId: string, customerMobile?: string | null) {
+    const supabase = requireClient();
+    try {
+      const q = supabase
+        .from("sales_returns")
+        .select("*, sales_return_items(*)")
+        .order("created_at", { ascending: false });
+
+      const { data, error } = customerMobile
+        ? await q.or(`customer_id.eq.${customerId},customer_mobile.eq.${customerMobile}`)
+        : await q.eq("customer_id", customerId);
+
+      if (error) {
+        console.warn("[creditService] getDetailedPartyReturns error:", error);
+        return [];
+      }
+      return (data ?? []) as any[];
+    } catch (err) {
+      console.warn("Could not fetch detailed party returns:", err);
+      return [];
+    }
+  },
+
   async getPartyStatementData(
     customerId: string,
     options?: {
@@ -607,9 +668,10 @@ export const creditService = {
     const customer = await this.getCustomer(customerId);
     if (!customer) throw new Error("Customer not found");
 
-    const [allHistory, allSales] = await Promise.all([
+    const [allHistory, allSales, allReturns] = await Promise.all([
       this.getHistory(customerId),
       this.getDetailedPartySales(customerId, customer.mobile),
+      this.getDetailedPartyReturns(customerId, customer.mobile),
     ]);
 
     const fullLedger = this.ledgerFromHistory(allHistory);
@@ -652,6 +714,20 @@ export const creditService = {
       );
     }
 
+    let filteredReturns = allReturns;
+    if (options?.fromDate) {
+      filteredReturns = filteredReturns.filter((r) => {
+        const d = r.return_date || r.created_at.slice(0, 10);
+        return d >= options.fromDate!;
+      });
+    }
+    if (options?.toDate) {
+      filteredReturns = filteredReturns.filter((r) => {
+        const d = r.return_date || r.created_at.slice(0, 10);
+        return d <= options.toDate!;
+      });
+    }
+
     const totalDebits = filteredLedger.reduce((sum, e) => sum + (e.debit || 0), 0);
     const totalCredits = filteredLedger.reduce((sum, e) => sum + (e.credit || 0), 0);
     const closingBalance = Math.round((openingBalance + totalDebits - totalCredits) * 100) / 100;
@@ -664,6 +740,7 @@ export const creditService = {
       totalCredits,
       ledger: filteredLedger,
       sales: filteredSales,
+      salesReturns: filteredReturns,
     };
   },
 };

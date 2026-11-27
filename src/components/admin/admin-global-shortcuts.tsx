@@ -24,6 +24,7 @@ import {
   Undo2,
   CalendarClock,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
@@ -85,6 +86,14 @@ export const ERP_SHORTCUTS: ShortcutDefinition[] = [
     category: "Accounts & Reports",
     icon: BookOpen,
     description: "Udhar ledger, party outstanding & recovery",
+  },
+  {
+    key: "Alt + K",
+    label: "Party Statements",
+    route: "/admin/party-statements",
+    category: "Accounts & Reports",
+    icon: FileText,
+    description: "Customer audit statements, itemized bill ledgers & WhatsApp share",
   },
   {
     key: "Alt + 7",

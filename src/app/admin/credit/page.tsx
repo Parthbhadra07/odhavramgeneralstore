@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   IndianRupee,
   Users,
@@ -60,6 +61,7 @@ function partyBalanceCell(balance: number) {
 }
 
 export default function CreditManagementPage() {
+  const router = useRouter();
   const { settings } = useStoreSettings();
   const [stats, setStats] = useState<CreditDashboardStats | null>(null);
   const [analytics, setAnalytics] = useState<Awaited<
@@ -226,6 +228,15 @@ export default function CreditManagementPage() {
               <span>Print Khata Register</span>
             </Button>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push("/admin/party-statements")}
+            className="gap-1.5 font-bold text-emerald-800 border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
+          >
+            <FileText className="h-4 w-4 text-emerald-600" />
+            <span>Party Statements</span>
+          </Button>
           <Button onClick={() => setShowPartyForm("create")}>
             <Plus className="mr-1 h-4 w-4" />
             New Party

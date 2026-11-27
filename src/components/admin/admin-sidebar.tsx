@@ -40,6 +40,7 @@ import {
   Tag,
   ScanBarcode,
   FileSpreadsheet,
+  FileText,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/utils/cn";
@@ -126,6 +127,7 @@ const navGroups: {
     links: [
       { href: "/admin/customers", label: "Customers", icon: UserCircle },
       { href: "/admin/credit", label: "Credit (Khatabook)", icon: BookOpen, shortcut: "Alt+6" },
+      { href: "/admin/party-statements", label: "Party Statements", icon: FileText, shortcut: "Alt+K" },
       { href: "/admin/expenses", label: "Expenses", icon: Receipt, shortcut: "Alt+E" },
       { href: "/admin/users", label: "Users & Roles", icon: Wallet },
     ],
