@@ -1,7 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Pause, Play, Printer, ScanBarcode, Trash2, Tag, MessageCircle, Globe, Scale } from "lucide-react";
+import {
+  Pause,
+  Play,
+  Printer,
+  ScanBarcode,
+  Trash2,
+  Tag,
+  MessageCircle,
+  Globe,
+  Scale,
+  User,
+  Phone,
+  ArrowRight,
+  CheckCircle2,
+  X,
+  Banknote,
+} from "lucide-react";
 import { toast } from "sonner";
 import { openWhatsAppShare, posBillWhatsAppMessage } from "@/utils/whatsapp";
 import { Button } from "@/components/ui/button";
@@ -131,10 +147,19 @@ export function PosInvoiceBilling() {
   const [checkoutStep, setCheckoutStep] = useState<"idle" | "payment" | "save">("idle");
   const [payOptionIndex, setPayOptionIndex] = useState(0);
   const [saveBillHighlight, setSaveBillHighlight] = useState(false);
+
+  // Customer Prompt Modal States (Triggered on blank barcode Enter or checkout when customer details are missing)
+  const [showCustomerPromptModal, setShowCustomerPromptModal] = useState(false);
+  const [draftCustomerMobile, setDraftCustomerMobile] = useState("");
+  const [draftCustomerName, setDraftCustomerName] = useState("");
+  const [draftCustomerFound, setDraftCustomerFound] = useState<Customer | null>(null);
+  const modalMobileInputRef = useRef<HTMLInputElement | null>(null);
+  const modalNameInputRef = useRef<HTMLInputElement | null>(null);
+
   const completeSaleRef = useRef<(autoPrint?: boolean, method?: PosPaymentMethod) => Promise<void>>(
     async () => {}
   );
-  const promptCheckoutRef = useRef<() => void>(() => {});
+  const promptCheckoutRef = useRef<(options?: { skipCustomerCheck?: boolean }) => void>(() => {});
   const confirmPaymentRef = useRef<(index?: number) => void>(() => {});
   const holdBillRef = useRef<() => Promise<void>>(async () => {});
   const autoPrintSaleIdRef = useRef<string | null>(null);
@@ -185,6 +210,16 @@ export function PosInvoiceBilling() {
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
+      if (showCustomerPromptModal) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setShowCustomerPromptModal(false);
+          setTimeout(() => scanInputRef.current?.focus(), 50);
+          return;
+        }
+        return;
+      }
+
       if (checkoutStep === "payment") {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -254,7 +289,8 @@ export function PosInvoiceBilling() {
           e.preventDefault();
           const target = rows.find((r) => r.id === activeRowId);
           if (target) {
-            const next = target.unit === "pcs" ? "pkt" : target.unit === "pkt" ? "box" : "pcs";
+            const hasPkt = Number(target.piecesPerPacket) > 1;
+            const next = target.unit === "pcs" ? (hasPkt ? "pkt" : "box") : target.unit === "pkt" ? "box" : "pcs";
             switchRowUnit(activeRowId, next);
           }
           return;
@@ -282,7 +318,7 @@ export function PosInvoiceBilling() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [filledLines.length, checkoutStep, activeRowId, rows]);
+  }, [filledLines.length, checkoutStep, showCustomerPromptModal, activeRowId, rows]);
 
   const resetInvoice = () => {
     const fresh = newRow();
@@ -299,6 +335,10 @@ export function PosInvoiceBilling() {
     setShowSuggest(false);
     setCheckoutStep("idle");
     setSaveBillHighlight(false);
+    setShowCustomerPromptModal(false);
+    setDraftCustomerMobile("");
+    setDraftCustomerName("");
+    setDraftCustomerFound(null);
     if (savePrintTimerRef.current) {
       window.clearTimeout(savePrintTimerRef.current);
       savePrintTimerRef.current = null;
@@ -314,10 +354,18 @@ export function PosInvoiceBilling() {
     setRows((prev) =>
       prev.map((r) => {
         if (r.id !== rowId) return r;
-        const piecesPerPkt = r.piecesPerPacket || 12;
-        const pktsPerBox = r.packetsPerBox || 12;
-        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const rawPcsPerPkt = Number(r.piecesPerPacket);
+        const hasPacketTier = rawPcsPerPkt > 1;
+        const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+        const pktsPerBox = Number(r.packetsPerBox) || 1;
+        const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
         const baseRate = Number(r.baseRate ?? r.rate);
+
+        // If requested unit is packet but product has direct Pcs -> Box (e.g. Cadbury)
+        if (nextUnit === "pkt" && !hasPacketTier) {
+          toast.error("This product has no packet tier (Direct Pcs → Box)");
+          return r;
+        }
 
         let packMultiplier = 1;
         let rate = baseRate;
@@ -358,9 +406,11 @@ export function PosInvoiceBilling() {
         setRows((prev) =>
           prev.map((r) => {
             if (r.id !== rowId) return r;
-            const piecesPerPkt = r.piecesPerPacket || 12;
-            const pktsPerBox = r.packetsPerBox || 12;
-            const totalPcsInBox = piecesPerPkt * pktsPerBox;
+            const rawPcsPerPkt = Number(r.piecesPerPacket);
+            const hasPacketTier = rawPcsPerPkt > 1;
+            const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+            const pktsPerBox = Number(r.packetsPerBox) || 1;
+            const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
             const baseRate = Number(r.baseRate ?? r.rate);
 
             // If row is already set to pkt or box, treat num as quantity of that unit
@@ -372,7 +422,7 @@ export function PosInvoiceBilling() {
             if (r.isLoose) {
               return { ...r, quantity: Math.max(0.001, num) };
             }
-            if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
+            if (totalPcsInBox > 1 && num >= totalPcsInBox && num % totalPcsInBox === 0) {
               const boxes = num / totalPcsInBox;
               const rate = Number(r.boxSellingPrice) || (baseRate * totalPcsInBox);
               toast.info(`Auto-calculated: ${num} pcs = ${boxes} Box`);
@@ -384,7 +434,7 @@ export function PosInvoiceBilling() {
                 quantity: boxes,
               };
             }
-            if (num >= piecesPerPkt && num % piecesPerPkt === 0) {
+            if (hasPacketTier && num >= piecesPerPkt && num % piecesPerPkt === 0) {
               const pkts = num / piecesPerPkt;
               const rate = Number(r.packetSellingPrice) || (baseRate * piecesPerPkt);
               toast.info(`Auto-calculated: ${num} pcs = ${pkts} Packet`);
@@ -538,9 +588,11 @@ export function PosInvoiceBilling() {
           return true;
         }
 
-        const piecesPerPkt = Number(product.pieces_per_packet) || 12;
-        const pktsPerBox = Number(product.packets_per_box) || 12;
-        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const rawPcsPerPkt = Number(product.pieces_per_packet);
+        const hasPacketTier = rawPcsPerPkt > 1;
+        const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+        const pktsPerBox = Number(product.packets_per_box) || 1;
+        const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
         const baseRate = Number(lot?.selling_price ?? product.selling_price ?? product.price);
 
         let unit: "pcs" | "pkt" | "box" = targetUnit || (resolved as any)?.unit || "pcs";
@@ -549,13 +601,13 @@ export function PosInvoiceBilling() {
 
         // Auto-calculate packet or box from scan multiplier if no unit explicitly specified
         if (!targetUnit && unit === "pcs") {
-          if (multiplier >= totalPcsInBox && multiplier % totalPcsInBox === 0) {
+          if (totalPcsInBox > 1 && multiplier >= totalPcsInBox && multiplier % totalPcsInBox === 0) {
             unit = "box";
             packMultiplier = totalPcsInBox;
             rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
             multiplier = multiplier / totalPcsInBox;
             toast.info(`Auto-calculated: ${multiplier} Box`);
-          } else if (multiplier >= piecesPerPkt && multiplier % piecesPerPkt === 0) {
+          } else if (hasPacketTier && multiplier >= piecesPerPkt && multiplier % piecesPerPkt === 0) {
             unit = "pkt";
             packMultiplier = piecesPerPkt;
             rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
@@ -589,7 +641,7 @@ export function PosInvoiceBilling() {
 
             // If existing row is in loose pcs, check if repeated scanning reaches packet or box
             if (existing.unit === "pcs") {
-              if (newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
+              if (totalPcsInBox > 1 && newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
                 const boxes = newTotalPieces / totalPcsInBox;
                 const boxRate = Number(existing.boxSellingPrice) || (baseRate * totalPcsInBox);
                 toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${boxes} Box`);
@@ -597,7 +649,7 @@ export function PosInvoiceBilling() {
                   r.id === existing.id
                     ? {
                         ...r,
-                        unit: "box",
+                        unit: "box" as const,
                         packMultiplier: totalPcsInBox,
                         rate: Math.round(boxRate * 100) / 100,
                         quantity: boxes,
@@ -609,7 +661,7 @@ export function PosInvoiceBilling() {
                 }
                 return next;
               }
-              if (newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
+              if (hasPacketTier && newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
                 const pkts = newTotalPieces / piecesPerPkt;
                 const pktRate = Number(existing.packetSellingPrice) || (baseRate * piecesPerPkt);
                 toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${pkts} Packet`);
@@ -617,7 +669,7 @@ export function PosInvoiceBilling() {
                   r.id === existing.id
                     ? {
                         ...r,
-                        unit: "pkt",
+                        unit: "pkt" as const,
                         packMultiplier: piecesPerPkt,
                         rate: Math.round(pktRate * 100) / 100,
                         quantity: pkts,
@@ -824,18 +876,93 @@ export function PosInvoiceBilling() {
 
   completeSaleRef.current = completeSale;
 
-  const promptCheckout = () => {
+  const promptCheckout = (options?: { skipCustomerCheck?: boolean }) => {
     if (!filledLines.length) {
       toast.error("Add at least one item");
       return;
     }
     if (processing) return;
+
+    // Check if customer details are already filled (selected customer, mobile, or name)
+    const hasCustomer = Boolean(
+      selectedCustomer ||
+      customerMobile.trim() ||
+      customerName.trim()
+    );
+
+    // If customer details are missing and not explicitly skipped, pop up modal to fill details
+    if (!hasCustomer && !options?.skipCustomerCheck) {
+      setDraftCustomerMobile("");
+      setDraftCustomerName("");
+      setDraftCustomerFound(null);
+      setShowCustomerPromptModal(true);
+      setTimeout(() => {
+        modalMobileInputRef.current?.focus();
+        modalMobileInputRef.current?.select();
+      }, 60);
+      return;
+    }
+
     setPayOptionIndex(0);
     setCheckoutStep("payment");
     setSaveBillHighlight(false);
   };
 
   promptCheckoutRef.current = promptCheckout;
+
+  const lookupDraftCustomer = async (mobileVal: string) => {
+    const mob = mobileVal.trim();
+    if (mob.length !== 10) return;
+    try {
+      const found = await customerService.findForPos({ mobile: mob });
+      if (found) {
+        setDraftCustomerFound(found);
+        setDraftCustomerName(found.name);
+        toast.success(`Party matched: ${found.name}`);
+      } else {
+        setDraftCustomerFound(null);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleConfirmCounterSale = () => {
+    setShowCustomerPromptModal(false);
+    toast.info("Proceeding as Cash Counter Sale");
+    promptCheckout({ skipCustomerCheck: true });
+  };
+
+  const handleConfirmCustomerDetails = async () => {
+    const mob = draftCustomerMobile.trim();
+    const name = draftCustomerName.trim();
+
+    if (mob && !isValidMobile(mob)) {
+      toast.error("Enter a valid 10-digit mobile number, or press Enter on blank for Counter Sale");
+      return;
+    }
+
+    if (draftCustomerFound) {
+      setSelectedCustomer(draftCustomerFound);
+      setCustomerName(draftCustomerFound.name);
+      setCustomerMobile(draftCustomerFound.mobile);
+    } else if (mob || name) {
+      setCustomerMobile(mob);
+      setCustomerName(name || "Customer");
+      try {
+        const found = await customerService.findForPos({ mobile: mob, name });
+        if (found) {
+          setSelectedCustomer(found);
+          setCustomerName(found.name);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    setShowCustomerPromptModal(false);
+    promptCheckout({ skipCustomerCheck: true });
+  };
 
   const confirmPayment = (index = payOptionIndex) => {
     const option = CHECKOUT_PAY_OPTIONS[index] ?? CHECKOUT_PAY_OPTIONS[0];
@@ -1428,16 +1555,31 @@ export function PosInvoiceBilling() {
                       <Scale className="h-3.5 w-3.5 text-indigo-600" /> Loose ({row.unit || "kg"})
                     </button>
                   ) : row.productId ? (
-                    <select
-                      value={row.unit || "pcs"}
-                      onChange={(e) => switchRowUnit(row.id, e.target.value as any)}
-                      onFocus={() => setActiveRowId(row.id)}
-                      className="h-7 w-full rounded border border-slate-300 bg-white px-1 text-xs font-semibold text-slate-700 focus:border-amber-500 focus:outline-none"
-                    >
-                      <option value="pcs">Pcs (1 pc)</option>
-                      <option value="pkt">Pkt ({row.piecesPerPacket || 12} pcs)</option>
-                      <option value="box">Box ({(row.piecesPerPacket || 12) * (row.packetsPerBox || 12)} pcs)</option>
-                    </select>
+                    (() => {
+                      const rawPcsPerPkt = Number(row.piecesPerPacket);
+                      const hasPkt = rawPcsPerPkt > 1;
+                      const piecesPerPkt = hasPkt ? rawPcsPerPkt : 1;
+                      const pktsPerBox = Number(row.packetsPerBox) || 1;
+                      const totalPcsInBox = hasPkt ? piecesPerPkt * pktsPerBox : pktsPerBox;
+                      return (
+                        <select
+                          value={row.unit || "pcs"}
+                          onChange={(e) => switchRowUnit(row.id, e.target.value as any)}
+                          onFocus={() => setActiveRowId(row.id)}
+                          className="h-7 w-full rounded border border-slate-300 bg-white px-1 text-xs font-semibold text-slate-700 focus:border-amber-500 focus:outline-none"
+                        >
+                          <option value="pcs">Pcs (1 pc)</option>
+                          {hasPkt && <option value="pkt">Pkt ({piecesPerPkt} pcs)</option>}
+                          {totalPcsInBox > 1 && (
+                            <option value="box">
+                              {hasPkt
+                                ? `Box (${pktsPerBox} pkts · ${totalPcsInBox} pcs)`
+                                : `Box (${totalPcsInBox} pcs)`}
+                            </option>
+                          )}
+                        </select>
+                      );
+                    })()
                   ) : (
                     <span className="text-xs text-slate-400">{row.unit || "pcs"}</span>
                   )}
@@ -1735,6 +1877,181 @@ export function PosInvoiceBilling() {
           )}
         </div>
       </div>
+      {/* Customer Details Prompt Modal (Triggered on blank barcode Enter or checkout when customer is missing) */}
+      {showCustomerPromptModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="customer-prompt-title"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 space-y-4"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setShowCustomerPromptModal(false);
+                setTimeout(() => scanInputRef.current?.focus(), 50);
+              }
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                  <User className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 id="customer-prompt-title" className="text-base font-bold text-gray-900">
+                    Customer Information
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Enter customer phone for bill, or press Enter for Counter Sale
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCustomerPromptModal(false);
+                  setTimeout(() => scanInputRef.current?.focus(), 50);
+                }}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+                title="Close (Esc)"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Bill Summary Banner */}
+            <div className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200/80 px-3.5 py-2 text-xs">
+              <span className="text-slate-600 font-medium">Invoice Items ({filledLines.length}):</span>
+              <span className="text-base font-black text-slate-900">{formatPrice(total)}</span>
+            </div>
+
+            {/* Inputs */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Customer Mobile Number
+                  <span className="text-[11px] font-normal text-gray-400 ml-1.5">(10 Digits)</span>
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    ref={modalMobileInputRef}
+                    type="tel"
+                    maxLength={10}
+                    value={draftCustomerMobile}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setDraftCustomerMobile(val);
+                      if (val.length === 10) {
+                        void lookupDraftCustomer(val);
+                      } else if (draftCustomerFound) {
+                        setDraftCustomerFound(null);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!draftCustomerMobile.trim() && !draftCustomerName.trim()) {
+                          handleConfirmCounterSale();
+                        } else {
+                          void handleConfirmCustomerDetails();
+                        }
+                      }
+                    }}
+                    placeholder="e.g. 9876543210 (Leave blank for Cash Sale)"
+                    className="h-10 w-full rounded-xl border border-gray-300 pl-9 pr-3 text-sm font-medium focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* Existing Party Matched Banner */}
+              {draftCustomerFound && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 p-2.5 text-xs text-emerald-900 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="font-bold">{draftCustomerFound.name}</p>
+                      <p className="text-[11px] text-emerald-700">
+                        Loyalty: {draftCustomerFound.loyalty_points || 0} pts
+                        {Number(draftCustomerFound.credit_balance || 0) > 0 &&
+                          ` · Khata Due: ₹${Number(draftCustomerFound.credit_balance).toFixed(2)}`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="rounded bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 text-[10px]">
+                    Matched
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Customer / Party Name
+                  <span className="text-[11px] font-normal text-gray-400 ml-1.5">(Optional)</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    ref={modalNameInputRef}
+                    type="text"
+                    value={draftCustomerName}
+                    onChange={(e) => setDraftCustomerName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!draftCustomerMobile.trim() && !draftCustomerName.trim()) {
+                          handleConfirmCounterSale();
+                        } else {
+                          void handleConfirmCustomerDetails();
+                        }
+                      }
+                    }}
+                    placeholder="e.g. Rahul Sharma"
+                    className="h-10 w-full rounded-xl border border-gray-300 pl-9 pr-3 text-sm font-medium focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Blank Enter Tip */}
+            <div className="rounded-xl bg-amber-50/80 border border-amber-200/80 p-2.5 text-xs text-amber-900">
+              <span className="font-bold block mb-0.5">💡 Blank Enter Shortcut</span>
+              If this is a quick walk-in cash customer, simply press{" "}
+              <kbd className="px-1.5 py-0.5 rounded bg-amber-200 font-mono text-[10px] font-bold">Enter ↵</kbd>{" "}
+              without typing to continue as <strong>Cash Counter Sale</strong>.
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+              <button
+                type="button"
+                onClick={handleConfirmCounterSale}
+                className="w-full sm:flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-2xs"
+              >
+                <Banknote className="h-4 w-4 text-emerald-600" />
+                <span>Cash Counter Sale</span>
+                <kbd className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-mono text-slate-500 border border-slate-200">
+                  ↵ Enter
+                </kbd>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleConfirmCustomerDetails()}
+                className="w-full sm:flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition shadow-xs"
+              >
+                <span>Continue to Pay</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {checkoutStep === "payment" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div

@@ -62,8 +62,14 @@ function toProductRow(
     barcode: product.barcode?.trim() || null,
     brand: product.brand?.trim() || null,
     unit: product.unit?.trim() || "pcs",
-    pieces_per_packet: product.pieces_per_packet ?? 12,
-    packets_per_box: product.packets_per_box ?? 12,
+    pieces_per_packet:
+      product.pieces_per_packet !== undefined && product.pieces_per_packet !== null
+        ? Number(product.pieces_per_packet)
+        : 1,
+    packets_per_box:
+      product.packets_per_box !== undefined && product.packets_per_box !== null
+        ? Number(product.packets_per_box)
+        : 1,
     packet_selling_price: product.packet_selling_price ?? null,
     box_selling_price: product.box_selling_price ?? null,
     purchase_price: product.purchase_price ?? null,

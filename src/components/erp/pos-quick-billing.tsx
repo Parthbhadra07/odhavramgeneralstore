@@ -155,15 +155,24 @@ export function PosQuickBilling() {
         }
         if (e.altKey && (e.key === "k" || e.key === "K" || e.key === "2")) {
           e.preventDefault();
+          const hasPkt = (Number(targetLine.piecesPerPacket) || 0) > 1;
+          if (!hasPkt) {
+            toast.error("This product has no packet tier (Direct Pcs → Box)");
+            return;
+          }
           setLineUnit(lineKey, "pkt");
-          toast.info(`Switched to Packet (${targetLine.piecesPerPacket || 12} pcs): ${targetLine.name}`);
+          toast.info(`Switched to Packet (${targetLine.piecesPerPacket} pcs): ${targetLine.name}`);
           return;
         }
         if (e.altKey && (e.key === "b" || e.key === "B" || e.key === "3")) {
           e.preventDefault();
           setLineUnit(lineKey, "box");
+          const hasPkt = (Number(targetLine.piecesPerPacket) || 0) > 1;
+          const totalBoxPcs = hasPkt
+            ? (Number(targetLine.piecesPerPacket) || 1) * (Number(targetLine.packetsPerBox) || 1)
+            : Number(targetLine.packetsPerBox) || 1;
           toast.info(
-            `Switched to Box (${(targetLine.piecesPerPacket || 12) * (targetLine.packetsPerBox || 12)} pcs): ${targetLine.name}`
+            `Switched to Box (${totalBoxPcs} pcs): ${targetLine.name}`
           );
           return;
         }
@@ -270,10 +279,17 @@ export function PosQuickBilling() {
     setCart((prev) =>
       prev.map((l) => {
         if (cartLineKey(l) !== key) return l;
-        const piecesPerPkt = l.piecesPerPacket || 12;
-        const pktsPerBox = l.packetsPerBox || 12;
-        const totalPcsInBox = piecesPerPkt * pktsPerBox;
+        const rawPcsPerPkt = Number(l.piecesPerPacket);
+        const hasPacketTier = rawPcsPerPkt > 1;
+        const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+        const pktsPerBox = Number(l.packetsPerBox) || 1;
+        const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
         const baseRate = Number((l as any).baseRate ?? l.rate);
+
+        if (nextUnit === "pkt" && !hasPacketTier) {
+          toast.error("This product has no packet tier (Direct Pcs → Box)");
+          return l;
+        }
 
         let packMultiplier = 1;
         let rate = baseRate;
@@ -301,12 +317,15 @@ export function PosQuickBilling() {
       const target = prev.find((l) => cartLineKey(l) === key);
       if (!target) return prev;
       const current = target.unit || "pcs";
-      const next: "pcs" | "pkt" | "box" =
-        current === "pcs" ? "pkt" : current === "pkt" ? "box" : "pcs";
+      const rawPcsPerPkt = Number(target.piecesPerPacket);
+      const hasPacketTier = rawPcsPerPkt > 1;
+      const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+      const pktsPerBox = Number(target.packetsPerBox) || 1;
+      const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
 
-      const piecesPerPkt = target.piecesPerPacket || 12;
-      const pktsPerBox = target.packetsPerBox || 12;
-      const totalPcsInBox = piecesPerPkt * pktsPerBox;
+      const next: "pcs" | "pkt" | "box" =
+        current === "pcs" ? (hasPacketTier ? "pkt" : "box") : current === "pkt" ? "box" : "pcs";
+
       const baseRate = Number((target as any).baseRate ?? target.rate);
 
       let packMultiplier = 1;
@@ -349,9 +368,11 @@ export function PosQuickBilling() {
         setCart((prev) =>
           prev.map((l) => {
             if (cartLineKey(l) !== key) return l;
-            const piecesPerPkt = l.piecesPerPacket || 12;
-            const pktsPerBox = l.packetsPerBox || 12;
-            const totalPcsInBox = piecesPerPkt * pktsPerBox;
+            const rawPcsPerPkt = Number(l.piecesPerPacket);
+            const hasPacketTier = rawPcsPerPkt > 1;
+            const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+            const pktsPerBox = Number(l.packetsPerBox) || 1;
+            const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
             const baseRate = Number((l as any).baseRate ?? l.rate);
 
             // If line is already set to packet or box unit, treat number as pack count
@@ -366,7 +387,7 @@ export function PosQuickBilling() {
             if (l.isLoose) {
               return { ...l, quantity: Math.max(0.001, num) };
             }
-            if (num >= totalPcsInBox && num % totalPcsInBox === 0) {
+            if (totalPcsInBox > 1 && num >= totalPcsInBox && num % totalPcsInBox === 0) {
               const boxes = num / totalPcsInBox;
               const rate = Number(l.boxSellingPrice) || (baseRate * totalPcsInBox);
               toast.info(`Auto-calculated: ${num} pcs = ${boxes} Box`);
@@ -378,7 +399,7 @@ export function PosQuickBilling() {
                 quantity: boxes,
               };
             }
-            if (num >= piecesPerPkt && num % piecesPerPkt === 0) {
+            if (hasPacketTier && num >= piecesPerPkt && num % piecesPerPkt === 0) {
               const pkts = num / piecesPerPkt;
               const rate = Number(l.packetSellingPrice) || (baseRate * piecesPerPkt);
               toast.info(`Auto-calculated: ${num} pcs = ${pkts} Packet`);
@@ -465,9 +486,11 @@ export function PosQuickBilling() {
             product.unit?.toLowerCase() === "loose"
         );
 
-      const piecesPerPkt = Number(product.pieces_per_packet) || 12;
-      const pktsPerBox = Number(product.packets_per_box) || 12;
-      const totalPcsInBox = piecesPerPkt * pktsPerBox;
+      const rawPcsPerPkt = Number(product.pieces_per_packet);
+      const hasPacketTier = rawPcsPerPkt > 1;
+      const piecesPerPkt = hasPacketTier ? rawPcsPerPkt : 1;
+      const pktsPerBox = Number(product.packets_per_box) || 1;
+      const totalPcsInBox = hasPacketTier ? piecesPerPkt * pktsPerBox : pktsPerBox;
 
       const baseRate = Number(
         lot?.selling_price ?? product.selling_price ?? product.price
@@ -484,13 +507,13 @@ export function PosQuickBilling() {
       } else {
         // Auto-calculate packet or box from initial piece quantity
         if (initialUnit === "pcs") {
-          if (initialQty >= totalPcsInBox && initialQty % totalPcsInBox === 0) {
+          if (totalPcsInBox > 1 && initialQty >= totalPcsInBox && initialQty % totalPcsInBox === 0) {
             unit = "box";
             packMultiplier = totalPcsInBox;
             rate = Number(product.box_selling_price) || (baseRate * totalPcsInBox);
             initialQty = initialQty / totalPcsInBox;
             toast.info(`Auto-calculated: ${initialQty} Box`);
-          } else if (initialQty >= piecesPerPkt && initialQty % piecesPerPkt === 0) {
+          } else if (hasPacketTier && initialQty >= piecesPerPkt && initialQty % piecesPerPkt === 0) {
             unit = "pkt";
             packMultiplier = piecesPerPkt;
             rate = Number(product.packet_selling_price) || (baseRate * piecesPerPkt);
@@ -541,7 +564,7 @@ export function PosQuickBilling() {
 
           // If current line is in loose pcs, check if repeated scanning reaches packet or box
           if ((existing.unit || "pcs") === "pcs") {
-            if (newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
+            if (totalPcsInBox > 1 && newTotalPieces >= totalPcsInBox && newTotalPieces % totalPcsInBox === 0) {
               const boxes = newTotalPieces / totalPcsInBox;
               const boxRate = Number(existing.boxSellingPrice) || (baseRate * totalPcsInBox);
               toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${boxes} Box`);
@@ -549,7 +572,7 @@ export function PosQuickBilling() {
                 i === existingIdx
                   ? {
                       ...l,
-                      unit: "box",
+                      unit: "box" as const,
                       packMultiplier: totalPcsInBox,
                       rate: Math.round(boxRate * 100) / 100,
                       quantity: boxes,
@@ -557,7 +580,7 @@ export function PosQuickBilling() {
                   : l
               );
             }
-            if (newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
+            if (hasPacketTier && newTotalPieces >= piecesPerPkt && newTotalPieces % piecesPerPkt === 0) {
               const pkts = newTotalPieces / piecesPerPkt;
               const pktRate = Number(existing.packetSellingPrice) || (baseRate * piecesPerPkt);
               toast.info(`Auto-calculated: ${newTotalPieces} pcs = ${pkts} Packet`);
@@ -565,7 +588,7 @@ export function PosQuickBilling() {
                 i === existingIdx
                   ? {
                       ...l,
-                      unit: "pkt",
+                      unit: "pkt" as const,
                       packMultiplier: piecesPerPkt,
                       rate: Math.round(pktRate * 100) / 100,
                       quantity: pkts,
@@ -1491,64 +1514,77 @@ export function PosQuickBilling() {
                         </button>
                       </div>
                     ) : (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unit:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            activeLineIndexRef.current = idx;
-                            setLineUnit(key, "pcs");
-                          }}
-                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                            (line.unit || "pcs") === "pcs"
-                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                          }`}
-                          title="Sell loose pieces (Shortcut: Alt+P or P)"
-                        >
-                          Pcs (1 pc)
-                        </button>
+                      (() => {
+                        const rawPcsPerPkt = Number(line.piecesPerPacket);
+                        const hasPkt = rawPcsPerPkt > 1;
+                        const piecesPerPkt = hasPkt ? rawPcsPerPkt : 1;
+                        const pktsPerBox = Number(line.packetsPerBox) || 1;
+                        const totalBoxPcs = hasPkt ? piecesPerPkt * pktsPerBox : pktsPerBox;
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-gray-100">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Unit:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                activeLineIndexRef.current = idx;
+                                setLineUnit(key, "pcs");
+                              }}
+                              className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                                (line.unit || "pcs") === "pcs"
+                                  ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              }`}
+                              title="Sell loose pieces (Shortcut: Alt+P or P)"
+                            >
+                              Pcs (1 pc)
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            activeLineIndexRef.current = idx;
-                            setLineUnit(key, "pkt");
-                          }}
-                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                            line.unit === "pkt"
-                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                          }`}
-                          title={`Sell 1 packet = ${line.piecesPerPacket || 12} pcs (Shortcut: Alt+K or K)`}
-                        >
-                          Pkt ({line.piecesPerPacket || 12} pcs)
-                          {line.packetSellingPrice ? ` · ₹${line.packetSellingPrice}` : ""}
-                        </button>
+                            {hasPkt && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  activeLineIndexRef.current = idx;
+                                  setLineUnit(key, "pkt");
+                                }}
+                                className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                                  line.unit === "pkt"
+                                    ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                                title={`Sell 1 packet = ${piecesPerPkt} pcs (Shortcut: Alt+K or K)`}
+                              >
+                                Pkt ({piecesPerPkt} pcs)
+                                {line.packetSellingPrice ? ` · ₹${line.packetSellingPrice}` : ""}
+                              </button>
+                            )}
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            activeLineIndexRef.current = idx;
-                            setLineUnit(key, "box");
-                          }}
-                          className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
-                            line.unit === "box"
-                              ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
-                              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                          }`}
-                          title={`Sell 1 box = ${(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs (Shortcut: Alt+B or B)`}
-                        >
-                          Box ({(line.piecesPerPacket || 12) * (line.packetsPerBox || 12)} pcs)
-                          {line.boxSellingPrice ? ` · ₹${line.boxSellingPrice}` : ""}
-                        </button>
+                            {totalBoxPcs > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  activeLineIndexRef.current = idx;
+                                  setLineUnit(key, "box");
+                                }}
+                                className={`rounded px-2 py-0.5 text-xs font-semibold transition-all ${
+                                  line.unit === "box"
+                                    ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                                title={`Sell 1 box = ${totalBoxPcs} pcs (Shortcut: Alt+B or B)`}
+                              >
+                                Box ({hasPkt ? `${pktsPerBox} pkts · ` : ""}{totalBoxPcs} pcs)
+                                {line.boxSellingPrice ? ` · ₹${line.boxSellingPrice}` : ""}
+                              </button>
+                            )}
 
-                        {line.unit && line.unit !== "pcs" && (
-                          <span className="ml-auto text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                            Deducts {line.quantity * (line.packMultiplier || 1)} base pcs
-                          </span>
-                        )}
-                      </div>
+                            {line.unit && line.unit !== "pcs" && (
+                              <span className="ml-auto text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                Deducts {line.quantity * (line.packMultiplier || 1)} base pcs
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
 
                     {/* 4 Keyboard-navigable inputs: Qty, Rate, Disc %, Amount */}

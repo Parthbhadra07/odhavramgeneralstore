@@ -16,6 +16,7 @@ import {
   Barcode,
   DollarSign,
   ArrowUpRight,
+  Boxes,
 } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ import { inventoryService } from "@/services/erp/inventory.service";
 import { lotService } from "@/services/erp/lot.service";
 import type { ErpProduct, ProductLot } from "@/types/erp";
 import { formatPrice } from "@/utils/format";
+import { getProductPackagingInfo } from "@/utils/packaging";
 import { toast } from "sonner";
 
 export default function PriceAndStockCheckerPage() {
@@ -145,6 +147,8 @@ export default function PriceAndStockCheckerPage() {
   const minStock = selectedProduct?.min_stock_level ?? 5;
   const reorderLevel = selectedProduct?.reorder_level ?? 10;
   const unit = selectedProduct?.unit ?? "pcs";
+
+  const packagingInfo = selectedProduct ? getProductPackagingInfo(selectedProduct) : null;
 
   const isOutOfStock = stock <= 0;
   const isLowStock = !isOutOfStock && stock <= minStock;
@@ -391,6 +395,326 @@ export default function PriceAndStockCheckerPage() {
               </p>
             </div>
           </div>
+
+          {/* Multi-Unit Purchase Price & Packaging Breakdown */}
+          {packagingInfo && (
+            <div className="rounded-2xl border border-blue-200/90 bg-gradient-to-br from-blue-50/50 via-indigo-50/25 to-white p-5 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Boxes className="h-5 w-5 text-blue-600" />
+                    <h3 className="text-base font-bold text-gray-900">
+                      Multi-Unit Purchase Cost &amp; Price Breakdown
+                    </h3>
+                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-800">
+                      {packagingInfo.tierTypeLabel}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600">
+                    {packagingInfo.tierTypeDescription}
+                  </p>
+                </div>
+
+                <div className="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200/60">
+                  Single Barcode Multi-Pack System
+                </div>
+              </div>
+
+              {/* 3 Tier Pricing Cards: PCS, PKT, BOX */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                {/* 1. PCS Tier Card */}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-700">1</span>
+                      <span className="font-bold text-gray-900 text-sm">Piece (PCS)</span>
+                    </div>
+                    <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-mono font-bold text-blue-700">
+                      1 pc
+                    </span>
+                  </div>
+
+                  {/* Purchase Cost Highlight */}
+                  <div className="rounded-lg bg-amber-50/90 border border-amber-200 p-2.5 text-center">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">
+                      PCS Purchase Cost
+                    </span>
+                    <span className="text-xl font-black text-amber-950 mt-0.5 block">
+                      {packagingInfo.pcsTier.purchasePrice !== null ? formatPrice(packagingInfo.pcsTier.purchasePrice) : "Not Set"}
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-medium">Cost per single piece</span>
+                  </div>
+
+                  {/* Rates & Margins */}
+                  <div className="space-y-1.5 text-xs pt-1 border-t border-gray-100">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Selling Price:</span>
+                      <span className="font-bold text-blue-700">{formatPrice(packagingInfo.pcsTier.sellingPrice)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Base MRP:</span>
+                      <span className="font-medium text-gray-800">{formatPrice(packagingInfo.pcsTier.mrp)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Gross Margin:</span>
+                      <span className="font-bold text-emerald-700">
+                        {packagingInfo.pcsTier.profit !== null
+                          ? `+${formatPrice(packagingInfo.pcsTier.profit)} (${packagingInfo.pcsTier.profitMarginPercent?.toFixed(1)}%)`
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. PKT Tier Card */}
+                <div className={`rounded-xl border p-4 shadow-2xs space-y-3 ${
+                  packagingInfo.pktTier.isAvailable
+                    ? "border-slate-200 bg-white"
+                    : "border-dashed border-gray-300 bg-gray-50/70"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">2</span>
+                      <span className="font-bold text-gray-900 text-sm">Packet (PKT)</span>
+                    </div>
+                    <span className={`rounded px-2 py-0.5 text-[11px] font-mono font-medium ${
+                      packagingInfo.pktTier.isAvailable
+                        ? "bg-indigo-50 text-indigo-700 font-bold"
+                        : "bg-gray-200 text-gray-600"
+                    }`}>
+                      {packagingInfo.pktTier.isAvailable ? `${packagingInfo.piecesPerPacket} pcs` : "N/A"}
+                    </span>
+                  </div>
+
+                  {packagingInfo.pktTier.isAvailable ? (
+                    <>
+                      {/* Purchase Cost Highlight */}
+                      <div className="rounded-lg bg-amber-50/90 border border-amber-200 p-2.5 text-center">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">
+                          PKT Purchase Cost
+                        </span>
+                        <span className="text-xl font-black text-amber-950 mt-0.5 block">
+                          {packagingInfo.pktTier.purchasePrice !== null ? formatPrice(packagingInfo.pktTier.purchasePrice) : "Not Set"}
+                        </span>
+                        <span className="text-[10px] text-amber-700 font-medium">
+                          {packagingInfo.piecesPerPacket} pcs × {formatPrice(purchasePrice || 0)}
+                        </span>
+                      </div>
+
+                      {/* Rates & Margins */}
+                      <div className="space-y-1.5 text-xs pt-1 border-t border-gray-100">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Packet Selling:</span>
+                          <span className="font-bold text-indigo-700">{formatPrice(packagingInfo.pktTier.sellingPrice)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Packet MRP:</span>
+                          <span className="font-medium text-gray-800">{formatPrice(packagingInfo.pktTier.mrp)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Gross Margin:</span>
+                          <span className="font-bold text-emerald-700">
+                            {packagingInfo.pktTier.profit !== null
+                              ? `+${formatPrice(packagingInfo.pktTier.profit)} (${packagingInfo.pktTier.profitMarginPercent?.toFixed(1)}%)`
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-4 text-center">
+                      <span className="inline-block rounded-full bg-slate-200/80 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {packagingInfo.tierType === "2_tier_pcs_box" ? "Direct Pcs → Box" : "No Packet Tier"}
+                      </span>
+                      <p className="mt-2 text-xs text-gray-500 px-2 leading-relaxed">
+                        {packagingInfo.tierType === "2_tier_pcs_box"
+                          ? "This product (e.g. Cadbury / Chocolates) is packed directly from Pieces into a Box. It does not have an intermediate packet tier."
+                          : "No packet packaging multiplier defined for this product."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. BOX Tier Card */}
+                <div className={`rounded-xl border p-4 shadow-2xs space-y-3 ${
+                  packagingInfo.boxTier.isAvailable
+                    ? "border-slate-200 bg-white"
+                    : "border-dashed border-gray-300 bg-gray-50/70"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-100 text-[11px] font-bold text-purple-700">3</span>
+                      <span className="font-bold text-gray-900 text-sm">Master Box (BOX)</span>
+                    </div>
+                    <span className={`rounded px-2 py-0.5 text-[11px] font-mono font-medium ${
+                      packagingInfo.boxTier.isAvailable
+                        ? "bg-purple-50 text-purple-700 font-bold"
+                        : "bg-gray-200 text-gray-600"
+                    }`}>
+                      {packagingInfo.boxTier.isAvailable
+                        ? packagingInfo.tierType === "3_tier"
+                          ? `${packagingInfo.packetsPerBox} pkts (${packagingInfo.totalPiecesPerBox} pcs)`
+                          : `${packagingInfo.totalPiecesPerBox} pcs`
+                        : "N/A"}
+                    </span>
+                  </div>
+
+                  {packagingInfo.boxTier.isAvailable ? (
+                    <>
+                      {/* Purchase Cost Highlight */}
+                      <div className="rounded-lg bg-amber-50/90 border border-amber-200 p-2.5 text-center">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">
+                          BOX Purchase Cost
+                        </span>
+                        <span className="text-xl font-black text-amber-950 mt-0.5 block">
+                          {packagingInfo.boxTier.purchasePrice !== null ? formatPrice(packagingInfo.boxTier.purchasePrice) : "Not Set"}
+                        </span>
+                        <span className="text-[10px] text-amber-700 font-medium">
+                          {packagingInfo.totalPiecesPerBox} pcs × {formatPrice(purchasePrice || 0)}
+                        </span>
+                      </div>
+
+                      {/* Rates & Margins */}
+                      <div className="space-y-1.5 text-xs pt-1 border-t border-gray-100">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Box Selling:</span>
+                          <span className="font-bold text-purple-700">{formatPrice(packagingInfo.boxTier.sellingPrice)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Box MRP:</span>
+                          <span className="font-medium text-gray-800">{formatPrice(packagingInfo.boxTier.mrp)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Gross Margin:</span>
+                          <span className="font-bold text-emerald-700">
+                            {packagingInfo.boxTier.profit !== null
+                              ? `+${formatPrice(packagingInfo.boxTier.profit)} (${packagingInfo.boxTier.profitMarginPercent?.toFixed(1)}%)`
+                              : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-4 text-center">
+                      <span className="inline-block rounded-full bg-slate-200/80 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        Single Unit Only
+                      </span>
+                      <p className="mt-2 text-xs text-gray-500 px-2 leading-relaxed">
+                        No master box packaging multiplier configured.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Packaging Breakdown Summary Table */}
+              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-gray-50/80 border-b border-gray-200 text-gray-600 font-bold uppercase tracking-wider text-[11px]">
+                      <th className="py-2.5 px-3.5">Tier Unit</th>
+                      <th className="py-2.5 px-3.5">Contains</th>
+                      <th className="py-2.5 px-3.5 text-right font-black text-amber-900">Purchase Cost</th>
+                      <th className="py-2.5 px-3.5 text-right font-black text-blue-900">Selling Price</th>
+                      <th className="py-2.5 px-3.5 text-right">MRP</th>
+                      <th className="py-2.5 px-3.5 text-right">Profit Margin</th>
+                      <th className="py-2.5 px-3.5 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {/* Piece */}
+                    <tr className="hover:bg-blue-50/30">
+                      <td className="py-2.5 px-3.5 font-bold text-gray-900">1. Piece (PCS)</td>
+                      <td className="py-2.5 px-3.5 font-mono text-gray-600">1 single pc</td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-amber-950">
+                        {packagingInfo.pcsTier.purchasePrice !== null ? formatPrice(packagingInfo.pcsTier.purchasePrice) : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-blue-700">
+                        {formatPrice(packagingInfo.pcsTier.sellingPrice)}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right text-gray-600">{formatPrice(packagingInfo.pcsTier.mrp)}</td>
+                      <td className="py-2.5 px-3.5 text-right font-semibold text-emerald-700">
+                        {packagingInfo.pcsTier.profit !== null
+                          ? `+${formatPrice(packagingInfo.pcsTier.profit)} (${packagingInfo.pcsTier.profitMarginPercent?.toFixed(1)}%)`
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-center">
+                        <span className="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">Active</span>
+                      </td>
+                    </tr>
+
+                    {/* Packet */}
+                    <tr className={packagingInfo.pktTier.isAvailable ? "hover:bg-blue-50/30" : "bg-gray-50/50 text-gray-400"}>
+                      <td className="py-2.5 px-3.5 font-bold text-gray-900">2. Packet (PKT)</td>
+                      <td className="py-2.5 px-3.5 font-mono text-gray-600">
+                        {packagingInfo.pktTier.isAvailable ? `${packagingInfo.piecesPerPacket} pcs` : "N/A"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-amber-950">
+                        {packagingInfo.pktTier.isAvailable && packagingInfo.pktTier.purchasePrice !== null
+                          ? formatPrice(packagingInfo.pktTier.purchasePrice)
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-indigo-700">
+                        {packagingInfo.pktTier.isAvailable ? formatPrice(packagingInfo.pktTier.sellingPrice) : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right text-gray-600">
+                        {packagingInfo.pktTier.isAvailable ? formatPrice(packagingInfo.pktTier.mrp) : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-semibold text-emerald-700">
+                        {packagingInfo.pktTier.isAvailable && packagingInfo.pktTier.profit !== null
+                          ? `+${formatPrice(packagingInfo.pktTier.profit)} (${packagingInfo.pktTier.profitMarginPercent?.toFixed(1)}%)`
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-center">
+                        {packagingInfo.pktTier.isAvailable ? (
+                          <span className="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">Active</span>
+                        ) : (
+                          <span className="rounded bg-gray-200 text-gray-600 px-2 py-0.5 text-[10px] font-medium" title={packagingInfo.pktTier.unavailableReason}>
+                            {packagingInfo.tierType === "2_tier_pcs_box" ? "Direct to Box" : "Disabled"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Master Box */}
+                    <tr className={packagingInfo.boxTier.isAvailable ? "hover:bg-blue-50/30" : "bg-gray-50/50 text-gray-400"}>
+                      <td className="py-2.5 px-3.5 font-bold text-gray-900">3. Master Box (BOX)</td>
+                      <td className="py-2.5 px-3.5 font-mono text-gray-600">
+                        {packagingInfo.boxTier.isAvailable
+                          ? packagingInfo.tierType === "3_tier"
+                            ? `${packagingInfo.packetsPerBox} pkts (${packagingInfo.totalPiecesPerBox} pcs)`
+                            : `${packagingInfo.totalPiecesPerBox} pcs`
+                          : "N/A"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-amber-950">
+                        {packagingInfo.boxTier.isAvailable && packagingInfo.boxTier.purchasePrice !== null
+                          ? formatPrice(packagingInfo.boxTier.purchasePrice)
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-bold text-purple-700">
+                        {packagingInfo.boxTier.isAvailable ? formatPrice(packagingInfo.boxTier.sellingPrice) : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right text-gray-600">
+                        {packagingInfo.boxTier.isAvailable ? formatPrice(packagingInfo.boxTier.mrp) : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-semibold text-emerald-700">
+                        {packagingInfo.boxTier.profit !== null
+                          ? `+${formatPrice(packagingInfo.boxTier.profit)} (${packagingInfo.boxTier.profitMarginPercent?.toFixed(1)}%)`
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-center">
+                        {packagingInfo.boxTier.isAvailable ? (
+                          <span className="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] font-bold">Active</span>
+                        ) : (
+                          <span className="rounded bg-gray-200 text-gray-600 px-2 py-0.5 text-[10px] font-medium">Disabled</span>
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Detailed Info Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

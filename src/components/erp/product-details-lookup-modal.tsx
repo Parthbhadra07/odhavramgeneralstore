@@ -31,6 +31,7 @@ import { inventoryService } from "@/services/erp/inventory.service";
 import { lotService } from "@/services/erp/lot.service";
 import type { ErpProduct, ProductLot } from "@/types/erp";
 import { formatPrice } from "@/utils/format";
+import { getProductPackagingInfo } from "@/utils/packaging";
 import { toast } from "sonner";
 
 export interface WeightCalcOptions {
@@ -873,34 +874,77 @@ export function ProductDetailsLookupModal({
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-gray-200 bg-white p-3.5">
-                      <div className="flex items-center justify-between border-b pb-2 text-xs font-bold text-gray-800">
-                        <span>Pack &amp; Box Hierarchy</span>
-                        <span className="text-blue-700 font-medium">B2B Wholesale</span>
-                      </div>
-                      <div className="mt-2 space-y-1 text-xs text-gray-600">
-                        <div className="flex justify-between">
-                          <span>1 Packet contains:</span>
-                          <span className="font-medium text-gray-900">{selectedProduct.pieces_per_packet ?? 12} pcs</span>
+                    {(() => {
+                      const pkg = getProductPackagingInfo(selectedProduct);
+                      return (
+                        <div className="rounded-xl border border-gray-200 bg-white p-3.5 space-y-2">
+                          <div className="flex items-center justify-between border-b pb-2 text-xs font-bold text-gray-800">
+                            <span>Packaging Breakdown</span>
+                            <span className="rounded bg-blue-100 text-blue-800 px-2 py-0.5 text-[10px] font-bold">
+                              {pkg.tierTypeLabel}
+                            </span>
+                          </div>
+                          <div className="space-y-1.5 text-xs text-gray-600">
+                            {/* PCS Tier */}
+                            <div className="flex justify-between">
+                              <span className="font-medium text-gray-700">1. Piece (Pcs):</span>
+                              <span className="font-semibold text-gray-900">
+                                Sell {formatPrice(pkg.pcsTier.sellingPrice)}
+                                {pkg.pcsTier.purchasePrice !== null ? ` · Cost ${formatPrice(pkg.pcsTier.purchasePrice)}` : ""}
+                              </span>
+                            </div>
+
+                            {/* PKT Tier */}
+                            {pkg.pktTier.isAvailable ? (
+                              <>
+                                <div className="flex justify-between">
+                                  <span className="font-medium text-gray-700">2. Packet ({pkg.piecesPerPacket} pcs):</span>
+                                  <span className="font-semibold text-indigo-700">
+                                    Sell {formatPrice(pkg.pktTier.sellingPrice)}
+                                  </span>
+                                </div>
+                                {pkg.pktTier.purchasePrice !== null && (
+                                  <div className="flex justify-between text-[11px] text-gray-500 pl-3">
+                                    <span>Pkt Purchase Cost:</span>
+                                    <span className="font-bold text-amber-900">{formatPrice(pkg.pktTier.purchasePrice)}</span>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex justify-between text-gray-400">
+                                <span>2. Packet Tier:</span>
+                                <span className="italic">{pkg.tierType === "2_tier_pcs_box" ? "None (Direct Pcs → Box)" : "Not configured"}</span>
+                              </div>
+                            )}
+
+                            {/* BOX Tier */}
+                            {pkg.boxTier.isAvailable ? (
+                              <>
+                                <div className="flex justify-between">
+                                  <span className="font-medium text-gray-700">
+                                    3. Master Box ({pkg.tierType === "3_tier" ? `${pkg.packetsPerBox} pkts · ${pkg.totalPiecesPerBox} pcs` : `${pkg.totalPiecesPerBox} pcs`}):
+                                  </span>
+                                  <span className="font-semibold text-purple-700">
+                                    Sell {formatPrice(pkg.boxTier.sellingPrice)}
+                                  </span>
+                                </div>
+                                {pkg.boxTier.purchasePrice !== null && (
+                                  <div className="flex justify-between text-[11px] text-gray-500 pl-3">
+                                    <span>Box Purchase Cost:</span>
+                                    <span className="font-bold text-amber-900">{formatPrice(pkg.boxTier.purchasePrice)}</span>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex justify-between text-gray-400">
+                                <span>3. Master Box:</span>
+                                <span className="italic">Not configured</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Packet Selling Rate:</span>
-                          <span className="font-medium text-gray-900">
-                            {selectedProduct.packet_selling_price ? formatPrice(selectedProduct.packet_selling_price) : "—"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>1 Master Box contains:</span>
-                          <span className="font-medium text-gray-900">{selectedProduct.packets_per_box ?? 12} packets</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Box Selling Rate:</span>
-                          <span className="font-medium text-gray-900">
-                            {selectedProduct.box_selling_price ? formatPrice(selectedProduct.box_selling_price) : "—"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Lots & Batches Info */}

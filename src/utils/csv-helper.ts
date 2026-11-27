@@ -181,10 +181,10 @@ export function processProductRows(rawRows: string[][]): {
     const minStockLevel = rawMinStock ? parseInt(rawMinStock, 10) : 5;
 
     const rawPcsPerPkt = getVal("pieces_per_packet").replace(/[^0-9.-]/g, "");
-    const piecesPerPacket = rawPcsPerPkt ? parseInt(rawPcsPerPkt, 10) : 12;
+    const piecesPerPacket = rawPcsPerPkt ? parseInt(rawPcsPerPkt, 10) : 1;
 
     const rawPktsPerBox = getVal("packets_per_box").replace(/[^0-9.-]/g, "");
-    const packetsPerBox = rawPktsPerBox ? parseInt(rawPktsPerBox, 10) : 12;
+    const packetsPerBox = rawPktsPerBox ? parseInt(rawPktsPerBox, 10) : 1;
 
     const rawPktPrice = getVal("packet_selling_price").replace(/[^0-9.-]/g, "");
     const packetSellingPrice = rawPktPrice ? parseFloat(rawPktPrice) : undefined;
@@ -349,8 +349,8 @@ export function exportProductsToCSV(products: Array<Record<string, any>>): strin
     p.gst_percentage ?? 0,
     p.image_url || "",
     p.reorder_level ?? 10,
-    p.pieces_per_packet ?? 12,
-    p.packets_per_box ?? 12,
+    p.pieces_per_packet ?? 1,
+    p.packets_per_box ?? 1,
   ]);
 
   const csvContent = [

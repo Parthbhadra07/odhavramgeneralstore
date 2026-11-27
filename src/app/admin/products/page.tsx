@@ -122,9 +122,13 @@ export default function AdminProductsPage() {
 
   const imageUrl = watch("image_url");
   const watchPrice = Number(watch("price") || 0);
-  const watchPcsPerPkt = Number(watch("pieces_per_packet") || 12);
-  const watchPktsPerBox = Number(watch("packets_per_box") || 12);
-  const watchTotalPcsInBox = (watchPcsPerPkt || 12) * (watchPktsPerBox || 12);
+  const rawPcsPerPkt = watch("pieces_per_packet");
+  const watchPcsPerPkt = rawPcsPerPkt !== undefined && rawPcsPerPkt !== null && String(rawPcsPerPkt) !== "" ? Number(rawPcsPerPkt) : 12;
+  const rawPktsPerBox = watch("packets_per_box");
+  const watchPktsPerBox = rawPktsPerBox !== undefined && rawPktsPerBox !== null && String(rawPktsPerBox) !== "" ? Number(rawPktsPerBox) : 12;
+  const isDirectPcsToBox = watchPcsPerPkt <= 1;
+  const hasPacketTier = watchPcsPerPkt > 1;
+  const watchTotalPcsInBox = isDirectPcsToBox ? (watchPktsPerBox || 1) : (watchPcsPerPkt * (watchPktsPerBox || 1));
 
   const watchAutoRefillEnabled = Boolean(watch("auto_refill_enabled"));
   const watchAutoRefillQty = Number(watch("auto_refill_quantity") || 0);
@@ -253,8 +257,18 @@ export default function AdminProductsPage() {
         barcode: data.barcode?.trim() || null,
         brand: data.brand?.trim() || null,
         unit: data.unit?.trim() || "pcs",
-        pieces_per_packet: data.pieces_per_packet ? Number(data.pieces_per_packet) : 12,
-        packets_per_box: data.packets_per_box ? Number(data.packets_per_box) : 12,
+        pieces_per_packet:
+          data.pieces_per_packet !== undefined &&
+          data.pieces_per_packet !== null &&
+          String(data.pieces_per_packet) !== ""
+            ? Number(data.pieces_per_packet)
+            : 1,
+        packets_per_box:
+          data.packets_per_box !== undefined &&
+          data.packets_per_box !== null &&
+          String(data.packets_per_box) !== ""
+            ? Number(data.packets_per_box)
+            : 1,
         packet_selling_price: data.packet_selling_price !== undefined && data.packet_selling_price !== null && String(data.packet_selling_price) !== "" ? Number(data.packet_selling_price) : null,
         box_selling_price: data.box_selling_price !== undefined && data.box_selling_price !== null && String(data.box_selling_price) !== "" ? Number(data.box_selling_price) : null,
         purchase_price: data.purchase_price,
@@ -904,19 +918,70 @@ export default function AdminProductsPage() {
 
           {/* Packaging Hierarchy: Pcs, Packets, Boxes */}
           <div className="sm:col-span-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50/60 to-indigo-50/30 p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
                   <Boxes className="h-4 w-4" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">
-                    Packaging Hierarchy (Pcs, Packets, Boxes)
+                    Packaging Hierarchy Configuration
                   </h3>
                   <p className="text-xs text-gray-600">
-                    Define multi-unit packaging so POS and billing can sell in Pcs, Packets, and Boxes with instant shortcuts.
+                    Configure packaging structure for Biscuits (Pcs → Pkt → Box) or Cadbury (Direct Pcs → Box, no pkt).
                   </p>
                 </div>
+              </div>
+
+              {/* Packaging Mode Quick Toggles */}
+              <div className="flex flex-wrap items-center gap-1.5 bg-white/80 p-1 rounded-lg border border-blue-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue("pieces_per_packet", 12, { shouldValidate: true });
+                    setValue("packets_per_box", 12, { shouldValidate: true });
+                  }}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition ${
+                    watchPcsPerPkt > 1 && watchPktsPerBox > 1
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  3-Tier (Biscuits)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue("pieces_per_packet", 1, { shouldValidate: true });
+                    setValue("packet_selling_price", undefined, { shouldValidate: true });
+                    if (!watchPktsPerBox || watchPktsPerBox <= 1) {
+                      setValue("packets_per_box", 24, { shouldValidate: true });
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition ${
+                    watchPcsPerPkt <= 1 && watchPktsPerBox > 1
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  Direct Pcs → Box (Cadbury)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue("pieces_per_packet", 1, { shouldValidate: true });
+                    setValue("packets_per_box", 1, { shouldValidate: true });
+                    setValue("packet_selling_price", undefined, { shouldValidate: true });
+                    setValue("box_selling_price", undefined, { shouldValidate: true });
+                  }}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition ${
+                    watchPcsPerPkt <= 1 && watchPktsPerBox <= 1
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  Single Unit Only
+                </button>
               </div>
             </div>
 
@@ -927,64 +992,121 @@ export default function AdminProductsPage() {
                 <p className="mt-0.5 text-gray-800 font-semibold">1 Pc = 1 pc</p>
                 <p className="text-[11px] text-gray-600 font-medium mt-0.5">Price: {formatPrice(watchPrice)}</p>
               </div>
-              <div className="rounded-md bg-indigo-50/70 p-2.5 border border-indigo-100">
-                <span className="font-bold text-indigo-900 block text-[11px] uppercase tracking-wider">2. Packet (Pkt)</span>
-                <p className="mt-0.5 text-gray-800 font-semibold">1 Pkt = {watchPcsPerPkt || 12} pcs</p>
-                <p className="text-[11px] text-gray-600 font-medium mt-0.5">
-                  Est. Rate: {formatPrice(watchPrice * (watchPcsPerPkt || 12))}
-                </p>
+              <div className={`rounded-md p-2.5 border ${
+                hasPacketTier
+                  ? "bg-indigo-50/70 border-indigo-100"
+                  : "bg-gray-50 border-gray-200"
+              }`}>
+                <span className={`block text-[11px] uppercase tracking-wider font-bold ${
+                  hasPacketTier ? "text-indigo-900" : "text-gray-500"
+                }`}>
+                  2. Packet (Pkt)
+                </span>
+                {hasPacketTier ? (
+                  <>
+                    <p className="mt-0.5 text-gray-800 font-semibold">1 Pkt = {watchPcsPerPkt} pcs</p>
+                    <p className="text-[11px] text-gray-600 font-medium mt-0.5">
+                      Est. Rate: {formatPrice(watchPrice * watchPcsPerPkt)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-0.5 text-gray-500 font-medium">No Packet Tier</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Direct Pcs → Box (Cadbury rule)
+                    </p>
+                  </>
+                )}
               </div>
-              <div className="rounded-md bg-purple-50/70 p-2.5 border border-purple-100">
-                <span className="font-bold text-purple-900 block text-[11px] uppercase tracking-wider">3. Master Box</span>
-                <p className="mt-0.5 text-gray-800 font-semibold">
-                  1 Box = {watchPktsPerBox || 12} pkts ({watchTotalPcsInBox || 144} pcs)
-                </p>
-                <p className="text-[11px] text-gray-600 font-medium mt-0.5">
-                  Est. Rate: {formatPrice(watchPrice * (watchTotalPcsInBox || 144))}
-                </p>
+              <div className={`rounded-md p-2.5 border ${
+                watchTotalPcsInBox > 1
+                  ? "bg-purple-50/70 border-purple-100"
+                  : "bg-gray-50 border-gray-200"
+              }`}>
+                <span className={`block text-[11px] uppercase tracking-wider font-bold ${
+                  watchTotalPcsInBox > 1 ? "text-purple-900" : "text-gray-500"
+                }`}>
+                  3. Master Box
+                </span>
+                {watchTotalPcsInBox > 1 ? (
+                  <>
+                    <p className="mt-0.5 text-gray-800 font-semibold">
+                      {isDirectPcsToBox
+                        ? `1 Box = ${watchTotalPcsInBox} pcs`
+                        : `1 Box = ${watchPktsPerBox} pkts (${watchTotalPcsInBox} pcs)`}
+                    </p>
+                    <p className="text-[11px] text-gray-600 font-medium mt-0.5">
+                      Est. Rate: {formatPrice(watchPrice * watchTotalPcsInBox)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-0.5 text-gray-500 font-medium">No Box Tier</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Single unit only</p>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              {hasPacketTier ? (
+                <Input
+                  label="Pieces per Packet (1 pkt = X pcs)"
+                  type="number"
+                  min={1}
+                  step="1"
+                  placeholder="12"
+                  error={errors.pieces_per_packet?.message}
+                  {...register("pieces_per_packet")}
+                />
+              ) : (
+                <div className="rounded-lg bg-gray-50 border border-dashed border-gray-300 p-2.5 flex flex-col justify-center">
+                  <span className="text-xs font-bold text-gray-700">Packet Tier: None (Direct Pcs → Box)</span>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    For Cadbury, chocolates, soap bars packed directly into a box.
+                  </p>
+                </div>
+              )}
+
               <Input
-                label="Pieces per Packet (1 pkt = X pcs)"
+                label={
+                  isDirectPcsToBox
+                    ? "Pieces per Box (1 box = X pcs, e.g. 24)"
+                    : "Packets per Box (1 box = Y pkts, e.g. 12)"
+                }
                 type="number"
                 min={1}
                 step="1"
-                placeholder="12"
-                error={errors.pieces_per_packet?.message}
-                {...register("pieces_per_packet")}
-              />
-              <Input
-                label="Packets per Box (1 box = Y pkts)"
-                type="number"
-                min={1}
-                step="1"
-                placeholder="12"
+                placeholder={isDirectPcsToBox ? "24" : "12"}
                 error={errors.packets_per_box?.message}
                 {...register("packets_per_box")}
               />
-              <Input
-                label="Custom Packet Selling Price (₹) (Optional)"
-                type="number"
-                step="0.01"
-                min={0}
-                placeholder={`Default: ₹${(watchPrice * (watchPcsPerPkt || 12)).toFixed(2)}`}
-                error={errors.packet_selling_price?.message}
-                {...register("packet_selling_price")}
-              />
+
+              {hasPacketTier && (
+                <Input
+                  label="Custom Packet Selling Price (₹) (Optional)"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  placeholder={`Default: ₹${(watchPrice * (watchPcsPerPkt || 12)).toFixed(2)}`}
+                  error={errors.packet_selling_price?.message}
+                  {...register("packet_selling_price")}
+                />
+              )}
+
               <Input
                 label="Custom Box Selling Price (₹) (Optional)"
                 type="number"
                 step="0.01"
                 min={0}
-                placeholder={`Default: ₹${(watchPrice * (watchTotalPcsInBox || 144)).toFixed(2)}`}
+                placeholder={`Default: ₹${(watchPrice * watchTotalPcsInBox).toFixed(2)}`}
                 error={errors.box_selling_price?.message}
                 {...register("box_selling_price")}
               />
+
               <div className="sm:col-span-2 rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800">
-                <span className="font-bold text-emerald-900 block mb-0.5">💡 Single Barcode System</span>
-                No different barcode needed for packets or boxes — uses the same product barcode. In POS, packets and boxes will be automatically calculated as per the quantity entered or scanned!
+                <span className="font-bold text-emerald-900 block mb-0.5">💡 Single Barcode Multi-Pack System</span>
+                No separate barcodes needed for packets or boxes. When scanning or billing, POS automatically supports selling in Pieces, Packets, or Boxes!
               </div>
             </div>
           </div>
